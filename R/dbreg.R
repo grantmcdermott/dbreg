@@ -407,16 +407,16 @@ choose_strategy = function(inputs) {
   xvars = inputs$xvars
 
   # Disallow mundlak when using both 2 FEs and weights
-  if (!is.null(inputs$weights) && length(fes) == 2 && 
-      (strategy == "mundlak" || 
-       (strategy == "auto" && !is.na(inputs$compression_ratio_est) && 
-        inputs$compression_ratio_est > max(0.6, threshold)))) {
-    stop("Weighted regressions with two fixed effects are not currently supported in the mundlak strategy.\n",
-         "Please use one of the following alternatives:\n",
-         "1. Use the 'compress' strategy instead: strategy = 'compress'\n",
-         "2. Remove weights (set weights = NULL)\n", 
-         "3. Use only one fixed effect dimension")
-  }
+  # if (!is.null(inputs$weights) && length(fes) == 2 && 
+  #     (strategy == "mundlak" || 
+  #      (strategy == "auto" && !is.na(inputs$compression_ratio_est) && 
+  #       inputs$compression_ratio_est > max(0.6, threshold)))) {
+  #   warning("Weighted regressions with two fixed effects are not currently supported in the mundlak strategy.\n",
+  #        "Please use one of the following alternatives:\n",
+  #        "1. Use the 'compress' strategy instead: strategy = 'compress'\n",
+  #        "2. Remove weights (set weights = NULL)\n", 
+  #        "3. Use only one fixed effect dimension")
+  # }
   
   # Compression ratio estimator
   estimate_compression = function(inputs) {
@@ -816,166 +816,33 @@ execute_mundlak_strategy = function(inputs) {
       SELECT * FROM moments"
     )
   } else {
-    # Two FE: weighted double demeaning
+    # Two FE
     fe1 = inputs$fes[1]
     fe2 = inputs$fes[2]
     all_vars = c(inputs$yvar, inputs$xvars)
 
     # Special case for weighted double demeaning
     if (!is.null(inputs$weights)) {
-      # Step 1: Define unit means (first demeaning step)
-      unit_means_cols = paste(
-        sprintf("SUM(%s * %s) / SUM(%s) AS %s_u", weights_expr, all_vars, weights_expr, all_vars),
-        collapse = ", "
-      )
-      
-      # Step 2: Define unit-demeaned variables
-      ud_cols = paste(
-        sprintf("(b.%s - um.%s_u) AS %s_ud", all_vars, all_vars, all_vars),
-        collapse = ", "
-      )
-      
-      # Step 3: Define time means of unit-demeaned variables
-      time_means_cols = paste(
-        sprintf("SUM(%s * %s_ud) / SUM(%s) AS %s_t", weights_expr, all_vars, weights_expr, all_vars),
-        collapse = ", "
-      )
-      
-      # Step 4: Define final double-demeaned variables
-      tilde_exprs = paste(
-        sprintf("(ud.%s_ud - tm.%s_t) AS %s_tilde", all_vars, all_vars, all_vars),
-        collapse = ",\n       "
-      )
-      
-      # Step 5: Define moment terms
-      moment_terms = c(
-        glue("SUM({weights_expr}) AS sum_weights"),
-        sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
-        sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
-        sql_count(inputs$conn, "n_obs"),
-        sprintf(
-          "SUM(%s * CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_wy_sq",
-          weights_expr,
-          inputs$yvar,
-          inputs$yvar
-        )
-      )
-      
-      for (x in inputs$xvars) {
-        moment_terms = c(
-          moment_terms,
-          sprintf(
-            "SUM(%s * CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_w%s_%s",
-            weights_expr,
-            x,
-            inputs$yvar,
-            x,
-            inputs$yvar
-          ),
-          sprintf(
-            "SUM(%s * CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_w%s_%s",
-            weights_expr,
-            x,
-            x,
-            x,
-            x
-          )
-        )
-      }
-      
-      xpairs = gen_xvar_pairs(inputs$xvars)
-      for (pair in xpairs) {
-        xi = pair[1]
-        xj = pair[2]
-        moment_terms = c(
-          moment_terms,
-          sprintf(
-            "SUM(%s * CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_w%s_%s",
-            weights_expr,
-            xi,
-            xj,
-            xi,
-            xj
-          )
-        )
-      }
-      
-      # Step 6: Build the sequential demeaning SQL
-      mundlak_sql = paste0(
-        "WITH base AS (
-        SELECT * ",
-        inputs$from_statement,
-        "
-        ),
-        unit_means AS (
-        SELECT ",
-        fe1,
-        ", ",
-        unit_means_cols,
-        " FROM base GROUP BY ",
-        fe1,
-        "
-        ),
-        unit_demeaned AS (
-        SELECT
-            b.",
-        fe1,
-        ",
-            b.",
-        fe2,
-        ",
-            b.",
+      base_tbl <- dplyr::tbl(inputs$conn, dbplyr::sql(paste("SELECT * ", inputs$from_statement)))
+      demeaned <- demean_weighted_twfe(
+        base_tbl,
         inputs$weights,
-        ",
-            ",
-        ud_cols,
-        "
-        FROM base b
-        JOIN unit_means um ON b.",
         fe1,
-        " = um.",
-        fe1,
-        "
-        ),
-        time_means AS (
-        SELECT ",
-        fe2,
-        ", ",
-        time_means_cols,
-        " FROM unit_demeaned GROUP BY ",
-        fe2,
-        "
-        ),
-        demeaned AS (
-        SELECT
-            ud.",
-        fe1,
-        ",
-            ud.",
-        fe2,
-        ",
-            ud.",
-        inputs$weights,
-        ",
-            ",
-        tilde_exprs,
-        "
-        FROM unit_demeaned ud
-        JOIN time_means tm ON ud.",
-        fe2,
-        " = tm.",
-        fe2,
-        "
-        ),
-        moments AS (
-        SELECT
-            ",
-        paste(moment_terms, collapse = ",\n          "),
-        "
-        FROM demeaned
-        )
-        SELECT * FROM moments"
+        fe2, 
+        all_vars
       )
+
+      moments_tbl <- make_mundlak_dbplyr_internal(
+        demeaned,
+        inputs$weights,
+        all_vars,
+        fe1,
+        fe2,
+        inputs$yvar
+      )
+
+      mundlak_sql <- dbplyr::sql_render(moments_tbl)
+      
     } else {
       # Original implementation for unweighted case
       unit_means_cols = paste(
@@ -1141,7 +1008,7 @@ execute_mundlak_strategy = function(inputs) {
   if (inputs$data_only) {
     return(mundlak_df)
   }
-  sum_weights = mundlak_df$sum_weights
+  
   n_fe1 = mundlak_df$n_fe1
   n_fe2 = mundlak_df$n_fe2
 
@@ -1186,7 +1053,7 @@ execute_mundlak_strategy = function(inputs) {
     XtX_inv = XtX_inv,
     rss = rss,
     df_res = df_res,
-    nobs_orig = sum_weights,
+    nobs_orig = mundlak_df$n_obs,
     weighted = !is.null(inputs$weights)
   )
 
@@ -1202,7 +1069,7 @@ execute_mundlak_strategy = function(inputs) {
     weights = inputs$weights,
     query_string = mundlak_sql,
     nobs = 1L,
-    nobs_orig = sum_weights,
+    nobs_orig = mundlak_df$n_obs,
     strategy = "mundlak",
     compression_ratio_est = inputs$compression_ratio_est,
     df_residual = df_res,
@@ -1317,7 +1184,7 @@ execute_compress_strategy = function(inputs) {
     XtX_inv = XtX_inv,
     rss = rss_total,
     df_res = df_res,
-    nobs_orig = mundlak_df$n_obs,
+    nobs_orig = n_obs,
     X = X,
     rss_g = rss_g,
     weighted = !is.null(inputs$weights)
@@ -1439,4 +1306,251 @@ finalize_dbreg_result = function(result, inputs, chosen_strategy) {
   result$strategy = chosen_strategy
   class(result) = c("dbreg", class(result))
   result
+}
+
+
+
+## -----------------------------------------
+## -----------------------------------------
+# Build compact (fe1, fe2) “cells” once: w = Σ w; s_v = Σ (w*v) for each var v
+build_twfe_cells <- function(conn, from_statement, wcol, fe1, fe2, vars) {
+  sel <- c(
+    glue::glue("SUM({wcol}) AS w"),
+    vapply(vars, function(v) glue::glue("SUM({wcol} * {v}) AS s_{v}"), character(1))
+  )
+  cells_sql <- paste0(
+    "SELECT ", fe1, ", ", fe2, ", ",
+    paste(sel, collapse = ", "),
+    "\n", from_statement, "\nGROUP BY ", fe1, ", ", fe2
+  )
+  dplyr::tbl(conn, dbplyr::sql(cells_sql))
+}
+
+# ---- FAST weighted TWFE alternating projections (drop-in replacement) ----
+# Only replaces the internals of `demean_weighted_twfe()` used by your Mundlak path.
+# Everything else in your package can remain unchanged.
+
+# Build compact (fe1, fe2) “cells” once: w = Σ w; s_v = Σ (w*v) for each var v
+build_twfe_cells <- function(conn, from_statement, wcol, fe1, fe2, vars) {
+  sel <- c(
+    glue::glue("SUM(1.0 * {wcol}) AS w"),
+    vapply(
+      vars,
+      function(v) glue::glue("SUM(1.0 * {wcol} * (1.0 * {v})) AS s_{v}"),
+      character(1)
+    )
+  )
+  cells_sql <- paste0(
+    "SELECT ", fe1, ", ", fe2, ", ",
+    paste(sel, collapse = ", "),
+    "\n", from_statement, "\nGROUP BY ", fe1, ", ", fe2
+  )
+  dplyr::tbl(conn, dbplyr::sql(cells_sql))
+}
+
+# Drop-in replacement for your weighted 2FE demeaning
+# Same signature & return shape as your current `demean_weighted_twfe()`
+demean_weighted_twfe <- function(base_tbl, wcol, fe1, fe2, vars, ap_iters = getOption("dbreg.ap_iters", 12L),
+                                 ap_tol = getOption("dbreg.ap_tol", 1e-8), conn = NULL, from_statement = NULL, verbose = TRUE) {
+  # If caller passes a tbl only, infer conn if needed
+  if (is.null(conn)) {
+    conn <- base_tbl$src$con
+  }
+
+  # 0) Build cells once (tiny table) and materialize
+  #    cells: fe1, fe2, w, s_y, s_x1, s_x2, ...
+  if (is.null(from_statement)) {
+    # Try to render base_tbl if caller didn’t pass from_statement
+    from_statement <- glue::glue("FROM ({dbplyr::sql_render(base_tbl)}) AS base_src")
+  }
+  cells <- build_twfe_cells(conn, from_statement, wcol, fe1, fe2, vars) |>
+    dplyr::compute(name = NULL, temporary = TRUE)
+
+  # 1) Denominators (fixed) and materialize
+  den1 <- cells |>
+    dplyr::group_by(.data[[fe1]]) |>
+    dplyr::summarise(sw1 = 1.0 * sum(.data[["w"]]), .groups = "drop") |>
+    dplyr::compute(name = NULL, temporary = TRUE)
+
+  den2 <- cells |>
+    dplyr::group_by(.data[[fe2]]) |>
+    dplyr::summarise(sw2 = 1.0 * sum(.data[["w"]]), .groups = "drop") |>
+    dplyr::compute(name = NULL, temporary = TRUE)
+
+  # 2) Init alpha_i and gamma_t to 0 for each var (narrow tables) and materialize
+  mk_zero <- function(prefix) stats::setNames(rep(list(0.0), length(vars)), paste0(prefix, vars))
+  alpha <- den1 |> dplyr::mutate(!!!mk_zero("a__")) |> dplyr::select(-"sw1") |>
+    dplyr::compute(name = NULL, temporary = TRUE)
+  gamma <- den2 |> dplyr::mutate(!!!mk_zero("g__")) |> dplyr::select(-"sw2") |>
+    dplyr::compute(name = NULL, temporary = TRUE)
+
+  # Helpers to build programmatic expressions
+  num_exprs_cells <- function(vars, comp_prefix) {
+    # For each v: num__v = Σ_{cells} [ s_v - w * comp_v ]
+    out <- list()
+    for (v in vars) {
+      out[[paste0("num__", v)]] <-
+        rlang::expr(1.0 * sum(.data[[paste0("s_", v)]] - 1.0 * .data[["w"]] * .data[[paste0(comp_prefix, v)]]))
+    }
+    out
+  }
+  div_exprs <- function(vars, num_prefix, den_name, out_prefix) {
+    out <- list()
+    for (v in vars) {
+      out[[paste0(out_prefix, v)]] <- rlang::expr(1.0 *.data[[paste0(num_prefix, v)]] / .data[[den_name]])
+    }
+    out
+  }
+
+  # 3) Alternating projections on the cells table
+  yvar <- vars[[1]]  # use first var (typically y) for the cheap convergence check
+  for (it in seq_len(ap_iters)) {
+    # --- update alpha_i given current gamma_t ---
+    alpha_prev <- alpha
+    a_num <- cells %>%
+      dplyr::left_join(gamma, by = fe2) %>%
+      dplyr::group_by(.data[[fe1]]) %>%
+      dplyr::summarise(!!!num_exprs_cells(vars, "g__"), .groups = "drop") %>%
+      dplyr::left_join(den1, by = fe1) %>%
+      dplyr::mutate(!!!div_exprs(vars, "num__", "sw1", "a__")) %>%
+      dplyr::select(dplyr::all_of(fe1), dplyr::starts_with("a__")) %>%
+      dplyr::compute(name = NULL, temporary = TRUE)
+    alpha <- a_num
+
+    # --- update gamma_t given current alpha_i ---
+    gamma_prev <- gamma
+    g_num <- cells %>%
+      dplyr::left_join(alpha, by = fe1) %>%
+      dplyr::group_by(.data[[fe2]]) %>%
+      dplyr::summarise(!!!num_exprs_cells(vars, "a__"), .groups = "drop") %>%
+      dplyr::left_join(den2, by = fe2) %>%
+      dplyr::mutate(!!!div_exprs(vars, "num__", "sw2", "g__")) %>%
+      dplyr::select(dplyr::all_of(fe2), dplyr::starts_with("g__")) %>%
+      dplyr::compute(name = NULL, temporary = TRUE)
+    gamma <- g_num
+
+    # --- cheap convergence on y only (tiny tables; one roundtrip) ---
+    if (!isTRUE(is.finite(ap_tol)) || ap_tol <= 0) next
+    dy <- alpha_prev %>%
+      dplyr::inner_join(alpha, by = fe1, suffix = c("_old", "_new")) %>%
+      dplyr::transmute(d = abs(.data[[paste0("a__", yvar, "_new")]] - .data[[paste0("a__", yvar, "_old")]])) %>%
+      dplyr::summarise(mx = max(.data[["d"]], na.rm = TRUE)) %>%
+      dplyr::collect() %>% `[[`("mx")
+    gy <- gamma_prev %>%
+      dplyr::inner_join(gamma, by = fe2, suffix = c("_old", "_new")) %>%
+      dplyr::transmute(d = abs(.data[[paste0("g__", yvar, "_new")]] - .data[[paste0("g__", yvar, "_old")]])) %>%
+      dplyr::summarise(mx = max(.data[["d"]], na.rm = TRUE)) %>%
+      dplyr::collect() %>% `[[`("mx")
+    if (verbose) message(sprintf("[dbreg][AP] iter %d: max Δ(a_y)=%.3e, Δ(g_y)=%.3e", it, dy, gy))
+    if (max(dy, gy, na.rm = TRUE) < ap_tol) break
+  }
+
+  # # 4) Overall weighted means from cells (no base scan)
+  # #    o_v = (Σ s_v) / (Σ w)
+  # overall <- cells %>%
+  # dplyr::summarise(
+  #   !!!{
+  #     out <- list()
+  #     for (v in vars) {
+  #       out[[paste0("o_", v)]] <-
+  #         rlang::expr( sum(1.0 * .data[[paste0("s_", v)]]) / sum(1.0 * .data[["w"]]) )
+  #     }
+  #     out
+  #   }
+  # ) %>%
+  # dplyr::compute(name = NULL, temporary = TRUE)
+
+  # # 5) Return a table with __tilde variables by joining *once* to the base
+  # #    (keeps your downstream `make_mundlak_dbplyr_internal()` unchanged)
+  # dm_tbl <- base_tbl %>%
+  #   dplyr::left_join(alpha, by = fe1) %>%
+  #   dplyr::left_join(gamma, by = fe2) %>%
+  #   dplyr::cross_join(overall) %>%
+  #   dplyr::mutate(
+  #     !!!{
+  #       out <- list()
+  #       for (v in vars) {
+  #         out[[paste0(v, "__tilde")]] <-
+  #           rlang::expr(.data[[v]] - .data[[paste0("a__", v)]] - .data[[paste0("g__", v)]] + .data[[paste0("o_", v)]])
+  #       }
+  #       out
+  #     }
+  #   )
+  dm_tbl <- base_tbl %>%
+  dplyr::left_join(alpha, by = fe1) %>%
+  dplyr::left_join(gamma, by = fe2) %>%
+  dplyr::mutate(
+    !!!{
+      out <- list()
+      for (v in vars) {
+        out[[paste0(v, "__tilde")]] <- rlang::expr(
+          .data[[v]] - .data[[paste0("a__", v)]] - .data[[paste0("g__", v)]]
+        )
+      }
+      out
+    }
+  )
+
+  dm_tbl
+}
+
+make_mundlak_dbplyr_internal <- function(
+  demeaned_tbl, 
+  weights_col, 
+  vars, 
+  fe1, 
+  fe2, 
+  yvar) {
+  # Extract variable names
+  xvars <- setdiff(vars, yvar)
+  
+  # Rename variables to match SQL convention (if needed)
+  renamed_tbl <- demeaned_tbl %>%
+    dplyr::rename_with(
+      ~gsub("__tilde", "_tilde", .),  # Convert double underscore to single
+      dplyr::ends_with("__tilde")
+    )
+  
+  # Calculate moments using dbplyr operations
+  moments_tbl <- renamed_tbl %>%
+    dplyr::summarise(
+      n_obs      = dplyr::n(),
+      sum_weights = sum(1.0 * .data[[weights_col]]),
+      n_fe1 = n_distinct(.data[[fe1]]),  # Use the actual fe1 variable
+      n_fe2 = n_distinct(.data[[fe2]]),  # Use the actual fe2 variable
+      sum_wy_sq = sum(1.0 * .data[[weights_col]] * .data[[paste0(yvar, "_tilde")]]^2),
+      
+      # Cross-terms for y and each x
+      !!!{
+        out <- list()
+        for (x in xvars) {
+          out[[paste0("sum_w", x, "_", yvar)]] <- 
+            rlang::expr(sum(1.0 * .data[[weights_col]] * 
+                           .data[[paste0(x, "_tilde")]] * 
+                           .data[[paste0(yvar, "_tilde")]]))
+          
+          out[[paste0("sum_w", x, "_", x)]] <- 
+            rlang::expr(sum(1.0 * .data[[weights_col]] * 
+                           .data[[paste0(x, "_tilde")]]^2))
+        }
+        out
+      },
+      
+      # Cross-terms between x variables
+      !!!{
+        out <- list()
+        xpairs <- gen_xvar_pairs(xvars)
+        for (pair in xpairs) {
+          xi <- pair[1]
+          xj <- pair[2]
+          out[[paste0("sum_w", xi, "_", xj)]] <- 
+            rlang::expr(sum(1.0 * .data[[weights_col]] * 
+                           .data[[paste0(xi, "_tilde")]] * 
+                           .data[[paste0(xj, "_tilde")]]))
+        }
+        out
+      }
+    )
+  
+  return(moments_tbl)
 }
