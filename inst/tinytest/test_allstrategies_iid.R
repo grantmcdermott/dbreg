@@ -3,7 +3,6 @@
 # Dependencies
 library(fixest)
 library(data.table)
-library(tidyr)
 
 # True coefficients
 beta_true = c(x1 = 0.5, x2 = -0.3)
@@ -58,7 +57,7 @@ run_all_strategies = function(
     test_name = "") {
 
   results = list()
-  
+
   # Parse formula
   fml = as.formula(formula_str)
   
@@ -148,19 +147,23 @@ all_results[["test4"]] = run_all_strategies(dat1, "y ~ x1 + x2 | unit_fe + time_
 # Combine all results
 combined_results = rbindlist(all_results)
 
-# Pivot coefficients and SEs into two long tables
-coefficients_long = pivot_longer(
-    combined_results %>% select(-intercept_se, -x1_se, -x2_se),
-    cols = c("intercept", "x1", "x2"),
-    names_to = "variable",
-    values_to = "estimate"
+# Pivot coefficients and SEs into two long tables using data.table
+coefficients_long = melt(
+  combined_results[, .(test, method, intercept, x1, x2)],
+  id.vars = c("test", "method"),
+  measure.vars = c("intercept", "x1", "x2"),
+  variable.name = "variable",
+  value.name = "estimate",
+  variable.factor = FALSE
 )
 
-ses_long = pivot_longer(
-    combined_results %>% select(-intercept, -x1, -x2),
-    cols = c("intercept_se", "x1_se", "x2_se"),
-    names_to = "variable",
-    values_to = "std.error"
+ses_long = melt(
+  combined_results[, .(test, method, intercept_se, x1_se, x2_se)],
+  id.vars = c("test", "method"),
+  measure.vars = c("intercept_se", "x1_se", "x2_se"),
+  variable.name = "variable",
+  value.name = "std.error",
+  variable.factor = FALSE
 )
 
 # Formal tinytest checks comparing dbreg strategies to feols
