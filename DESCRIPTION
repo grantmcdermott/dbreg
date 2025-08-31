@@ -41,7 +41,8 @@ Imports:
   Matrix,
   stats
 Suggests: 
-  tinytest
+  tinytest,
+  fixest
 Enhances:
   dbplyr
 Encoding: UTF-8
