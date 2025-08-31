@@ -3,6 +3,7 @@
 # Dependencies
 library(fixest)
 library(data.table)
+library(tidyr)
 
 # True coefficients
 beta_true = c(x1 = 0.5, x2 = -0.3)
@@ -15,54 +16,27 @@ gen_dat = function(
   N_units = 100,
   T_periods = 5L,
   beta = beta_true,
-  K1 = 4L,
-  K2 = 4L,
   sd_fe_unit = 1.0,
   sd_fe_time = 0.5,
   sd_err = 0.8,
   add_weights = TRUE
 ) {
+  # Generate fixed effects
   unit_fe = rnorm(N_units, sd = sd_fe_unit)
   time_fe = rnorm(T_periods, sd = sd_fe_time)
 
-  dat = CJ(unit = 1:N_units, time = 1:T_periods)
-
-  # Create latent variables and discretize
-  dat[, let(
-    latent_x1 = 0.6 * unit_fe[unit] + 0.3 * time_fe[time] + rnorm(.N, sd = 0.7),
-    latent_x2 = -0.4 * unit_fe[unit] + 0.5 * time_fe[time] + rnorm(.N, sd = 0.7)
+  # Create panel structure
+  dat = CJ(unit_fe = 1:N_units, time_fe = 1:T_periods)
+  
+  # Generate continuous x variables directly 
+  dat[, `:=`(
+    x1 = 0.6 * unit_fe[unit_fe] + 0.3 * time_fe[time_fe] + rnorm(.N, sd = 0.7),
+    x2 = -0.4 * unit_fe[unit_fe] + 0.5 * time_fe[time_fe] + rnorm(.N, sd = 0.7)
   )]
-
-  # Compute quantile cuts
-  cuts1 = quantile(dat$latent_x1, probs = seq(0, 1, length.out = K1 + 1))
-  cuts2 = quantile(dat$latent_x2, probs = seq(0, 1, length.out = K2 + 1))
-
-  # Make unique breakpoints
-  cuts1 = unique(cuts1)
-  while (length(cuts1) < K1 + 1) {
-    cuts1 = sort(unique(c(cuts1, jitter(cuts1[length(cuts1)], 1e-6))))
-  }
-  cuts2 = unique(cuts2)
-  while (length(cuts2) < K2 + 1) {
-    cuts2 = sort(unique(c(cuts2, jitter(cuts2[length(cuts2)], 1e-6))))
-  }
-
-  dat[, let(
-    x1 = as.integer(cut(
-      latent_x1,
-      breaks = cuts1,
-      include.lowest = TRUE,
-      labels = FALSE
-    )) - 1L,
-    x2 = as.integer(cut(
-      latent_x2,
-      breaks = cuts2,
-      include.lowest = TRUE,
-      labels = FALSE
-    )) - 1L
-  )][,
-    y := unit_fe[unit] +
-      time_fe[time] +
+  
+  # Generate outcome
+  dat[, y := unit_fe[unit_fe] +
+      time_fe[time_fe] +
       beta["x1"] * x1 +
       beta["x2"] * x2 +
       rnorm(.N, sd = sd_err)
@@ -73,9 +47,6 @@ gen_dat = function(
     dat[, weights := runif(.N, min = 0.5, max = 2.0)]
   }
 
-  dat[, c("latent_x1", "latent_x2") := NULL]
-  setnames(dat, c("unit", "time"), c("unit_fe", "time_fe"))
-
   return(dat)
 }
 
@@ -85,6 +56,9 @@ run_all_strategies = function(
     formula_str, 
     weights_col = NULL, 
     test_name = "") {
+
+  results = list()
+  
   # Parse formula
   fml = as.formula(formula_str)
   
@@ -97,8 +71,6 @@ run_all_strategies = function(
   
   # Fit with dbreg (test all strategies)
   strategies = c("moments", "compress", "mundlak")
-  
-  results = list()
   
   # Add feols results
   feols_coefs = coef(feols_fit)
@@ -176,8 +148,6 @@ all_results[["test4"]] = run_all_strategies(dat1, "y ~ x1 + x2 | unit_fe + time_
 # Combine all results
 combined_results = rbindlist(all_results)
 
-# Pivot longer so that x1, x2, and all se's are in long format
-library(tidyr)
 # Pivot coefficients and SEs into two long tables
 coefficients_long = pivot_longer(
     combined_results %>% select(-intercept_se, -x1_se, -x2_se),
