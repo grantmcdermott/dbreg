@@ -102,9 +102,10 @@ sufficient statistics.
 \section{Acceleration strategies}{
 
 
-\code{dbreg} offers three primary acceleration (shortcut) strategies:
+\code{dbreg} offers three primary acceleration (shortcut) strategies for
+estimating regression results from simplied data representations:
 \enumerate{
-\item \code{"compress"}: compress the size of data via a \verb{GROUP BY} operation (using regressors + fixed effects) and then run frequency-weighted least squares on the smaller dataset. This procedure follows the "optimal data compression" strategy proposed by Wang et. al. (2021).
+\item \code{"compress"}: compress the data via a \verb{GROUP BY} operation (using regressors + fixed effects as groups) and then run frequency-weighted least squares on the smaller dataset. This procedure follows the "optimal data compression" strategy proposed by Wang et. al. (2021).
 \item \code{"moments"}: calculate sufficient statistics from global means (\eqn{X'X, X'y}), i.e. a single-row data frame computed on the database backend. Limited to cases without fixed effects.
 \item \code{"mundlak"}: as per \code{"moments"}, but first subtract group-level means from the observations. Permits at most two fixed-effects (i.e., either demean or double-demean). This procedure follows the "generalized Mundlak estimator" proposed by Arkhangelsky & Imbens (2024).
 }
