@@ -887,7 +887,7 @@ execute_mundlak_strategy = function(inputs) {
 
   # Athena FLOAT gotcha
   # https://github.com/DyfanJones/noctua/issues/228
-  if (class(inputs$conn) == "AthenaConnection") {
+  if (inherits(con, "AthenaConnection")) {
     mundlak_sql = gsub("FLOAT", "REAL", mundlak_sql, fixed = TRUE)
   }
 
