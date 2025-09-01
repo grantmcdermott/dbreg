@@ -4,7 +4,7 @@
 \alias{execute_moments_strategy}
 \title{Execute moments strategy (no fixed effects)}
 \usage{
-execute_moments_strategy(inputs)
+execute_moments_strategy(inputs, weight_col = NULL)
 }
 \description{
 Execute moments strategy (no fixed effects)
