@@ -574,9 +574,13 @@ choose_strategy = function(inputs) {
 
 #' Execute moments strategy (no fixed effects)
 #' @keywords internal
-execute_moments_strategy = function(inputs) {
+execute_moments_strategy = function(inputs, weight_col = NULL) {
   weights_expr = if (!is.null(inputs$weights)) {
-    glue("({inputs$weights})")
+    if (!is.null(weight_col)) { # passing a weight column overrides inputs
+      glue("({inputs$weights}) * ({weight_col})")
+    } else {
+      glue("({inputs$weights})")
+    }
   } else {
     "1"
   }
@@ -659,10 +663,10 @@ execute_moments_strategy = function(inputs) {
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
- 
-  n_eff = moments_df$n_obs
+  
+  n_eff = as.numeric(moments_df[["n_obs"]][1])
   df_res = max(n_eff - p, 1)
-
+  
   vcov_mat = compute_vcov(
     vcov_type = inputs$vcov_type_req,
     strategy = "moments",
@@ -694,9 +698,13 @@ execute_moments_strategy = function(inputs) {
 
 #' Execute mundlak strategy (1-2 fixed effects)
 #' @keywords internal
-execute_mundlak_strategy = function(inputs) {
+execute_mundlak_strategy = function(inputs, weight_col = NULL) {
   weights_expr = if (!is.null(inputs$weights)) {
-    glue("({inputs$weights})")
+    if (!is.null(weight_col)) { # passing a weight column overrides inputs
+      glue("({inputs$weights}) * ({weight_col})")
+    } else {
+      glue("({inputs$weights})")
+    }
   } else {
     "1"
   }
@@ -1045,7 +1053,8 @@ execute_mundlak_strategy = function(inputs) {
       t(betahat) %*% XtX %*% betahat
   )
   df_fe = n_fe1 + n_fe2 - 1
-  df_res = max(mundlak_df$n_obs - p - df_fe, 1)
+  n_obs = mundlak_df$n_obs[[1]]
+  df_res = max(n_obs - p - df_fe, 1)
 
   vcov_mat = compute_vcov(
     vcov_type = inputs$vcov_type_req,
@@ -1053,7 +1062,7 @@ execute_mundlak_strategy = function(inputs) {
     XtX_inv = XtX_inv,
     rss = rss,
     df_res = df_res,
-    nobs_orig = mundlak_df$n_obs,
+    nobs_orig = n_obs,
     weighted = !is.null(inputs$weights)
   )
 
@@ -1080,7 +1089,7 @@ execute_mundlak_strategy = function(inputs) {
 
 #' Execute compress strategy (groupby compression)
 #' @keywords internal
-execute_compress_strategy = function(inputs) {
+execute_compress_strategy = function(inputs, weight_col = NULL) {
   from_statement = inputs$from_statement
   # catch for sampled (limited) queries
   if (grepl("LIMIT\\s+\\d+\\s*$", from_statement, ignore.case = TRUE)) {
@@ -1091,7 +1100,11 @@ execute_compress_strategy = function(inputs) {
   group_cols_sql = paste(group_cols, collapse = ", ")
   
   weights_expr = if (!is.null(inputs$weights)) {
-    glue("({inputs$weights})")
+    if (!is.null(weight_col)) { # passing a weight column overrides inputs
+      glue("({inputs$weights}) * ({weight_col})")
+    } else {
+      glue("({inputs$weights})")
+    }
   } else {
     "1"
   }
@@ -1175,7 +1188,8 @@ execute_compress_strategy = function(inputs) {
   rss_g = sum_wY_sq - 2 * yhat * sum_wY + sum_weights * (yhat^2)
   rss_total = sum(rss_g)
 
-  n_obs = compressed_dat$n_obs
+  # n_obs = compressed_dat$n_obs
+  n_obs = as.numeric(compressed_dat[["n_obs"]][1])
   df_res = max(n_obs - ncol(X), 1)
 
   vcov_mat = compute_vcov(

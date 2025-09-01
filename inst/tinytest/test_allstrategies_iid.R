@@ -3,6 +3,7 @@
 # Dependencies
 library(fixest)
 library(data.table)
+library(dplyr)
 
 # True coefficients
 beta_true = c(x1 = 0.5, x2 = -0.3)

@@ -4,7 +4,7 @@
 \alias{execute_mundlak_strategy}
 \title{Execute mundlak strategy (1-2 fixed effects)}
 \usage{
-execute_mundlak_strategy(inputs)
+execute_mundlak_strategy(inputs, weight_col = NULL)
 }
 \description{
 Execute mundlak strategy (1-2 fixed effects)
