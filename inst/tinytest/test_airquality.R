@@ -48,17 +48,14 @@ for (i in seq_along(dict_db)) {
 
 # Multiple regressors
 
-aq_complete = airquality[
-  complete.cases(airquality[, c("Temp", "Wind", "Ozone")]),
-]
 aq_dbreg_multi = dbreg(
   Temp ~ Wind + Ozone,
-  data = aq_complete,
+  data = airquality,
   verbose = FALSE
 )$coeftable
 aq_lm_multi = coef(summary(lm(
   Temp ~ Wind + Ozone,
-  data = aq_complete
+  data = airquality
 )))
 
 for (i in seq_along(dict_db)) {
