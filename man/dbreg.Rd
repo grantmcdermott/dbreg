@@ -16,6 +16,7 @@ dbreg(
   compress_nmax = 1e+06,
   query_only = FALSE,
   data_only = FALSE,
+  drop_missings = TRUE,
   verbose = TRUE
 )
 }
@@ -86,6 +87,13 @@ Default is \code{FALSE}.}
 \item{data_only}{Logical indicating whether only the compressed dataset
 should be returned (i.e., no regression is run). Default is \code{FALSE}.}
 
+\item{drop_missings}{Logical indicating whether incomplete cases (i.e., rows
+where any of the dependent, independent or fixed-effects variables are
+missing) should be dropped. The default is \code{TRUE}, according with standard
+regression software. It is \emph{strongly} recommended not to change this value
+unless you are absolutely sure that your data have no missings and you wish
+to skip some internal checks. (Even then, it probably isn't worth it.)}
+
 \item{verbose}{Logical. Print progress messages to the console? Defaults to
 \code{TRUE}.}
 }
@@ -132,7 +140,7 @@ overall time savings. The heuristic is as follows:
 
 \examples{
 
-# A not very compelling example using a small iin-memory dataset:
+# A not very compelling example using a small in-memory dataset:
 (mod = dbreg(Temp ~ Wind | Month, data = airquality))
 
 # Same result as lm

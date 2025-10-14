@@ -46,6 +46,6 @@ Suggests:
 Enhances:
   dbplyr
 Encoding: UTF-8
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
 License: MIT + file LICENSE
 URL: https://grantmcdermott.com/dbreg/
