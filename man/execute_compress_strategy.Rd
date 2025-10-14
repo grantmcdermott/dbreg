@@ -4,7 +4,7 @@
 \alias{execute_compress_strategy}
 \title{Execute compress strategy (groupby compression)}
 \usage{
-execute_compress_strategy(inputs)
+execute_compress_strategy(inputs, weight_col = NULL)
 }
 \description{
 Execute compress strategy (groupby compression)

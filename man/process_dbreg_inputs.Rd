@@ -10,6 +10,7 @@ process_dbreg_inputs(
   table,
   data,
   path,
+  weights,
   vcov,
   strategy,
   query_only,
