@@ -62,6 +62,12 @@
 #'   Default is `FALSE`.
 #' @param data_only Logical indicating whether only the compressed dataset
 #'   should be returned (i.e., no regression is run). Default is `FALSE`.
+#' @param drop_missings Logical indicating whether incomplete cases (i.e., rows
+#'   where any of the dependent, independent or fixed-effects variables are
+#'   missing) should be dropped. The default is `TRUE`, according with standard
+#'   regression software. It is *strongly* recommended not to change this value
+#'   unless you are absolutely sure that your data have no missings and you wish
+#'   to skip some internal checks. (Even then, it probably isn't worth it.)
 #' @param verbose Logical. Print progress messages to the console? Defaults to
 #'   `TRUE`.
 #'
@@ -118,7 +124,7 @@
 #'
 #' @examples
 #'
-#' # A not very compelling example using a small iin-memory dataset:
+#' # A not very compelling example using a small in-memory dataset:
 #' (mod = dbreg(Temp ~ Wind | Month, data = airquality))
 #'
 #' # Same result as lm
@@ -145,6 +151,7 @@ dbreg = function(
   compress_nmax = 1e6,
   query_only = FALSE,
   data_only = FALSE,
+  drop_missings = TRUE,
   verbose = TRUE
 ) {
   vcov = tolower(vcov)
@@ -164,6 +171,7 @@ dbreg = function(
     data_only = data_only,
     compress_ratio = compress_ratio,
     compress_nmax = compress_nmax,
+    drop_missings = drop_missings,
     verbose = verbose
   )
 
@@ -200,6 +208,7 @@ process_dbreg_inputs = function(
   data_only,
   compress_ratio,
   compress_nmax,
+  drop_missings,
   verbose
 ) {
   vcov_type_req = vcov
@@ -292,6 +301,22 @@ process_dbreg_inputs = function(
     any(vapply(xvars, is_continuous, logical(1)))
   } else {
     FALSE
+  }
+
+    # Filter missing cases
+  if (isTRUE(drop_missings)) {
+    from_statement = glue("
+    {from_statement}
+    WHERE {yvar} IS NOT NULL
+    AND {paste(xvars, collapse = ' IS NOT NULL AND ')} IS NOT NULL
+    "
+    )
+    if (!is.null(fes)) {
+      from_statement = glue("
+      {from_statement}
+      AND {paste(fes, collapse = ' IS NOT NULL AND ')} IS NOT NULL
+      ")
+    }
   }
 
   list(
