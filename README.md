@@ -126,8 +126,8 @@ dbreg(
 Note the size of the original dataset, which is nearly 180 million rows, versus
 the compressed dataset, which is down to only 70k. On my laptop (M4 MacBook Pro)
 this regression completes in **under 2 seconds**... and that includes the time
-it took to determine an optimal estimation strategy, as well as read the data from
-disk![^2]
+it took to determine an optimal estimation strategy, as well as read the data
+from disk![^2]
 
 #### Option 2: Persistent database
 
@@ -196,13 +196,13 @@ the same time, the core `dbreg()` routine has been tested pretty thoroughly and
 should work in standard cases. Please help us by kicking the tyres and creating
 GitHub issues for both bug reports and feature requests.
 
-[^1]: To be clear, this dataset would occupy significantly more memory than 8.5
-   GB if we loaded into R, due to data serialization and the switch to richer
-   representation formats (e.g., orderd factors take up more memory). So there's
-   a good chance that just trying to load this raw dataset into R would cause
-   your whole system to crash... never mind doing any statistical analysis on
-   it.
+[^1]: To be clear, this dataset would occupy significantly more RAM than 8.5
+   GB if we loaded it into R's memory, due to data serialization and the switch
+   to richer representation formats (e.g., ordered factors require more memory).
+   So there's a good chance that just trying to load this raw dataset into R
+   would cause your whole system to crash... never mind doing any statistical
+   analysis on it.
 
-[^2]: If we skipped the automatic strategy determination by providing an
-   explicit strategy, then the total computation time drops to
+[^2]: If we provided an explicit strategy (and could thus skip the automatic
+   strategy determination), then the total computation time drops to
    _less than 1 second_...

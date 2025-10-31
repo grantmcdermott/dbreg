@@ -1,5 +1,28 @@
 # News
 
+## dev version
+
+New features
+
+- Added QR decomposition fallback for regression calculations, for cases where
+  the default Cholesky solver fails. (#7)
+- Improved integration for running regressions on AWS Athena datasets via the
+  **noctua** package/driver. (#8)
+- The automatic strategy logic now considers the maximum size of the compressed 
+  data, mostly to avoid cases where the `"compress"` strategy would return a
+  (still) prohibitively large dataset. (#10)
+- Enabled weights for Mundlak specification. (#13)
+
+Bug fixes
+
+- Automatically drop incomplete cases (i.e., missing values) prior to any
+  aggregation steps, avoiding mismatched matrices during estimation. (#19)
+
+Internals
+
+- Added unit testing framework using **tinytest**. (#16)
+- Added GitHub Actions CI. (#18)
+
 ## dbreg 0.0.2
 
 **IMPORTANT BREAKING CHANGE:**
@@ -11,7 +34,7 @@ Other breaking changes
 
 - The default `vcov` is now "iid". (#2 @grantmcdermott)
 
-New Features 
+New features 
 
 - The new `dbreg(..., strategy = <strategy>)` argument allows users to choose
   between different acceleration strategies for efficient computation of the
@@ -23,7 +46,7 @@ New Features
   strategy based on the size and structure of the data. (#2 @jamesbrandecon
   and @grantmcdermott)
 
-Project:
+Project
 
 - @jamesbrandecon has joined the project as a core contributor.
 
