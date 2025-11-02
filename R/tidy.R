@@ -6,16 +6,26 @@ generics::tidy
 #'
 #' @importFrom generics tidy
 #' @param x a model of class `dbreg` produced by the [dbreg()] function
+#' @param conf.int Logical indicating whether to include confidence intervals.
+#'   Default is `FALSE`.
+#' @param conf.level Confidence level for intervals. Default is 0.95.
 #' @param fes Should the fixed effects be tidied too? Default is `FALSE`.
 #' @param ... Additional arguments to tidying method.
 #' @export
-tidy.dbreg = function(x, fes = FALSE, ...) {
+tidy.dbreg = function(x, conf.int = FALSE, conf.level = 0.95, fes = FALSE, ...) {
   ct = x[["coeftable"]]
   if (!isTRUE(fes) && !is.null(x$fes)) {
       xvars = x[["xvars"]]
       ct = ct[xvars, , drop = FALSE]
   }
   out = data.frame(term = rownames(ct), ct, row.names = NULL)
+  
+  if (isTRUE(conf.int)) {
+    ci = confint(x, level = conf.level, fes = fes)
+    out$conf.low = ci[, 1]
+    out$conf.high = ci[, 2]
+  }
+  
   return(out)
 }
 
