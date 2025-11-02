@@ -5,14 +5,18 @@
 \title{tidy `dbreg` objects}
 \usage{
 \method{tidy}{dbreg}(x, fes = FALSE, ...)
+
+\method{tidy}{dbreg}(x, fes = FALSE, ...)
 }
 \arguments{
 \item{x}{a model of class `dbreg` produced by the [dbreg()] function}
 
-\item{fes}{Should the fixed effects be tidied? Default is `FALSE`.}
+\item{fes}{Should the fixed effects be tidied too? Default is `FALSE`.}
 
 \item{...}{Additional arguments to tidying method.}
 }
 \description{
+tidy `dbreg` objects
+
 tidy `dbreg` objects
 }
