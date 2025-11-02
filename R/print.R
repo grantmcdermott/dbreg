@@ -34,13 +34,17 @@ print.dbreg = function(x, fes = FALSE, ...) {
       cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
     }
     cat("Standard Errors:", se_type, "\n")
-    print_coeftable(ct)
+    
+    # Calculate goodness-of-fit metrics
+    gof_vals = gof(x)
+    
+    print_coeftable(ct, gof_vals = gof_vals, has_fes = !is.null(x$fes))
     invisible(ct)
 }
 
 # stolen from Laurent here:
 # https://github.com/lrberge/fixest/blob/5523d48ef4a430fa2e82815ca589fc8a47168fe7/R/miscfuns.R#L3758
-print_coeftable = function(coeftable, lastLine = "", show_signif = TRUE){
+print_coeftable = function(coeftable, lastLine = "", show_signif = TRUE, gof_vals = NULL, has_fes = FALSE){
   # Simple function that does as the function coeftable but handles special cases
   # => to take care of the case when the coefficient is bounded
 
@@ -79,6 +83,20 @@ print_coeftable = function(coeftable, lastLine = "", show_signif = TRUE){
 
   if(show_signif){
     cat("---\nSignif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1\n")
+  }
+  
+  # Print goodness-of-fit metrics if available
+  if (!is.null(gof_vals) && !all(is.na(gof_vals))) {
+    rmse = gof_vals["rmse"]
+    adj_r2 = gof_vals["adj_r2"]
+    
+    # Format RMSE and Adj R2 on same line like fixest
+    if (!is.na(rmse) && !is.na(adj_r2)) {
+      cat(sprintf("RMSE: %s%sAdj. R2: %s\n", 
+                  format(round(rmse, 1), big.mark = ",", nsmall = 1),
+                  strrep(" ", max(1, 20 - nchar(format(round(rmse, 1), big.mark = ",")))),
+                  format(round(adj_r2, 6), nsmall = 6)))
+    }
   }
 }
 
