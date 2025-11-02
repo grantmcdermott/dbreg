@@ -10,6 +10,7 @@ dbreg(
   table = NULL,
   data = NULL,
   path = NULL,
+  weights = NULL,
   vcov = c("iid", "hc1"),
   strategy = c("auto", "compress", "moments", "mundlak"),
   compress_ratio = 0.001,
@@ -51,6 +52,9 @@ part of this string, e.g. \code{"read_parquet('mydata/**/*.parquet')"} for DuckD
 note the use of single quotes.
 Ignored if either \code{table} or \code{data} is provided.
 }}
+
+\item{weights}{Character string specifying the column name to use as weights,
+or NULL (default) for unweighted regression. Weights should be positive.}
 
 \item{vcov}{Character string denoting the desired type of variance-
 covariance correction / standard errors. At present, only "iid" (default) or

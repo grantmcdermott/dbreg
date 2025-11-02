@@ -42,7 +42,8 @@ Imports:
   stats
 Suggests: 
   tinytest,
-  fixest
+  fixest, 
+  data.table
 Enhances:
   dbplyr
 Encoding: UTF-8
