@@ -25,6 +25,12 @@ Authors@R:
       email = "jamesbrandecon@gmail.com",
       role = c("ctb"),
       comment = c(ORCID = "0000-0002-1663-5583")
+    ), 
+    person(
+      given = "Laurent",
+      famil = "Berge", 
+      email = "laurent.berge@u-bordeaux.fr",
+      role = c("ctb")
     )
   )
 Description: Leverages database backends to run regressions on very large
