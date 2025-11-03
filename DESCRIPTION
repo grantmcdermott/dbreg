@@ -34,16 +34,16 @@ Description: Leverages database backends to run regressions on very large
   for highly efficient computation, while robust standard errors are
   computed from sufficient statistics.
 Imports: 
-    DBI,
-    duckdb,
-    Formula,
-    generics,
-    glue,
-    Matrix,
-    stats
+  DBI,
+  duckdb,
+  Formula,
+  generics,
+  glue,
+  Matrix,
+  stats
 Suggests: 
-  tinytest,
-  fixest
+  fixest,
+  tinytest
 Enhances:
   dbplyr
 Encoding: UTF-8
