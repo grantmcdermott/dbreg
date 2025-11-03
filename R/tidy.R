@@ -5,6 +5,7 @@ generics::tidy
 #' tidy `dbreg` objects
 #'
 #' @importFrom generics tidy
+#' @importFrom stats confint
 #' @param x a model of class `dbreg` produced by the [dbreg()] function
 #' @param conf.int Logical indicating whether to include confidence intervals.
 #'   Default is `FALSE`.

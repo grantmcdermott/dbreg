@@ -16,6 +16,7 @@ vcov.dbreg = function(object, ...) {
 #' @param level the confidence level required. Default is 0.95.
 #' @param fes Should the fixed effects be included? Default is `FALSE`.
 #' @param ... Additional arguments (currently unused).
+#' @importFrom stats qt
 #' @export
 confint.dbreg = function(object, parm, level = 0.95, fes = FALSE, ...) {
   ct = object[["coeftable"]]
