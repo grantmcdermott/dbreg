@@ -643,6 +643,11 @@ execute_moments_strategy = function(inputs) {
       t(betahat) %*% XtX %*% betahat
   )
   df_res = max(n_total - p, 1)
+  # Calculate TSS for R2
+  sum_y = moments_df$sum_y
+  sum_y_sq = moments_df$sum_y_sq
+  tss = sum_y_sq - (sum_y^2 / n_total)
+  
   vcov_mat = compute_vcov(
     vcov_type = inputs$vcov_type_req,
     strategy = "moments",
@@ -651,6 +656,8 @@ execute_moments_strategy = function(inputs) {
     df_res = df_res,
     nobs_orig = n_total
   )
+  attr(vcov_mat, "rss") = rss
+  attr(vcov_mat, "tss") = tss
 
   coeftable = gen_coeftable(betahat, vcov_mat, df_res)
 
@@ -974,6 +981,8 @@ execute_mundlak_strategy = function(inputs) {
     df_res = df_res,
     nobs_orig = n_total
   )
+  attr(vcov_mat, "rss") = rss
+  attr(vcov_mat, "tss") = mundlak_df$sum_y_sq
 
   coeftable = gen_coeftable(betahat, vcov_mat, df_res)
 
@@ -1090,6 +1099,11 @@ execute_compress_strategy = function(inputs) {
   rss_total = sum(rss_g)
   df_res = max(nobs_orig - ncol(X), 1)
 
+  # Calculate TSS for R2
+  sum_Y_total = sum(compressed_dat$sum_Y)
+  sum_Y_sq_total = sum(compressed_dat$sum_Y_sq)
+  tss = sum_Y_sq_total - (sum_Y_total^2 / nobs_orig)
+  
   vcov_mat = compute_vcov(
     vcov_type = inputs$vcov_type_req,
     strategy = "compress",
@@ -1100,6 +1114,8 @@ execute_compress_strategy = function(inputs) {
     X = X,
     rss_g = rss_g
   )
+  attr(vcov_mat, "rss") = rss_total
+  attr(vcov_mat, "tss") = tss
 
   coeftable = gen_coeftable(betahat, vcov_mat, max(nobs_orig - ncol(X), 1))
 
@@ -1134,6 +1150,7 @@ solve_with_fallback = function(XtX, Xty) {
     betahat = backsolve(Rch, forwardsolve(Matrix::t(Rch), Xty))
     XtX_inv = chol2inv(Rch)
   }
+  dimnames(XtX_inv) = dimnames(XtX)
   list(betahat = betahat, XtX_inv = XtX_inv)
 }
 
@@ -1167,6 +1184,7 @@ compute_vcov = function(
     vcov_mat = sigma2 * XtX_inv
     attr(vcov_mat, "type") = "iid"
   }
+  dimnames(vcov_mat) = dimnames(XtX_inv)
   vcov_mat
 }
 

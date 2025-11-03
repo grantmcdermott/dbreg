@@ -60,6 +60,7 @@ dbreg(Euros ~ dist_km | Destination + Origin, data = trade, vcov = 'hc1')
 #> dist_km -45709.8    1195.84 -38.224 < 2.2e-16 ***
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+#> RMSE: 124,221,786.3         Adj. R2: 0.215289
 ```
 
 Behind the scenes, **dbreg** has compressed the original dataset down from
@@ -121,6 +122,7 @@ dbreg(
 #> passenger_count -0.029086   0.000106 -273.866 < 2.2e-16 ***
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+#> RMSE: 1.7                 Adj. R2: 0.243549
 ```
 
 Note the size of the original dataset, which is nearly 180 million rows, versus
@@ -174,6 +176,7 @@ dbreg(
 #> passenger_count -0.029086   0.000106 -273.866 < 2.2e-16 ***
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+#> RMSE: 1.7                 Adj. R2: 0.243549
 ```
 
 Result: we get the same coefficient estimates as earlier.
