@@ -1150,6 +1150,7 @@ solve_with_fallback = function(XtX, Xty) {
     betahat = backsolve(Rch, forwardsolve(Matrix::t(Rch), Xty))
     XtX_inv = chol2inv(Rch)
   }
+  dimnames(XtX_inv) = dimnames(XtX)
   list(betahat = betahat, XtX_inv = XtX_inv)
 }
 
@@ -1183,6 +1184,7 @@ compute_vcov = function(
     vcov_mat = sigma2 * XtX_inv
     attr(vcov_mat, "type") = "iid"
   }
+  dimnames(vcov_mat) = dimnames(XtX_inv)
   vcov_mat
 }
 
