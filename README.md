@@ -89,7 +89,7 @@ feols(Euros ~ dist_km | Destination + Origin, data = trade, vcov = 'hc1')
 
 For a more appropriate **dbreg** use-case, let's run a regression on some NYC
 taxi data. (Download instructions
-[here](https://grantmcdermott.com/duckdb-polars/requirements.html).)
+[here](https://grantmcdermott.com/duckdb-polars/requirements.html#nyc-taxi-data).)
 The dataset that we're working with here is about 180 million rows deep and
 takes up 8.5 GB on disk.[^1]
 **dbreg** offers two basic ways to analyse and interact with data of this size.
