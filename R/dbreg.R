@@ -680,6 +680,7 @@ execute_moments_strategy = function(inputs) {
 #' Execute mundlak strategy (1-2 fixed effects)
 #' @keywords internal
 execute_mundlak_strategy = function(inputs) {
+  # browser()
   if (length(inputs$fes) == 1) {
     # Single FE: simple within-group demeaning
     fe1 = inputs$fes[1]
@@ -935,6 +936,29 @@ execute_mundlak_strategy = function(inputs) {
   if (inputs$data_only) {
     return(mundlak_df)
   }
+  
+  # Fetch group means for prediction
+  all_vars = c(inputs$yvar, inputs$xvars)
+  if (length(inputs$fes) == 1) {
+    fe1 = inputs$fes[1]
+    means_cols = paste(sprintf("AVG(%s) AS %s_mean", all_vars, all_vars), collapse = ", ")
+    group_means_sql = paste0("SELECT ", fe1, ", ", means_cols, " ", inputs$from_statement, " GROUP BY ", fe1)
+    group_means = list(
+      fe1 = dbGetQuery(inputs$conn, group_means_sql)
+    )
+  } else {
+    fe1 = inputs$fes[1]
+    fe2 = inputs$fes[2]
+    unit_cols = paste(sprintf("AVG(%s) AS %s_u", all_vars, all_vars), collapse = ", ")
+    time_cols = paste(sprintf("AVG(%s) AS %s_t", all_vars, all_vars), collapse = ", ")
+    overall_cols = paste(sprintf("AVG(%s) AS %s_o", all_vars, all_vars), collapse = ", ")
+    group_means = list(
+      fe1 = dbGetQuery(inputs$conn, paste0("SELECT ", fe1, ", ", unit_cols, " ", inputs$from_statement, " GROUP BY ", fe1)),
+      fe2 = dbGetQuery(inputs$conn, paste0("SELECT ", fe2, ", ", time_cols, " ", inputs$from_statement, " GROUP BY ", fe2)),
+      overall = dbGetQuery(inputs$conn, paste0("SELECT ", overall_cols, " ", inputs$from_statement))
+    )
+  }
+  
   n_total = mundlak_df$n_total
   n_fe1 = mundlak_df$n_fe1
   n_fe2 = mundlak_df$n_fe2
@@ -986,21 +1010,24 @@ execute_mundlak_strategy = function(inputs) {
 
   coeftable = gen_coeftable(betahat, vcov_mat, df_res)
 
-  list(
-    coeftable = coeftable,
-    vcov = vcov_mat,
-    fml = inputs$fml,
-    yvar = inputs$yvar,
-    xvars = inputs$xvars,
-    fes = inputs$fes,
-    query_string = mundlak_sql,
-    nobs = 1L,
-    nobs_orig = n_total,
-    strategy = "mundlak",
-    compression_ratio_est = inputs$compression_ratio_est,
-    df_residual = df_res,
-    n_fe1 = n_fe1,
-    n_fe2 = n_fe2
+  return(
+    list(
+      coeftable = coeftable,
+      vcov = vcov_mat,
+      fml = inputs$fml,
+      yvar = inputs$yvar,
+      xvars = inputs$xvars,
+      fes = inputs$fes,
+      query_string = mundlak_sql,
+      nobs = 1L,
+      nobs_orig = n_total,
+      strategy = "mundlak",
+      compression_ratio_est = inputs$compression_ratio_est,
+      df_residual = df_res,
+      n_fe1 = n_fe1,
+      n_fe2 = n_fe2,
+      group_means = group_means
+    )
   )
 }
 
@@ -1119,20 +1146,23 @@ execute_compress_strategy = function(inputs) {
 
   coeftable = gen_coeftable(betahat, vcov_mat, max(nobs_orig - ncol(X), 1))
 
-  list(
-    coeftable = coeftable,
-    vcov = vcov_mat,
-    fml = inputs$fml,
-    yvar = inputs$yvar,
-    xvars = inputs$xvars,
-    fes = inputs$fes,
-    query_string = query_string,
-    nobs = nobs_comp,
-    nobs_orig = nobs_orig,
-    strategy = "compress",
-    compression_ratio = compression_ratio,
-    compression_ratio_est = inputs$compression_ratio_est,
-    df_residual = max(nobs_orig - ncol(X), 1)
+  return(
+    list(
+      coeftable = coeftable,
+      data = compressed_dat,
+      vcov = vcov_mat,
+      fml = inputs$fml,
+      yvar = inputs$yvar,
+      xvars = inputs$xvars,
+      fes = inputs$fes,
+      query_string = query_string,
+      nobs = nobs_comp,
+      nobs_orig = nobs_orig,
+      strategy = "compress",
+      compression_ratio = compression_ratio,
+      compression_ratio_est = inputs$compression_ratio_est,
+      df_residual = max(nobs_orig - ncol(X), 1)
+    )
   )
 }
 
