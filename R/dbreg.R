@@ -39,8 +39,9 @@
 #' @param strategy Character string indicating the preferred acceleration
 #'   strategy. The default `"auto"` will pick an optimal strategy based on
 #'   internal heuristics. Users can also override with one of the following
-#'   explicit strategies: `"compress"`, `"demean"` (alias: `"within"`), or
-#'   `"moments"`. See the Acceleration Strategies section below for details.
+#'   explicit strategies: `"compress"`, `"demean"` (alias: `"within"`),
+#'   `"mundlak"`, or `"moments"`. See the Acceleration Strategies section below
+#'   for details.
 #' @param compress_ratio,compress_nmax Numeric(s). Parameters that help to
 #'   determine the acceleration `strategy` under the default `"auto"` option.
 #'
@@ -76,16 +77,20 @@
 #'
 #' @section Acceleration strategies:
 #'
-#' `dbreg` offers three primary acceleration (shortcut) strategies for
+#' `dbreg` offers four primary acceleration (shortcut) strategies for
 #' estimating regression results from simplied data representations:
 #'
-#' 1. `"compress"`: compresses the data via a `GROUP BY` operation (using the explanatory variables and fixed effects as groups), before running weighted least squares on this much smaller dataset:
+#' 1. `"compress"`: compresses the data via a `GROUP BY` operation (using X and the FEs as groups), before running weighted least squares on this much smaller dataset:
 #'    \deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
 #'    where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure follows Wang et al. (2021).
 #' 2. `"moments"`: computes sufficient statistics (\eqn{X'X, X'y}) directly via SQL aggregation, returning a single-row result. This solves the standard OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases without fixed effects.
 #' 3. `"demean"` (alias `"within"`): subtracts group-level means from both Y and X before computing sufficient statistics (per the `"moments"` strategy). For two-way fixed effects:
 #'    \deqn{\ddot{Y}_{it} = \beta \ddot{X}_{it} + \varepsilon_{it}}
 #'    where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This within estimator gives identical coefficients to fixed effects regression. Permits at most two fixed effects.
+#' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects (CRE) estimator that regresses Y on X plus group means of X:
+#'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
+#'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_{i} + \delta \bar{X}_{t} + \varepsilon_{it} \quad \text{(two-way, etc.)}}
+#'    Unlike `"demean"`, Y is not transformed, so predictions are on the original scale. Coefficients differ from (but are asymptotically equivalent to) fixed effects. Supports any number of fixed effects.
 #'
 #' The relative efficiency of each of these strategies depends on the size and
 #' structure of the data, as well the number of unique regressors and
@@ -94,7 +99,7 @@
 #' (repeated cross-sections over time), where N >> T. In such cases, it is more
 #' efficient to use a demeaning (within) transformation that subtracts group means
 #' first. (Reason: unit and time fixed effects are typically high dimensional,
-#' but covariate averages are not.)
+#' but covariate averages are not; see Arkhangelsky & Imbens, 2024.)
 #'
 #' If the user does not specify an explicit acceleration strategy, then
 #' `dbreg` will invoke an `"auto"` heuristic behind the scenes. This requires
@@ -110,6 +115,11 @@
 #' \cite{Fixed Effects and the Generalized Mundlak Estimator}.
 #' The Review of Economic Studies, 91(5), pp. 2545–2571.
 #' Available: https://doi.org/10.1093/restud/rdad089
+#'
+#' Mundlak, Y. (1978)
+#' \cite{On the Pooling of Time Series and Cross Section Data}.
+#' Econometrica, 46(1), pp. 69–85.
+#' Available: https://doi.org/10.2307/1913646
 #'
 #' Wong, J., Forsell, E., Lewis, R., Mao, T., & Wardrop, M. (2021).
 #' \cite{You Only Compress Once: Optimal Data Compression for Estimating Linear Models.}
@@ -150,7 +160,7 @@ dbreg = function(
   data = NULL,
   path = NULL,
   vcov = c("iid", "hc1"),
-  strategy = c("auto", "compress", "moments", "demean", "within"),
+  strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = 0.001,
   compress_nmax = 1e6,
   query_only = FALSE,
@@ -190,6 +200,8 @@ dbreg = function(
     "moments" = execute_moments_strategy(inputs),
     # one or two-way fixed effects (double demeaning / within estimator)
     "demean" = execute_demean_strategy(inputs),
+    # true Mundlak/CRE: Y ~ X + group means of X
+    "mundlak" = execute_mundlak_strategy(inputs),
     # group by regressors (+ fixed effects) -> frequency-weighted rows -> WLS
     # best when regressors are discrete and FE groups have many rows per unique value
     "compress" = execute_compress_strategy(inputs),
@@ -1010,6 +1022,191 @@ execute_demean_strategy = function(inputs) {
     nobs = 1L,
     nobs_orig = n_total,
     strategy = "demean",
+    compression_ratio_est = inputs$compression_ratio_est,
+    df_residual = df_res,
+    n_fe1 = n_fe1,
+    n_fe2 = n_fe2
+  )
+}
+
+#' Execute true Mundlak/CRE strategy
+#'
+#' Regresses Y on X plus group means of X for each fixed effect.
+#' Y is NOT demeaned - predictions are on the original scale.
+#'
+#' @keywords internal
+execute_mundlak_strategy = function(inputs) {
+  xvars = inputs$xvars
+  yvar = inputs$yvar
+  fes = inputs$fes
+  n_fes = length(fes)
+
+  if (n_fes == 0) {
+    stop("mundlak strategy requires at least one fixed effect")
+  }
+
+  # Build group means CTEs and join clauses for each FE
+  cte_parts = character(0)
+  join_parts = character(0)
+  xbar_all = character(0)
+
+  for (k in seq_along(fes)) {
+    fe_k = fes[k]
+    suffix = paste0("_bar_", fe_k)
+    xbar_k = paste0(xvars, suffix)
+    xbar_all = c(xbar_all, xbar_k)
+
+    means_cols = paste(sprintf("AVG(%s) AS %s", xvars, xbar_k), collapse = ", ")
+    cte_parts = c(cte_parts, sprintf(
+      "fe%d_means AS (SELECT %s, %s FROM base GROUP BY %s)",
+      k, fe_k, means_cols, fe_k
+    ))
+    join_parts = c(join_parts, sprintf(
+      "JOIN fe%d_means m%d ON b.%s = m%d.%s",
+      k, k, fe_k, k, fe_k
+    ))
+  }
+
+  # Select columns for augmented table
+  aug_select_parts = "b.*"
+  for (k in seq_along(fes)) {
+    suffix = paste0("_bar_", fes[k])
+    xbar_k = paste0(xvars, suffix)
+    aug_select_parts = c(aug_select_parts, paste0("m", k, ".", xbar_k))
+  }
+  aug_select = paste(aug_select_parts, collapse = ", ")
+
+  # All regressors: original X plus all group means
+  all_regressors = c(xvars, xbar_all)
+
+  # Build moment terms
+  moment_terms = c(
+    sql_count(inputs$conn, "n_total"),
+    if (n_fes >= 1) sql_count(inputs$conn, "n_fe1", fes[1], distinct = TRUE) else "1 AS n_fe1",
+    if (n_fes >= 2) sql_count(inputs$conn, "n_fe2", fes[2], distinct = TRUE) else "1 AS n_fe2",
+    sprintf("SUM(CAST(%s AS FLOAT)) AS sum_y", yvar),
+    sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_y_sq", yvar, yvar)
+  )
+
+  # sum(X_j) and sum(X_j * Y) for each regressor
+
+  for (v in all_regressors) {
+    moment_terms = c(
+      moment_terms,
+      sprintf("SUM(CAST(%s AS FLOAT)) AS sum_%s", v, v),
+      sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%s_%s", v, yvar, v, yvar)
+    )
+  }
+
+  # sum(X_i * X_j) for all pairs (upper triangle including diagonal)
+  for (i in seq_along(all_regressors)) {
+    for (j in i:length(all_regressors)) {
+      vi = all_regressors[i]
+      vj = all_regressors[j]
+      moment_terms = c(
+        moment_terms,
+        sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%s_%s", vi, vj, vi, vj)
+      )
+    }
+  }
+
+  mundlak_sql = paste0(
+    "WITH base AS (SELECT * ", inputs$from_statement, "),\n",
+    paste(cte_parts, collapse = ",\n"), ",\n",
+    "augmented AS (SELECT ", aug_select, " FROM base b ", paste(join_parts, collapse = " "), "),\n",
+    "moments AS (SELECT ", paste(moment_terms, collapse = ", "), " FROM augmented)\n",
+    "SELECT * FROM moments"
+  )
+
+  # Athena FLOAT gotcha
+  if (inherits(inputs$conn, "AthenaConnection")) {
+    mundlak_sql = gsub("FLOAT", "REAL", mundlak_sql, fixed = TRUE)
+  }
+
+  if (inputs$query_only) {
+    return(mundlak_sql)
+  }
+
+  if (inputs$verbose) {
+    message("[dbreg] Executing mundlak SQL\n")
+  }
+  mundlak_df = dbGetQuery(inputs$conn, mundlak_sql)
+  if (inputs$data_only) {
+    return(mundlak_df)
+  }
+
+  n_total = mundlak_df$n_total
+  n_fe1 = mundlak_df$n_fe1
+  n_fe2 = mundlak_df$n_fe2
+
+  # Include intercept
+  vars_all = c("(Intercept)", all_regressors)
+  p = length(vars_all)
+
+  XtX = matrix(0, p, p, dimnames = list(vars_all, vars_all))
+  Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
+
+  # Intercept terms
+  XtX["(Intercept)", "(Intercept)"] = n_total
+  Xty["(Intercept)", ] = mundlak_df$sum_y
+
+  # Regressor terms
+  for (v in all_regressors) {
+    XtX["(Intercept)", v] = XtX[v, "(Intercept)"] = mundlak_df[[paste0("sum_", v)]]
+    XtX[v, v] = mundlak_df[[paste0("sum_", v, "_", v)]]
+    Xty[v, ] = mundlak_df[[paste0("sum_", v, "_", yvar)]]
+  }
+
+  # Cross-terms
+  for (i in seq_along(all_regressors)) {
+    for (j in seq_along(all_regressors)) {
+      if (i < j) {
+        vi = all_regressors[i]
+        vj = all_regressors[j]
+        XtX[vi, vj] = XtX[vj, vi] = mundlak_df[[paste0("sum_", vi, "_", vj)]]
+      }
+    }
+  }
+
+  solve_result = solve_with_fallback(XtX, Xty)
+  betahat = solve_result$betahat
+  XtX_inv = solve_result$XtX_inv
+  rownames(betahat) = vars_all
+
+  # RSS and TSS
+  rss = as.numeric(
+    mundlak_df$sum_y_sq -
+      2 * t(betahat) %*% Xty +
+      t(betahat) %*% XtX %*% betahat
+  )
+  tss = mundlak_df$sum_y_sq - (mundlak_df$sum_y^2 / n_total)
+
+  df_res = max(n_total - p, 1)
+
+  vcov_mat = compute_vcov(
+    vcov_type = inputs$vcov_type_req,
+    strategy = "mundlak",
+    XtX_inv = XtX_inv,
+    rss = rss,
+    df_res = df_res,
+    nobs_orig = n_total
+  )
+  attr(vcov_mat, "rss") = rss
+  attr(vcov_mat, "tss") = tss
+
+  coeftable = gen_coeftable(betahat, vcov_mat, df_res)
+
+  list(
+    coeftable = coeftable,
+    vcov = vcov_mat,
+    fml = inputs$fml,
+    yvar = yvar,
+    xvars = xvars,
+    fes = fes,
+    query_string = mundlak_sql,
+    nobs = 1L,
+    nobs_orig = n_total,
+    strategy = "mundlak",
     compression_ratio_est = inputs$compression_ratio_est,
     df_residual = df_res,
     n_fe1 = n_fe1,

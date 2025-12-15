@@ -11,7 +11,7 @@ dbreg(
   data = NULL,
   path = NULL,
   vcov = c("iid", "hc1"),
-  strategy = c("auto", "compress", "moments", "demean", "within"),
+  strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = 0.001,
   compress_nmax = 1e+06,
   query_only = FALSE,
@@ -59,8 +59,9 @@ covariance correction / standard errors. At present, only "iid" (default) or
 \item{strategy}{Character string indicating the preferred acceleration
 strategy. The default \code{"auto"} will pick an optimal strategy based on
 internal heuristics. Users can also override with one of the following
-explicit strategies: \code{"compress"}, \code{"demean"} (alias: \code{"within"}), or
-\code{"moments"}. See the Acceleration Strategies section below for details.}
+explicit strategies: \code{"compress"}, \code{"demean"} (alias: \code{"within"}),
+\code{"mundlak"}, or \code{"moments"}. See the Acceleration Strategies section below
+for details.}
 
 \item{compress_ratio, compress_nmax}{Numeric(s). Parameters that help to
 determine the acceleration \code{strategy} under the default \code{"auto"} option.
@@ -110,7 +111,7 @@ sufficient statistics.
 \section{Acceleration strategies}{
 
 
-\code{dbreg} offers three primary acceleration (shortcut) strategies for
+\code{dbreg} offers four primary acceleration (shortcut) strategies for
 estimating regression results from simplied data representations:
 \enumerate{
 \item \code{"compress"}: compresses the data via a \verb{GROUP BY} operation (using the explanatory variables and fixed effects as groups), before running weighted least squares on this much smaller dataset:
@@ -120,6 +121,10 @@ where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure follo
 \item \code{"demean"} (alias \code{"within"}): subtracts group-level means from both Y and X before computing sufficient statistics (per the \code{"moments"} strategy). For two-way fixed effects:
 \deqn{\ddot{Y}_{it} = \beta \ddot{X}_{it} + \varepsilon_{it}}
 where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This within estimator gives identical coefficients to fixed effects regression. Permits at most two fixed effects.
+\item \code{"mundlak"}: a generalized Mundlak (1978), or correlated random effects (CRE) estimator that regresses Y on X plus group means of X:
+\deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
+\deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_{i} + \delta \bar{X}_{t} + \varepsilon_{it} \quad \text{(two-way, etc.)}}
+Unlike \code{"demean"}, Y is not transformed, so predictions are on the original scale. Coefficients differ from (but are asymptotically equivalent to) fixed effects. Supports any number of fixed effects.
 }
 
 The relative efficiency of each of these strategies depends on the size and
@@ -129,7 +134,7 @@ performance gains for "standard" cases, it is less efficient for a true panel
 (repeated cross-sections over time), where N >> T. In such cases, it is more
 efficient to use a demeaning (within) transformation that subtracts group means
 first. (Reason: unit and time fixed effects are typically high dimensional,
-but covariate averages are not.)
+but covariate averages are not; see Arkhangelsky & Imbens, 2024.)
 
 If the user does not specify an explicit acceleration strategy, then
 \code{dbreg} will invoke an \code{"auto"} heuristic behind the scenes. This requires
@@ -164,6 +169,11 @@ Arkhangelsky, D. & Imbens, G. (2024)
 \cite{Fixed Effects and the Generalized Mundlak Estimator}.
 The Review of Economic Studies, 91(5), pp. 2545–2571.
 Available: https://doi.org/10.1093/restud/rdad089
+
+Mundlak, Y. (1978)
+\cite{On the Pooling of Time Series and Cross Section Data}.
+Econometrica, 46(1), pp. 69–85.
+Available: https://doi.org/10.2307/1913646
 
 Wong, J., Forsell, E., Lewis, R., Mao, T., & Wardrop, M. (2021).
 \cite{You Only Compress Once: Optimal Data Compression for Estimating Linear Models.}
