@@ -86,7 +86,7 @@
 #' 2. `"moments"`: computes sufficient statistics (\eqn{X'X, X'y}) directly via SQL aggregation, returning a single-row result. This solves the standard OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases without fixed effects.
 #' 3. `"demean"` (alias `"within"`): subtracts group-level means from both Y and X before computing sufficient statistics (per the `"moments"` strategy). For two-way fixed effects:
 #'    \deqn{\ddot{Y}_{it} = \beta \ddot{X}_{it} + \varepsilon_{it}}
-#'    where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This within estimator gives identical coefficients to fixed effects regression. Permits at most two fixed effects.
+#'    where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This within estimator gives identical coefficients to fixed effects regression for balanced panels. (For unbalanced panels with two-way fixed effects, the single-pass demeaning is approximate; use `"compress"` for exact results.) Permits at most two fixed effects.
 #' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects (CRE) estimator that regresses Y on X plus group means of X:
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_{i} + \delta \bar{X}_{t} + \varepsilon_{it} \quad \text{(two-way, etc.)}}
