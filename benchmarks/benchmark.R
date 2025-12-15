@@ -1,4 +1,4 @@
-# Concise benchmark comparing Mundlak/sufficient statistics vs group-by approach
+# Concise benchmark comparing demean/sufficient statistics vs group-by approach
 # Uses data.table for efficient data manipulation
 
 #
@@ -165,12 +165,12 @@ res = rbindlist(lapply(
         set.seed(123)
         dat = gen_dat(N_units = N_units, T_periods = T_periods)
         ret = rbindlist(lapply(
-          c("feols", "compress", "mundlak"),
+          c("feols", "compress", "demean"),
           function(s) time_fit(dat, fml, strategy = s, compressible = FALSE)
         ))[,
           strategy := factor(
             strategy,
-            levels = c("feols", "compress", "mundlak")
+            levels = c("feols", "compress", "demean")
           )
         ]
         ret$compressible = FALSE
@@ -186,12 +186,12 @@ res = rbindlist(lapply(
           y := y + rnorm(.N, sd = 1e-4)
         ]
         retc = rbindlist(lapply(
-          c("feols", "compress", "mundlak"),
+          c("feols", "compress", "demean"),
           function(s) time_fit(dat, fml, strategy = s, compressible = TRUE)
         ))[,
           strategy := factor(
             strategy,
-            levels = c("feols", "compress", "mundlak")
+            levels = c("feols", "compress", "demean")
           )
         ]
         retc$compressible = TRUE
@@ -254,7 +254,7 @@ res_long = res_summ |>
   ) |>
   dcast(compressible + N + coef + part ~ strategy) |>
   melt(
-    measure = c('compress', 'mundlak'),
+    measure = c('compress', 'demean'),
     value = 'dbreg',
     variable = 'strategy'
   )

@@ -8,7 +8,7 @@
 #' sufficient statistics.
 #'
 #' @param fml A \code{\link[stats]{formula}} representing the relation to be
-#' estimated. Fixed-effects should be included after a pipe, e.g
+#' estimated. Fixed effects should be included after a pipe, e.g
 #' `fml = y ~ x1 + x2 | fe1 + f2`. Currently, only simple additive terms
 #' are supported (i.e., no interaction terms, transformations or literals).
 #' @param conn Database connection, e.g. created with
@@ -39,8 +39,8 @@
 #' @param strategy Character string indicating the preferred acceleration
 #'   strategy. The default `"auto"` will pick an optimal strategy based on
 #'   internal heuristics. Users can also override with one of the following
-#'   explicit strategies: `"compress"`, `"mundlak"`, or `"moments"`. See
-#'   the Acceleration Strategies section below for details.
+#'   explicit strategies: `"compress"`, `"demean"` (alias: `"within"`), or
+#'   `"moments"`. See the Acceleration Strategies section below for details.
 #' @param compress_ratio,compress_nmax Numeric(s). Parameters that help to
 #'   determine the acceleration `strategy` under the default `"auto"` option.
 #'
@@ -55,7 +55,7 @@
 #'
 #' If both conditions are met, i.e. (1) estimated compression ratio <
 #' `compress_ratio` and (2) estimated compressed data size < `compress_nmax`,
-#' then the `"compress"` strategy is used. Otherwise, either the `"mundlak"` or
+#' then the `"compress"` strategy is used. Otherwise, either the `"demean"` or
 #' `"moments"` strategy will be used, depending on the number of fixed effects.
 #' @param query_only Logical indicating whether only the underlying compression
 #'   SQL query should be returned (i.e., no computation will be performed).
@@ -63,7 +63,7 @@
 #' @param data_only Logical indicating whether only the compressed dataset
 #'   should be returned (i.e., no regression is run). Default is `FALSE`.
 #' @param drop_missings Logical indicating whether incomplete cases (i.e., rows
-#'   where any of the dependent, independent or fixed-effects variables are
+#'   where any of the dependent, independent or fixed effects variables are
 #'   missing) should be dropped. The default is `TRUE`, according with standard
 #'   regression software. It is *strongly* recommended not to change this value
 #'   unless you are absolutely sure that your data have no missings and you wish
@@ -79,17 +79,21 @@
 #' `dbreg` offers three primary acceleration (shortcut) strategies for
 #' estimating regression results from simplied data representations:
 #'
-#' 1. `"compress"`: compress the data via a `GROUP BY` operation (using regressors + fixed effects as groups) and then run frequency-weighted least squares on the smaller dataset. This procedure follows the "optimal data compression" strategy proposed by Wang et. al. (2021).
-#' 2. `"moments"`: calculate sufficient statistics from global means (\eqn{X'X, X'y}), i.e. a single-row data frame computed on the database backend. Limited to cases without fixed effects.
-#' 3. `"mundlak"`: as per `"moments"`, but first subtract group-level means from the observations. Permits at most two fixed-effects (i.e., either demean or double-demean). This procedure follows the "generalized Mundlak estimator" proposed by Arkhangelsky & Imbens (2024).
+#' 1. `"compress"`: compresses the data via a `GROUP BY` operation (using the explanatory variables and fixed effects as groups), before running weighted least squares on this much smaller dataset:
+#'    \deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
+#'    where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure follows Wang et al. (2021).
+#' 2. `"moments"`: computes sufficient statistics (\eqn{X'X, X'y}) directly via SQL aggregation, returning a single-row result. This solves the standard OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases without fixed effects.
+#' 3. `"demean"` (alias `"within"`): subtracts group-level means from both Y and X before computing sufficient statistics (per the `"moments"` strategy). For two-way fixed effects:
+#'    \deqn{\ddot{Y}_{it} = \beta \ddot{X}_{it} + \varepsilon_{it}}
+#'    where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This within estimator gives identical coefficients to fixed effects regression. Permits at most two fixed effects.
 #'
 #' The relative efficiency of each of these strategies depends on the size and
 #' structure of the data, as well the number of unique regressors and
-#' fixed-effects. While the compression approach can yield remarkable
+#' fixed effects. While the compression approach can yield remarkable
 #' performance gains for "standard" cases, it is less efficient for a true panel
 #' (repeated cross-sections over time), where N >> T. In such cases, it is more
-#' efficient to use a Mundlak-type representation that subtracts group means
-#' first. (Reason: unit and time fixed-effects are typically high dimensional,
+#' efficient to use a demeaning (within) transformation that subtracts group means
+#' first. (Reason: unit and time fixed effects are typically high dimensional,
 #' but covariate averages are not.)
 #'
 #' If the user does not specify an explicit acceleration strategy, then
@@ -97,8 +101,8 @@
 #' some additional overhead, but in most cases should be negligible next to the
 #' overall time savings. The heuristic is as follows:
 #'
-#' - IF no fixed-effects AND (any continuous regressor OR poor compression ratio OR too big compressed data) THEN `"moments"`.
-#' - ELSE IF 1-2 fixed-effects AND (poor compression ratio OR too big compressed data) THEN `"mundlak"`.
+#' - IF no fixed effects AND (any continuous regressor OR poor compression ratio OR too big compressed data) THEN `"moments"`.
+#' - ELSE IF 1-2 fixed effects AND (poor compression ratio OR too big compressed data) THEN `"demean"`.
 #' - ELSE THEN `"compress"`.
 #'
 #' @references
@@ -146,7 +150,7 @@ dbreg = function(
   data = NULL,
   path = NULL,
   vcov = c("iid", "hc1"),
-  strategy = c("auto", "compress", "moments", "mundlak"),
+  strategy = c("auto", "compress", "moments", "demean", "within"),
   compress_ratio = 0.001,
   compress_nmax = 1e6,
   query_only = FALSE,
@@ -157,6 +161,7 @@ dbreg = function(
   vcov = tolower(vcov)
   vcov = match.arg(vcov)
   strategy = match.arg(strategy)
+  if (strategy == "within") strategy = "demean"  # alias
 
   # Process and validate inputs
   inputs = process_dbreg_inputs(
@@ -183,8 +188,8 @@ dbreg = function(
     chosen_strategy,
     # sufficient statistics with no fixed effects
     "moments" = execute_moments_strategy(inputs),
-    # one or two-way fixed effects
-    "mundlak" = execute_mundlak_strategy(inputs),
+    # one or two-way fixed effects (double demeaning / within estimator)
+    "demean" = execute_demean_strategy(inputs),
     # group by regressors (+ fixed effects) -> frequency-weighted rows -> WLS
     # best when regressors are discrete and FE groups have many rows per unique value
     "compress" = execute_compress_strategy(inputs),
@@ -498,7 +503,7 @@ choose_strategy = function(inputs) {
       fail_compress_ratio = !is.na(est_cr) && est_cr > max(0.6, compress_ratio)
       fail_compress_nmax = !is.na(est_cr) && comp_size > compress_nmax
       if (fail_compress_ratio || fail_compress_nmax) {
-        chosen_strategy = "mundlak"
+        chosen_strategy = "demean"
         if (verbose) {
           if (fail_compress_ratio) {
             reason = paste0(
@@ -518,7 +523,7 @@ choose_strategy = function(inputs) {
             )
           }
           message("[dbreg] Auto: ", reason)
-          message("[dbreg] Auto: selecting mundlak")
+          message("[dbreg] Auto: selecting demean")
         }
       } else {
         chosen_strategy = "compress"
@@ -555,9 +560,9 @@ choose_strategy = function(inputs) {
     }
     chosen_strategy = "compress"
   }
-  if (chosen_strategy == "mundlak" && !(length(fes) %in% c(1, 2))) {
+  if (chosen_strategy == "demean" && !(length(fes) %in% c(1, 2))) {
     if (verbose) {
-      message("[dbreg] mundlak requires one or two FEs. Using compress.")
+      message("[dbreg] demean requires one or two FEs. Using compress.")
     }
     chosen_strategy = "compress"
   }
@@ -677,9 +682,13 @@ execute_moments_strategy = function(inputs) {
   )
 }
 
-#' Execute mundlak strategy (1-2 fixed effects)
+#' Execute demean strategy (1-2 fixed effects)
+#' 
+#' Double demeaning / within estimator. Gives identical coefficients to 
+#' fixed effects regression.
+#' 
 #' @keywords internal
-execute_mundlak_strategy = function(inputs) {
+execute_demean_strategy = function(inputs) {
   if (length(inputs$fes) == 1) {
     # Single FE: simple within-group demeaning
     fe1 = inputs$fes[1]
@@ -739,7 +748,7 @@ execute_mundlak_strategy = function(inputs) {
       )
     }
 
-    mundlak_sql = paste0(
+    demean_sql = paste0(
       "WITH base AS (
       SELECT * ",
       inputs$from_statement,
@@ -853,7 +862,7 @@ execute_mundlak_strategy = function(inputs) {
       )
     }
 
-    mundlak_sql = paste0(
+    demean_sql = paste0(
       "WITH base AS (
       SELECT * ",
       inputs$from_statement,
@@ -920,24 +929,24 @@ execute_mundlak_strategy = function(inputs) {
   # Athena FLOAT gotcha
   # https://github.com/DyfanJones/noctua/issues/228
   if (inherits(inputs$conn, "AthenaConnection")) {
-    mundlak_sql = gsub("FLOAT", "REAL", mundlak_sql, fixed = TRUE)
+    demean_sql = gsub("FLOAT", "REAL", demean_sql, fixed = TRUE)
   }
 
   if (inputs$query_only) {
-    return(mundlak_sql)
+    return(demean_sql)
   }
 
   # Execute SQL and build matrices
   if (inputs$verbose) {
-    message("[dbreg] Executing mundlak SQL\n")
+    message("[dbreg] Executing demean SQL\n")
   }
-  mundlak_df = dbGetQuery(inputs$conn, mundlak_sql)
+  demean_df = dbGetQuery(inputs$conn, demean_sql)
   if (inputs$data_only) {
-    return(mundlak_df)
+    return(demean_df)
   }
-  n_total = mundlak_df$n_total
-  n_fe1 = mundlak_df$n_fe1
-  n_fe2 = mundlak_df$n_fe2
+  n_total = demean_df$n_total
+  n_fe1 = demean_df$n_fe1
+  n_fe2 = demean_df$n_fe2
 
   vars_all = inputs$xvars # No intercept for FE models
   p = length(vars_all)
@@ -945,8 +954,8 @@ execute_mundlak_strategy = function(inputs) {
   Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
 
   for (x in inputs$xvars) {
-    XtX[x, x] = mundlak_df[[sprintf("sum_%s_%s", x, x)]]
-    Xty[x, ] = mundlak_df[[sprintf("sum_%s_%s", x, inputs$yvar)]]
+    XtX[x, x] = demean_df[[sprintf("sum_%s_%s", x, x)]]
+    Xty[x, ] = demean_df[[sprintf("sum_%s_%s", x, inputs$yvar)]]
   }
   if (length(inputs$xvars) > 1) {
     for (i in seq_along(inputs$xvars)) {
@@ -956,7 +965,7 @@ execute_mundlak_strategy = function(inputs) {
       for (j in seq_len(i - 1)) {
         xi = inputs$xvars[i]
         xj = inputs$xvars[j]
-        XtX[xi, xj] = XtX[xj, xi] = mundlak_df[[sprintf("sum_%s_%s", xi, xj)]]
+        XtX[xi, xj] = XtX[xj, xi] = demean_df[[sprintf("sum_%s_%s", xi, xj)]]
       }
     }
   }
@@ -967,7 +976,7 @@ execute_mundlak_strategy = function(inputs) {
   rownames(betahat) = vars_all
 
   rss = as.numeric(
-    mundlak_df$sum_y_sq -
+    demean_df$sum_y_sq -
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
@@ -975,14 +984,14 @@ execute_mundlak_strategy = function(inputs) {
   df_res = max(n_total - p - df_fe, 1)
   vcov_mat = compute_vcov(
     vcov_type = inputs$vcov_type_req,
-    strategy = "mundlak",
+    strategy = "demean",
     XtX_inv = XtX_inv,
     rss = rss,
     df_res = df_res,
     nobs_orig = n_total
   )
   attr(vcov_mat, "rss") = rss
-  attr(vcov_mat, "tss") = mundlak_df$sum_y_sq
+  attr(vcov_mat, "tss") = demean_df$sum_y_sq
 
   coeftable = gen_coeftable(betahat, vcov_mat, df_res)
 
@@ -993,10 +1002,10 @@ execute_mundlak_strategy = function(inputs) {
     yvar = inputs$yvar,
     xvars = inputs$xvars,
     fes = inputs$fes,
-    query_string = mundlak_sql,
+    query_string = demean_sql,
     nobs = 1L,
     nobs_orig = n_total,
-    strategy = "mundlak",
+    strategy = "demean",
     compression_ratio_est = inputs$compression_ratio_est,
     df_residual = df_res,
     n_fe1 = n_fe1,
@@ -1173,7 +1182,7 @@ compute_vcov = function(
       scale_hc1 = nobs_orig / df_res
       vcov_mat = scale_hc1 * (XtX_inv %*% meat %*% XtX_inv)
     } else {
-      # Moments/Mundlak strategy: simple HC1 scaling
+      # Moments/Demean strategy: simple HC1 scaling
       sigma2 = rss / df_res
       vcov_mat = sigma2 * XtX_inv * (nobs_orig / df_res)
     }

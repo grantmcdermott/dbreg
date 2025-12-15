@@ -11,7 +11,7 @@ dbreg(
   data = NULL,
   path = NULL,
   vcov = c("iid", "hc1"),
-  strategy = c("auto", "compress", "moments", "mundlak"),
+  strategy = c("auto", "compress", "moments", "demean", "within"),
   compress_ratio = 0.001,
   compress_nmax = 1e+06,
   query_only = FALSE,
@@ -22,7 +22,7 @@ dbreg(
 }
 \arguments{
 \item{fml}{A \code{\link[stats]{formula}} representing the relation to be
-estimated. Fixed-effects should be included after a pipe, e.g
+estimated. Fixed effects should be included after a pipe, e.g
 \code{fml = y ~ x1 + x2 | fe1 + f2}. Currently, only simple additive terms
 are supported (i.e., no interaction terms, transformations or literals).}
 
@@ -59,8 +59,8 @@ covariance correction / standard errors. At present, only "iid" (default) or
 \item{strategy}{Character string indicating the preferred acceleration
 strategy. The default \code{"auto"} will pick an optimal strategy based on
 internal heuristics. Users can also override with one of the following
-explicit strategies: \code{"compress"}, \code{"mundlak"}, or \code{"moments"}. See
-the Acceleration Strategies section below for details.}
+explicit strategies: \code{"compress"}, \code{"demean"} (alias: \code{"within"}), or
+\code{"moments"}. See the Acceleration Strategies section below for details.}
 
 \item{compress_ratio, compress_nmax}{Numeric(s). Parameters that help to
 determine the acceleration \code{strategy} under the default \code{"auto"} option.
@@ -77,7 +77,7 @@ even if we have achieved good compression on top of the original dataset.
 
 If both conditions are met, i.e. (1) estimated compression ratio <
 \code{compress_ratio} and (2) estimated compressed data size < \code{compress_nmax},
-then the \code{"compress"} strategy is used. Otherwise, either the \code{"mundlak"} or
+then the \code{"compress"} strategy is used. Otherwise, either the \code{"demean"} or
 \code{"moments"} strategy will be used, depending on the number of fixed effects.}
 
 \item{query_only}{Logical indicating whether only the underlying compression
@@ -88,7 +88,7 @@ Default is \code{FALSE}.}
 should be returned (i.e., no regression is run). Default is \code{FALSE}.}
 
 \item{drop_missings}{Logical indicating whether incomplete cases (i.e., rows
-where any of the dependent, independent or fixed-effects variables are
+where any of the dependent, independent or fixed effects variables are
 missing) should be dropped. The default is \code{TRUE}, according with standard
 regression software. It is \emph{strongly} recommended not to change this value
 unless you are absolutely sure that your data have no missings and you wish
@@ -113,18 +113,22 @@ sufficient statistics.
 \code{dbreg} offers three primary acceleration (shortcut) strategies for
 estimating regression results from simplied data representations:
 \enumerate{
-\item \code{"compress"}: compress the data via a \verb{GROUP BY} operation (using regressors + fixed effects as groups) and then run frequency-weighted least squares on the smaller dataset. This procedure follows the "optimal data compression" strategy proposed by Wang et. al. (2021).
-\item \code{"moments"}: calculate sufficient statistics from global means (\eqn{X'X, X'y}), i.e. a single-row data frame computed on the database backend. Limited to cases without fixed effects.
-\item \code{"mundlak"}: as per \code{"moments"}, but first subtract group-level means from the observations. Permits at most two fixed-effects (i.e., either demean or double-demean). This procedure follows the "generalized Mundlak estimator" proposed by Arkhangelsky & Imbens (2024).
+\item \code{"compress"}: compresses the data via a \verb{GROUP BY} operation (using the explanatory variables and fixed effects as groups), before running weighted least squares on this much smaller dataset:
+\deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
+where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure follows Wang et al. (2021).
+\item \code{"moments"}: computes sufficient statistics (\eqn{X'X, X'y}) directly via SQL aggregation, returning a single-row result. This solves the standard OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases without fixed effects.
+\item \code{"demean"} (alias \code{"within"}): subtracts group-level means from both Y and X before computing sufficient statistics (per the \code{"moments"} strategy). For two-way fixed effects:
+\deqn{\ddot{Y}_{it} = \beta \ddot{X}_{it} + \varepsilon_{it}}
+where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This within estimator gives identical coefficients to fixed effects regression. Permits at most two fixed effects.
 }
 
 The relative efficiency of each of these strategies depends on the size and
 structure of the data, as well the number of unique regressors and
-fixed-effects. While the compression approach can yield remarkable
+fixed effects. While the compression approach can yield remarkable
 performance gains for "standard" cases, it is less efficient for a true panel
 (repeated cross-sections over time), where N >> T. In such cases, it is more
-efficient to use a Mundlak-type representation that subtracts group means
-first. (Reason: unit and time fixed-effects are typically high dimensional,
+efficient to use a demeaning (within) transformation that subtracts group means
+first. (Reason: unit and time fixed effects are typically high dimensional,
 but covariate averages are not.)
 
 If the user does not specify an explicit acceleration strategy, then
@@ -132,8 +136,8 @@ If the user does not specify an explicit acceleration strategy, then
 some additional overhead, but in most cases should be negligible next to the
 overall time savings. The heuristic is as follows:
 \itemize{
-\item IF no fixed-effects AND (any continuous regressor OR poor compression ratio OR too big compressed data) THEN \code{"moments"}.
-\item ELSE IF 1-2 fixed-effects AND (poor compression ratio OR too big compressed data) THEN \code{"mundlak"}.
+\item IF no fixed effects AND (any continuous regressor OR poor compression ratio OR too big compressed data) THEN \code{"moments"}.
+\item ELSE IF 1-2 fixed effects AND (poor compression ratio OR too big compressed data) THEN \code{"demean"}.
 \item ELSE THEN \code{"compress"}.
 }
 }

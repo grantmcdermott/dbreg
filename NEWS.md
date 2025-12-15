@@ -2,6 +2,10 @@
 
 ## dev version
 
+Breaking changes
+
+- The `"mundlak"` strategy is renamed to `"demean"` (alias `"within"`).
+
 New features
 
 - Added QR decomposition fallback for regression calculations, for cases where
@@ -11,7 +15,7 @@ New features
 - The automatic strategy logic now considers the maximum size of the compressed 
   data, mostly to avoid cases where the `"compress"` strategy would return a
   (still) prohibitively large dataset. (#10)
-- Enabled weights for Mundlak specification. (#13)
+- Enabled weights for double demean (within) specification. (#13)
 - Esimations now report some goodness-of-fit statistics like R2 and RMSE,
   powered by the (user-facing) `gof()` function. (#21) 
 - Added support for various `*.dbreg` methods (#21):
