@@ -79,7 +79,11 @@ even if we have achieved good compression on top of the original dataset.
 If both conditions are met, i.e. (1) estimated compression ratio <
 \code{compress_ratio} and (2) estimated compressed data size < \code{compress_nmax},
 then the \code{"compress"} strategy is used. Otherwise, either the \code{"demean"} or
-\code{"moments"} strategy will be used, depending on the number of fixed effects.}
+\code{"moments"} strategy will be used, depending on the number of FE.
+Note: for two-way FE (TWFE) on unbalanced panels, if compression limits
+are exceeded, \code{"auto"} will error rather than silently select a different
+estimand. Users must explicitly choose \code{"compress"} (with higher limits) or
+\code{"mundlak"} (CRE, different model).}
 
 \item{query_only}{Logical indicating whether only the underlying compression
 SQL query should be returned (i.e., no computation will be performed).
@@ -89,7 +93,7 @@ Default is \code{FALSE}.}
 should be returned (i.e., no regression is run). Default is \code{FALSE}.}
 
 \item{drop_missings}{Logical indicating whether incomplete cases (i.e., rows
-where any of the dependent, independent or fixed effects variables are
+where any of the dependent, independent or FE variables are
 missing) should be dropped. The default is \code{TRUE}, according with standard
 regression software. It is \emph{strongly} recommended not to change this value
 unless you are absolutely sure that your data have no missings and you wish
@@ -108,41 +112,54 @@ which may not fit into R's memory. Various acceleration strategies allow for
 highly efficient computation, while robust standard errors are computed from
 sufficient statistics.
 }
-\section{Acceleration strategies}{
+\section{Acceleration Strategies}{
 
 
-\code{dbreg} offers four primary acceleration (shortcut) strategies for
-estimating regression results from simplied data representations:
+\code{dbreg} offers four primary acceleration strategies for estimating regression
+results from simplified data representations. Below we use the shorthand
+Y (outcome), X (explanatory variables), and FE (fixed effects) for exposition
+purposes:
 \enumerate{
-\item \code{"compress"}: compresses the data via a \verb{GROUP BY} operation (using the explanatory variables and fixed effects as groups), before running weighted least squares on this much smaller dataset:
+\item \code{"compress"}: compresses the data via a \verb{GROUP BY} operation (using X and the FE as groups), before running weighted least squares on this much smaller dataset:
 \deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
 where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure follows Wang et al. (2021).
-\item \code{"moments"}: computes sufficient statistics (\eqn{X'X, X'y}) directly via SQL aggregation, returning a single-row result. This solves the standard OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases without fixed effects.
-\item \code{"demean"} (alias \code{"within"}): subtracts group-level means from both Y and X before computing sufficient statistics (per the \code{"moments"} strategy). For two-way fixed effects:
+\item \code{"moments"}: computes sufficient statistics (\eqn{X'X, X'y}) directly via SQL aggregation, returning a single-row result. This solves the standard OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases without FE.
+\item \code{"demean"} (alias \code{"within"}): subtracts group-level means from both Y and X before computing sufficient statistics (per the \code{"moments"} strategy). For example, given unit \eqn{i} and time \eqn{t} FE, we apply double demeaning:
 \deqn{\ddot{Y}_{it} = \beta \ddot{X}_{it} + \varepsilon_{it}}
-where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This within estimator gives identical coefficients to fixed effects regression. Permits at most two fixed effects.
+where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This single-pass within transformation is algebraically equivalent to the fixed effects projection (i.e., the Frisch-Waugh-Lovell partialling-out) for one-way FE (1WFE), and it is also identical in the two-way FE (TWFE) case when the panel is balanced. However, in unbalanced two-way panels, this strategy is not algebraically equivalent to the fixed effects projection and therefore does not recover the exact TWFE coefficients. Users should instead invoke \code{"compress"} to obtain exact TWFE results in unbalanced panels. This strategy permits at most two FE.
 \item \code{"mundlak"}: a generalized Mundlak (1978), or correlated random effects (CRE) estimator that regresses Y on X plus group means of X:
 \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
 \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_{i} + \delta \bar{X}_{t} + \varepsilon_{it} \quad \text{(two-way, etc.)}}
-Unlike \code{"demean"}, Y is not transformed, so predictions are on the original scale. Coefficients differ from (but are asymptotically equivalent to) fixed effects. Supports any number of fixed effects.
+Unlike \code{"demean"}, Y is not transformed, so predictions are on the original scale. Supports any number of FE and works correctly for any panel structure (balanced or unbalanced). However, note that CRE is a \emph{different model} from FE: while coefficients are asymptotically equivalent under certain assumptions, they will generally differ in finite samples. Users who require exact FE estimates should use \code{"compress"}; \code{"mundlak"} is provided as an efficient alternative when the CRE estimand is acceptable and data transfer constraints bind.
 }
 
 The relative efficiency of each of these strategies depends on the size and
-structure of the data, as well the number of unique regressors and
-fixed effects. While the compression approach can yield remarkable
-performance gains for "standard" cases, it is less efficient for a true panel
-(repeated cross-sections over time), where N >> T. In such cases, it is more
-efficient to use a demeaning (within) transformation that subtracts group means
-first. (Reason: unit and time fixed effects are typically high dimensional,
-but covariate averages are not; see Arkhangelsky & Imbens, 2024.)
+structure of the data, as well the number of unique regressors and FE. While
+the \code{"compress"} strategy can yield remarkable performance gains for standard
+cases, it is less efficient for a true panel (repeated cross-sections over
+time), where N >> T. In such cases, it is more efficient to use the \code{"demean"}
+(within) transformation that subtracts group means first. This is because
+unit and time FE are typically high dimensional, but covariate averages are
+not; see Arkhangelsky & Imbens (2024). However, for TWFE on unbalanced panels,
+single-pass demeaning does not yield exact TWFE. On the other hand, the
+\code{"mundlak"} (CRE) strategy offers a consistent and efficient estimation
+alternative that works for any panel structure; albeit at the "cost" or
+recovering a different estimand. Users should weigh these tradeoffs:
+\code{"compress"} guarantees exact FE at higher data I/O cost, \code{"mundlak"}
+minimizes I/O but changes the underlying model, etc.
 
 If the user does not specify an explicit acceleration strategy, then
 \code{dbreg} will invoke an \code{"auto"} heuristic behind the scenes. This requires
 some additional overhead, but in most cases should be negligible next to the
 overall time savings. The heuristic is as follows:
 \itemize{
-\item IF no fixed effects AND (any continuous regressor OR poor compression ratio OR too big compressed data) THEN \code{"moments"}.
-\item ELSE IF 1-2 fixed effects AND (poor compression ratio OR too big compressed data) THEN \code{"demean"}.
+\item IF no FE AND (any continuous regressor OR poor compression ratio OR too big compressed data) THEN \code{"moments"}.
+\item ELSE IF 1 FE AND (poor compression ratio OR too big compressed data) THEN \code{"demean"}.
+\item ELSE IF 2 FE AND (poor compression ratio OR too big compressed data):
+\itemize{
+\item IF balanced panel THEN \code{"demean"}.
+\item ELSE error (exact TWFE infeasible; user must explicitly choose \code{"compress"} or \code{"mundlak"}).
+}
 \item ELSE THEN \code{"compress"}.
 }
 }

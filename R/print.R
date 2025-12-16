@@ -21,11 +21,10 @@ print.dbreg = function(x, fes = FALSE, ...) {
       cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "(original) |", prettyNum(x$nobs, big.mark = ","), "(compressed)", "\n")
     } else if (x$strategy == "demean") {
       num_fes = length(x$fes)
-      mstring = "Within"
       if (num_fes == 1) {
-        mstring = paste("One-way", mstring)
-      } else if (num_fes == 2) {
-        mstring = paste("Two-way", mstring)
+        mstring = "Demeaned"
+      } else {
+        mstring = "Double Demeaned"
       }
       cat(paste(mstring, "OLS estimation, Dep. Var.:", x$yvar, "\n"))
       cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
