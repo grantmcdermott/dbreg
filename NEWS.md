@@ -4,19 +4,38 @@
 
 Breaking changes
 
-- The `"mundlak"` strategy is renamed to `"demean"` (alias `"within"`).
-- For two-way fixed effects on unbalanced panels, `strategy="auto"` now errors
-  when compression limits are exceeded, rather than silently selecting a
-  different estimand. Users must explicitly choose `"compress"` (with higher
-  limits) or `"mundlak"` (CRE, different model). (#24)
+- The behaviour of the `"mundlak"` strategy has been changed. (#24)
+  - The old `"mundlak"` strategy is remapped to the new `"demean"` (alias
+    `"within"`) strategy, to better reflect the fact that this strategy invokes
+    a (double) demeaning transformation. Users who want the old behaviour should
+    thus use `"demean"` instead of `"mundlak"`.
+  - Simultaneously, we now provide a revised `"mundlak"` strategy that
+    implements a "true" Mundlak/CRE estimator; see New features below.
+- For estimations with two fixed effects on _unbalanced_ panels,
+  `strategy="auto"` now errors when the compression limits are exceeded. It does
+  this to avoid silently selecting a different estimand (e.g, TWFE vs
+  Mundlak/CRE). For these ambiguous cases, users will now be prompted to
+  explicitly choose `"compress"` (with higher limits) or `"mundlak"`
+  (CRE, different model). (#24)
 
 New features
 
-- New `"mundlak"` strategy implements a true Mundlak/CRE estimator that regresses
-  Y on X plus group means of X. Unlike `"demean"`, this works correctly for any
-  panel structure and supports any number of fixed effects. Note that Mundlak/CRE
-  is a different model from fixed effects (though asymptotically equivalent under
-  certain assumptions). (#24)
+- We have added new/revised acceleration strategies. (#24)
+  - The `"demean"` (alias `"within"`) strategy implements a (double) demeaning
+    transformation and is particularly suited to (balanced) panels with one or
+    two fixed effects. Note the underlying query is the same as the _old_
+    `"mundlak"` strategy, which was somewhat erroneously named. Speaking of
+    which...
+  - The revised `"mundlak"` strategy now implements a "true" Mundlak/CRE
+    (correlated random effects) estimator by regressesing Y on X plus group
+    means of X. Unlike the `"demean"` strategy (above), this revised `"mundlak"`
+    model obtains consistent coefficients regardless of panel structure (incl.
+    unbalanced panels) and supports any number of fixed effects. However, users
+    should note that Mundlak/CRE is a different model from "vanila" fixed
+    effects---albeit asymptotically equivalent under certain assumptions---and
+    may obtain different coefficients as a result.
+  - Please consult the expanded `Acceleration Strategies` section in the
+    `?dbreg` helpfile for technical details. (#24)
 - Added QR decomposition fallback for regression calculations, for cases where
   the default Cholesky solver fails. (#7)
 - Improved integration for running regressions on AWS Athena datasets via the

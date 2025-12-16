@@ -86,43 +86,86 @@
 #' Y (outcome), X (explanatory variables), and FE (fixed effects) for exposition
 #' purposes:
 #'
-#' 1. `"compress"`: compresses the data via a `GROUP BY` operation (using X and the FE as groups), before running weighted least squares on this much smaller dataset:
+#' 1. `"compress"`: compresses the data via a `GROUP BY` operation (using X and
+#'    the FE as groups), before running weighted least squares on this much
+#'    smaller dataset:
 #'    \deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
-#'    where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure follows Wang et al. (2021).
-#' 2. `"moments"`: computes sufficient statistics (\eqn{X'X, X'y}) directly via SQL aggregation, returning a single-row result. This solves the standard OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases without FE.
-#' 3. `"demean"` (alias `"within"`): subtracts group-level means from both Y and X before computing sufficient statistics (per the `"moments"` strategy). For example, given unit \eqn{i} and time \eqn{t} FE, we apply double demeaning:
+#'    where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure
+#'    follows Wang et al. (2021).
+#' 2. `"moments"`: computes sufficient statistics (\eqn{X'X, X'y}) directly via
+#'    SQL aggregation, returning a single-row result. This solves the standard
+#'    OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases
+#'    without FE.
+#' 3. `"demean"` (alias `"within"`): subtracts group-level means from both Y and
+#'    X before computing sufficient statistics (per the `"moments"` strategy).
+#'    For example, given unit \eqn{i} and time \eqn{t} FE, we apply double
+#'    demeaning:
 #'    \deqn{\ddot{Y}_{it} = \beta \ddot{X}_{it} + \varepsilon_{it}}
-#'    where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This single-pass within transformation is algebraically equivalent to the fixed effects projection (i.e., the Frisch-Waugh-Lovell partialling-out) for one-way FE (1WFE), and it is also identical in the two-way FE (TWFE) case when the panel is balanced. However, in unbalanced two-way panels, this strategy is not algebraically equivalent to the fixed effects projection and therefore does not recover the exact TWFE coefficients. Users should instead invoke `"compress"` to obtain exact TWFE results in unbalanced panels. This strategy permits at most two FE.
-#' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects (CRE) estimator that regresses Y on X plus group means of X:
+#'    where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This
+#'    (single-pass) within transformation is algebraically equivalent to the
+#'    fixed effects projection---i.e., Frisch-Waugh-Lovell partialling out---in
+#'    the presence or a single FE. It is also identical for the two-way FE
+#'    (TWFE) case if your panel is balanced. For unbalanced two-way panels,
+#'    however, the double demeaning strategy is not algebraically equivalent to
+#'    the fixed effects projection and therefore does not recover the exact TWFE
+#'    coefficients. Moreover, note that this `"demean"` strategy permits at most
+#'    two FE.
+#' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects
+#'    (CRE) estimator that regresses Y on X plus group means of X:
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_{i} + \delta \bar{X}_{t} + \varepsilon_{it} \quad \text{(two-way, etc.)}}
-#'    Unlike `"demean"`, Y is not transformed, so predictions are on the original scale. Supports any number of FE and works correctly for any panel structure (balanced or unbalanced). However, note that CRE is a *different model* from FE: while coefficients are asymptotically equivalent under certain assumptions, they will generally differ in finite samples. Users who require exact FE estimates should use `"compress"`; `"mundlak"` is provided as an efficient alternative when the CRE estimand is acceptable and data transfer constraints bind.
+#'    Unlike `"demean"`, Y is not transformed, so predictions are on the
+#'    original scale. Supports any number of FE and works correctly for any
+#'    panel structure (balanced or unbalanced). However, note that CRE is a
+#'    *different model* from FE: while coefficients are asymptotically
+#'    equivalent under certain assumptions, they will generally differ in
+#'    finite samples.
 #'
 #' The relative efficiency of each of these strategies depends on the size and
-#' structure of the data, as well the number of unique regressors and FE. While
-#' the `"compress"` strategy can yield remarkable performance gains for standard
-#' cases, it is less efficient for a true panel (repeated cross-sections over
-#' time), where N >> T. In such cases, it is more efficient to use the `"demean"`
-#' (within) transformation that subtracts group means first. This is because
-#' unit and time FE are typically high dimensional, but covariate averages are
-#' not; see Arkhangelsky & Imbens (2024). However, for TWFE on unbalanced panels,
-#' single-pass demeaning does not yield exact TWFE. On the other hand, the 
-#' `"mundlak"` (CRE) strategy offers a consistent and efficient estimation
-#' alternative that works for any panel structure; albeit at the "cost" or
-#' recovering a different estimand. Users should weigh these tradeoffs:
-#' `"compress"` guarantees exact FE at higher data I/O cost, `"mundlak"`
-#' minimizes I/O but changes the underlying model, etc.
+#' structure of the data, as well the number of unique regressors and FE. For
+#' (quote unquote) "standard" cases, the `"compress"` strategy can yield
+#' remarkable performance gains and should justifiably be viewed as a good
+#' default. However, the compression approach tends to be less efficient for
+#' true panels panels (repeated cross-sections over time), where N >> T. In such
+#' cases, it can be more efficient to use a demeaning strategy that first
+#' controls for (e.g. subtracts) group means, before computing sufficient
+#' statistics on the aggregated data. The reason for this is that time and unit
+#' FE are typically high dimensional, but covariate averages are not; see
+#' Arkhangelsky & Imbens (2024).
+#' 
+#' However, the demeaning approaches invite tradeoffs of their own. For example,
+#' the double demeaning transformation of the `"demean"` strategy does not
+#' obtain exact TWFE results in unbalanced panels, and it is also limited to at
+#' most two FE. Conversely, the `"mundlak"` (CRE) strategy obtains consistent
+#' coefficients regardless of panel structure and FE count, but at the "cost" of
+#' recovering a different estimand. (It is a different model to TWFE, after
+#' all.)
+#' 
+#' Users should weigh these tradeoffs when choosing their accleration strategy.
+#' Summarising, we can provide a few guiding principles. `"compress"` is a good
+#' default that guarantees the "exact" FE estimates and is usually very 
+#' efficient (barring data I/O costs and high FE dimensionality). `"mundlak"` is
+#' another efficient alternative provided that the CRE estimand is acceptable
+#' (don't be alarmed if your coefficients are not identical). Finally, the
+#' `"demean"` and `"moments"` strategies are great for particular use cases
+#' (i.e., balanced panels and cases without FE, respectively).
+#' 
+#' If this all sounds like too much to think about, don't fret. The good news
+#' is that `dbreg` can do a lot (all?) of the deciding for you. Specifically, it
+#' will invoke an `"auto"` heuristic behind the scenes if a user does not
+#' provide an explicit acceleration strategy. Working through the heuristic
+#' logic does impose some additional overhead, but this should be negligible in
+#' most cases (certainly compared to the overall time savings). The `"auto"`
+#' heuristic is as follows:
 #'
-#' If the user does not specify an explicit acceleration strategy, then
-#' `dbreg` will invoke an `"auto"` heuristic behind the scenes. This requires
-#' some additional overhead, but in most cases should be negligible next to the
-#' overall time savings. The heuristic is as follows:
-#'
-#' - IF no FE AND (any continuous regressor OR poor compression ratio OR too big compressed data) THEN `"moments"`.
-#' - ELSE IF 1 FE AND (poor compression ratio OR too big compressed data) THEN `"demean"`.
+#' - IF no FE AND (any continuous regressor OR poor compression ratio OR too big
+#'   compressed data) THEN `"moments"`.
+#' - ELSE IF 1 FE AND (poor compression ratio OR too big compressed data) THEN
+#'   `"demean"`.
 #' - ELSE IF 2 FE AND (poor compression ratio OR too big compressed data):
 #'   - IF balanced panel THEN `"demean"`.
-#'   - ELSE error (exact TWFE infeasible; user must explicitly choose `"compress"` or `"mundlak"`).
+#'   - ELSE error (exact TWFE infeasible; user must explicitly choose
+#'     `"compress"` or `"mundlak"`).
 #' - ELSE THEN `"compress"`.
 #'
 #' @references
