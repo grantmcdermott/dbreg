@@ -218,8 +218,6 @@ res_summ = res[,
 ]
 res_summ
 
-res_summ
-
 #
 ## Plots ----
 
