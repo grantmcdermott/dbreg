@@ -34,8 +34,10 @@
 #' note the use of single quotes.
 #' Ignored if either `table` or `data` is provided.
 #' @param vcov Character string denoting the desired type of variance-
-#' covariance correction / standard errors. At present, only "iid" (default) or
-#' "hc1" (heteroskedasticity-consistent) are supported.
+#' covariance correction / standard errors. At present, only `"iid"` (default)
+#' or `"hc1"` (heteroskedasticity-consistent) are supported. Note that the
+#' latter requires a second pass over the data unless `strategy = "compress"` to
+#' construct the residuals.
 #' @param strategy Character string indicating the preferred acceleration
 #'   strategy. The default `"auto"` will pick an optimal strategy based on
 #'   internal heuristics. Users can also override with one of the following
@@ -705,11 +707,15 @@ execute_moments_strategy = function(inputs) {
     xj = pair[2]
     pair_exprs = c(pair_exprs, glue("SUM({xi}*{xj}) AS sum_{xi}_{xj}"))
   }
+  
+  # CTE structure for HC1 meat computation
+  cte_sql = paste0("WITH base AS (SELECT * ", inputs$from_statement, ")")
+  
   moments_sql = paste0(
+    cte_sql, "\n",
     "SELECT\n  ",
     paste(pair_exprs, collapse = ",\n  "),
-    "\n",
-    inputs$from_statement
+    "\nFROM base"
   )
 
   if (inputs$query_only) {
@@ -763,13 +769,31 @@ execute_moments_strategy = function(inputs) {
   sum_y_sq = moments_df$sum_y_sq
   tss = sum_y_sq - (sum_y^2 / n_total)
   
+  # Compute HC1 meat matrix if needed
+  meat = NULL
+  if (inputs$vcov_type_req == "hc1") {
+    is_athena = inherits(inputs$conn, "AthenaConnection")
+    meat = compute_meat_sql(
+      conn = inputs$conn,
+      cte_sql = cte_sql,
+      vars = inputs$xvars,
+      yvar = inputs$yvar,
+      betahat = betahat,
+      is_athena = is_athena,
+      var_suffix = "",
+      cte_name = "base",
+      has_intercept = TRUE
+    )
+  }
+  
   vcov_mat = compute_vcov(
     vcov_type = inputs$vcov_type_req,
     strategy = "moments",
     XtX_inv = XtX_inv,
     rss = rss,
     df_res = df_res,
-    nobs_orig = n_total
+    nobs_orig = n_total,
+    meat = meat
   )
   attr(vcov_mat, "rss") = rss
   attr(vcov_mat, "tss") = tss
@@ -799,10 +823,11 @@ execute_moments_strategy = function(inputs) {
 #' 
 #' @keywords internal
 execute_demean_strategy = function(inputs) {
+  all_vars = c(inputs$yvar, inputs$xvars)
+  
   if (length(inputs$fes) == 1) {
     # Single FE: simple within-group demeaning
     fe1 = inputs$fes[1]
-    all_vars = c(inputs$yvar, inputs$xvars)
 
     means_cols = paste(
       sprintf("AVG(%s) AS %s_mean", all_vars, all_vars),
@@ -813,52 +838,8 @@ execute_demean_strategy = function(inputs) {
       collapse = ",\n       "
     )
 
-    moment_terms = c(
-      sql_count(inputs$conn, "n_total"),
-      sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
-      "1 AS n_fe2",
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_y_sq",
-        inputs$yvar,
-        inputs$yvar
-      )
-    )
-    for (x in inputs$xvars) {
-      moment_terms = c(
-        moment_terms,
-        sprintf(
-          "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-          x,
-          inputs$yvar,
-          x,
-          inputs$yvar
-        ),
-        sprintf(
-          "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-          x,
-          x,
-          x,
-          x
-        )
-      )
-    }
-    xpairs = gen_xvar_pairs(inputs$xvars)
-    for (pair in xpairs) {
-      xi = pair[1]
-      xj = pair[2]
-      moment_terms = c(
-        moment_terms,
-        sprintf(
-          "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-          xi,
-          xj,
-          xi,
-          xj
-        )
-      )
-    }
-
-    demean_sql = paste0(
+    # CTE part (reusable for HC1 meat computation)
+    cte_sql = paste0(
       "WITH base AS (
       SELECT * ",
       inputs$from_statement,
@@ -887,21 +868,23 @@ execute_demean_strategy = function(inputs) {
       " = gm.",
       fe1,
       "
-      ),
-      moments AS (
-      SELECT
-          ",
-      paste(moment_terms, collapse = ",\n    "),
-      "
-      FROM demeaned
+      )"
+    )
+
+    moment_terms = c(
+      sql_count(inputs$conn, "n_total"),
+      sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
+      "1 AS n_fe2",
+      sprintf(
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_y_sq",
+        inputs$yvar,
+        inputs$yvar
       )
-      SELECT * FROM moments"
     )
   } else {
     # Two FE: double demeaning
     fe1 = inputs$fes[1]
     fe2 = inputs$fes[2]
-    all_vars = c(inputs$yvar, inputs$xvars)
 
     unit_means_cols = paste(
       sprintf("AVG(%s) AS %s_u", all_vars, all_vars),
@@ -927,52 +910,8 @@ execute_demean_strategy = function(inputs) {
       collapse = ",\n       "
     )
 
-    moment_terms = c(
-      sql_count(inputs$conn, "n_total"),
-      sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
-      sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_y_sq",
-        inputs$yvar,
-        inputs$yvar
-      )
-    )
-    for (x in inputs$xvars) {
-      moment_terms = c(
-        moment_terms,
-        sprintf(
-          "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-          x,
-          inputs$yvar,
-          x,
-          inputs$yvar
-        ),
-        sprintf(
-          "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-          x,
-          x,
-          x,
-          x
-        )
-      )
-    }
-    xpairs = gen_xvar_pairs(inputs$xvars)
-    for (pair in xpairs) {
-      xi = pair[1]
-      xj = pair[2]
-      moment_terms = c(
-        moment_terms,
-        sprintf(
-          "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-          xi,
-          xj,
-          xi,
-          xj
-        )
-      )
-    }
-
-    demean_sql = paste0(
+    # CTE part (reusable for HC1 meat computation)
+    cte_sql = paste0(
       "WITH base AS (
       SELECT * ",
       inputs$from_statement,
@@ -1024,17 +963,70 @@ execute_demean_strategy = function(inputs) {
       fe2,
       "
       CROSS JOIN overall o
+      )"
+    )
+
+    moment_terms = c(
+      sql_count(inputs$conn, "n_total"),
+      sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
+      sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
+      sprintf(
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_y_sq",
+        inputs$yvar,
+        inputs$yvar
+      )
+    )
+  }
+
+  # Add moment terms for xvars (shared by both 1-FE and 2-FE cases)
+  for (x in inputs$xvars) {
+    moment_terms = c(
+      moment_terms,
+      sprintf(
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
+        x,
+        inputs$yvar,
+        x,
+        inputs$yvar
       ),
+      sprintf(
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
+        x,
+        x,
+        x,
+        x
+      )
+    )
+  }
+  xpairs = gen_xvar_pairs(inputs$xvars)
+  for (pair in xpairs) {
+    xi = pair[1]
+    xj = pair[2]
+    moment_terms = c(
+      moment_terms,
+      sprintf(
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
+        xi,
+        xj,
+        xi,
+        xj
+      )
+    )
+  }
+
+  # Build full SQL
+  demean_sql = paste0(
+    cte_sql,
+    ",
       moments AS (
       SELECT
           ",
-      paste(moment_terms, collapse = ",\n    "),
-      "
+    paste(moment_terms, collapse = ",\n    "),
+    "
       FROM demeaned
       )
       SELECT * FROM moments"
-    )
-  }
+  )
 
   # Athena FLOAT gotcha
   # https://github.com/DyfanJones/noctua/issues/228
@@ -1092,13 +1084,29 @@ execute_demean_strategy = function(inputs) {
   )
   df_fe = n_fe1 + n_fe2 - 1
   df_res = max(n_total - p - df_fe, 1)
+  
+  # Compute HC1 meat matrix if needed
+  meat = NULL
+  if (inputs$vcov_type_req == "hc1") {
+    is_athena = inherits(inputs$conn, "AthenaConnection")
+    meat = compute_meat_sql(
+      conn = inputs$conn,
+      cte_sql = cte_sql,
+      vars = inputs$xvars,
+      yvar = inputs$yvar,
+      betahat = betahat,
+      is_athena = is_athena
+    )
+  }
+  
   vcov_mat = compute_vcov(
     vcov_type = inputs$vcov_type_req,
     strategy = "demean",
     XtX_inv = XtX_inv,
     rss = rss,
     df_res = df_res,
-    nobs_orig = n_total
+    nobs_orig = n_total,
+    meat = meat
   )
   attr(vcov_mat, "rss") = rss
   attr(vcov_mat, "tss") = demean_df$sum_y_sq
@@ -1204,10 +1212,15 @@ execute_mundlak_strategy = function(inputs) {
     }
   }
 
-  mundlak_sql = paste0(
+  # CTE part (reusable for HC1 meat computation)
+  cte_sql = paste0(
     "WITH base AS (SELECT * ", inputs$from_statement, "),\n",
     paste(cte_parts, collapse = ",\n"), ",\n",
-    "augmented AS (SELECT ", aug_select, " FROM base b ", paste(join_parts, collapse = " "), "),\n",
+    "augmented AS (SELECT ", aug_select, " FROM base b ", paste(join_parts, collapse = " "), ")"
+  )
+
+  mundlak_sql = paste0(
+    cte_sql, ",\n",
     "moments AS (SELECT ", paste(moment_terms, collapse = ", "), " FROM augmented)\n",
     "SELECT * FROM moments"
   )
@@ -1277,13 +1290,31 @@ execute_mundlak_strategy = function(inputs) {
 
   df_res = max(n_total - p, 1)
 
+  # Compute HC1 meat matrix if needed
+  meat = NULL
+  if (inputs$vcov_type_req == "hc1") {
+    is_athena = inherits(inputs$conn, "AthenaConnection")
+    meat = compute_meat_sql(
+      conn = inputs$conn,
+      cte_sql = cte_sql,
+      vars = all_regressors,
+      yvar = yvar,
+      betahat = betahat,
+      is_athena = is_athena,
+      var_suffix = "",
+      cte_name = "augmented",
+      has_intercept = TRUE
+    )
+  }
+
   vcov_mat = compute_vcov(
     vcov_type = inputs$vcov_type_req,
     strategy = "mundlak",
     XtX_inv = XtX_inv,
     rss = rss,
     df_res = df_res,
-    nobs_orig = n_total
+    nobs_orig = n_total,
+    meat = meat
   )
   attr(vcov_mat, "rss") = rss
   attr(vcov_mat, "tss") = tss
@@ -1471,19 +1502,20 @@ compute_vcov = function(
   df_res,
   nobs_orig,
   X = NULL,
-  rss_g = NULL
+  rss_g = NULL,
+  meat = NULL
 ) {
   if (vcov_type == "hc1") {
     if (strategy == "compress") {
       # Compress strategy: HC1 with grouped residuals
       meat = crossprod(X, Diagonal(x = as.numeric(rss_g)) %*% X)
-      scale_hc1 = nobs_orig / df_res
-      vcov_mat = scale_hc1 * (XtX_inv %*% meat %*% XtX_inv)
-    } else {
-      # Moments/Demean strategy: simple HC1 scaling
-      sigma2 = rss / df_res
-      vcov_mat = sigma2 * XtX_inv * (nobs_orig / df_res)
     }
+    # meat should be provided for demean/mundlak/moments strategies
+    if (is.null(meat)) {
+      stop("HC1 requires meat matrix for non-compress strategies")
+    }
+    scale_hc1 = nobs_orig / df_res
+    vcov_mat = scale_hc1 * (XtX_inv %*% meat %*% XtX_inv)
     attr(vcov_mat, "type") = "hc1"
   } else {
     # IID case (same for all strategies)
@@ -1493,6 +1525,112 @@ compute_vcov = function(
   }
   dimnames(vcov_mat) = dimnames(XtX_inv)
   vcov_mat
+}
+
+#' Compute HC1 meat matrix via SQL
+#' @keywords internal
+compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat, 
+                            is_athena = FALSE, 
+                            var_suffix = "_tilde",
+                            cte_name = "demeaned",
+                            has_intercept = FALSE) {
+  # Build variable names with suffix
+  vars_sql = paste0(vars, var_suffix)
+  yvar_sql = paste0(yvar, var_suffix)
+  
+  # Extract beta values (betahat may be a matrix)
+  beta_vals = as.numeric(betahat[vars, 1])
+  
+  # Build residual expression: y - intercept - sum(beta_j * x_j)
+  if (has_intercept) {
+    intercept_val = as.numeric(betahat["(Intercept)", 1])
+    beta_terms = paste(
+      sprintf("%.15g * %s", beta_vals, vars_sql),
+      collapse = " + "
+    )
+    resid_expr = sprintf("(%s - %.15g - (%s))", yvar_sql, intercept_val, beta_terms)
+  } else {
+    beta_terms = paste(
+      sprintf("%.15g * %s", beta_vals, vars_sql),
+      collapse = " + "
+    )
+    resid_expr = sprintf("(%s - (%s))", yvar_sql, beta_terms)
+  }
+  
+  # Build meat terms: SUM(e^2 * xi * xj) for all pairs including diagonal
+  # If has_intercept, include intercept as first "variable" (value = 1)
+  meat_terms = character(0)
+  
+  if (has_intercept) {
+    # Intercept-intercept term: SUM(e^2 * 1 * 1) = SUM(e^2)
+    meat_terms = c(meat_terms, sprintf(
+      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_intercept_intercept",
+      resid_expr, resid_expr
+    ))
+    # Intercept-variable terms: SUM(e^2 * 1 * xj) = SUM(e^2 * xj)
+    for (j in seq_along(vars)) {
+      vj = vars[j]
+      vj_sql = paste0(vj, var_suffix)
+      meat_terms = c(meat_terms, sprintf(
+        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_intercept_%s",
+        resid_expr, resid_expr, vj_sql, vj
+      ))
+    }
+  }
+  
+  # Variable-variable terms
+  for (i in seq_along(vars)) {
+    for (j in i:length(vars)) {
+      vi = vars[i]
+      vj = vars[j]
+      vi_sql = paste0(vi, var_suffix)
+      vj_sql = paste0(vj, var_suffix)
+      meat_terms = c(meat_terms, sprintf(
+        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_%s_%s",
+        resid_expr, resid_expr, vi_sql, vj_sql, vi, vj
+      ))
+    }
+  }
+  
+  meat_sql = paste0(
+    cte_sql,
+    ",\nmeat AS (SELECT ", paste(meat_terms, collapse = ", "), " FROM ", cte_name, ")\n",
+    "SELECT * FROM meat"
+  )
+  
+  if (is_athena) {
+    meat_sql = gsub("FLOAT", "REAL", meat_sql, fixed = TRUE)
+  }
+  
+  meat_df = dbGetQuery(conn, meat_sql)
+  
+  # Reconstruct meat matrix
+  if (has_intercept) {
+    vars_all = c("(Intercept)", vars)
+  } else {
+    vars_all = vars
+  }
+  p = length(vars_all)
+  meat_mat = matrix(0, p, p, dimnames = list(vars_all, vars_all))
+  
+  if (has_intercept) {
+    meat_mat["(Intercept)", "(Intercept)"] = meat_df$meat_intercept_intercept
+    for (j in seq_along(vars)) {
+      vj = vars[j]
+      val = meat_df[[sprintf("meat_intercept_%s", vj)]]
+      meat_mat["(Intercept)", vj] = meat_mat[vj, "(Intercept)"] = val
+    }
+  }
+  
+  for (i in seq_along(vars)) {
+    for (j in i:length(vars)) {
+      vi = vars[i]
+      vj = vars[j]
+      val = meat_df[[sprintf("meat_%s_%s", vi, vj)]]
+      meat_mat[vi, vj] = meat_mat[vj, vi] = val
+    }
+  }
+  meat_mat
 }
 
 #' Generate unique pairs of variables (preserves original nested loop order)

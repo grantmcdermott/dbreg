@@ -53,8 +53,10 @@ Ignored if either \code{table} or \code{data} is provided.
 }}
 
 \item{vcov}{Character string denoting the desired type of variance-
-covariance correction / standard errors. At present, only "iid" (default) or
-"hc1" (heteroskedasticity-consistent) are supported.}
+covariance correction / standard errors. At present, only \code{"iid"} (default)
+or \code{"hc1"} (heteroskedasticity-consistent) are supported. Note that the
+latter requires a second pass over the data unless \code{strategy = "compress"} to
+construct the residuals.}
 
 \item{strategy}{Character string indicating the preferred acceleration
 strategy. The default \code{"auto"} will pick an optimal strategy based on
