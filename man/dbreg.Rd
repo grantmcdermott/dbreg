@@ -78,7 +78,7 @@ even if we have achieved good compression on top of the original dataset.
 Default value is 1e6 (i.e., a million rows).
 }
 
-See the Acceleration Strategies section for further details.}
+See the Acceleration Strategies section below for further details.}
 
 \item{query_only}{Logical indicating whether only the underlying compression
 SQL query should be returned (i.e., no computation will be performed).
@@ -200,6 +200,9 @@ compressed data) THEN \code{"moments"}.
 }
 \item ELSE THEN \code{"compress"}.
 }
+
+\emph{Tip: set \code{dbreg(..., verbose = TRUE)} to print information about the auto
+strategy decision criteria.}
 }
 
 \examples{

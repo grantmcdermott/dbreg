@@ -162,6 +162,9 @@
 #'   - ELSE error (exact TWFE infeasible; user must explicitly choose
 #'     `"compress"` or `"mundlak"`).
 #' - ELSE THEN `"compress"`.
+#' 
+#' _Tip: set `dbreg(..., verbose = TRUE)` to print information about the auto
+#' strategy decision criteria._
 #'
 #' @references
 #' Arkhangelsky, D. & Imbens, G. (2024)
