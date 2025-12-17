@@ -12,7 +12,7 @@ dbreg(
   path = NULL,
   vcov = c("iid", "hc1"),
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
-  compress_ratio = 0.001,
+  compress_ratio = NULL,
   compress_nmax = 1e+06,
   query_only = FALSE,
   data_only = FALSE,
@@ -66,24 +66,19 @@ for details.}
 \item{compress_ratio, compress_nmax}{Numeric(s). Parameters that help to
 determine the acceleration \code{strategy} under the default \code{"auto"} option.
 \itemize{
-\item \code{compress_ratio} defines the compression ratio threshold, i.e. compressed
-data size vs. original data size. An estimated compression ratio larger
-than this threshold indicates poor compression relative to the desired
-level.
+\item \code{compress_ratio} defines the compression ratio threshold, i.e. numeric
+in the range \verb{[0,1]} defining the minimum acceptable compressed versus
+the original data size. Default value of \code{NULL} means that the threshold
+will be automatically determined based on some internal heuristic
+(e.g., 0.01 for models without fixed effects).
 \item \code{compress_nmax} defines the maximum allowable size (in rows) of the
 compressed dataset that can be serialized into R. Pays heed to the idea
 that big data serialization can be costly (esp. for remote databases),
 even if we have achieved good compression on top of the original dataset.
+Default value is 1e6 (i.e., a million rows).
 }
 
-If both conditions are met, i.e. (1) estimated compression ratio <
-\code{compress_ratio} and (2) estimated compressed data size < \code{compress_nmax},
-then the \code{"compress"} strategy is used. Otherwise, either the \code{"demean"} or
-\code{"moments"} strategy will be used, depending on the number of FE.
-Note: for two-way FE (TWFE) on unbalanced panels, if compression limits
-are exceeded, \code{"auto"} will error rather than silently select a different
-estimand. Users must explicitly choose \code{"compress"} (with higher limits) or
-\code{"mundlak"} (CRE, different model).}
+See the Acceleration Strategies section for further details.}
 
 \item{query_only}{Logical indicating whether only the underlying compression
 SQL query should be returned (i.e., no computation will be performed).
@@ -99,8 +94,8 @@ regression software. It is \emph{strongly} recommended not to change this value
 unless you are absolutely sure that your data have no missings and you wish
 to skip some internal checks. (Even then, it probably isn't worth it.)}
 
-\item{verbose}{Logical. Print progress messages to the console? Defaults to
-\code{TRUE}.}
+\item{verbose}{Logical. Print auto strategy and progress messages to the
+console? Defaults to \code{TRUE}.}
 }
 \value{
 A list of class "dbreg" containing various slots, including a table

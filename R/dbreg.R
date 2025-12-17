@@ -45,23 +45,18 @@
 #' @param compress_ratio,compress_nmax Numeric(s). Parameters that help to
 #'   determine the acceleration `strategy` under the default `"auto"` option.
 #'
-#'   - `compress_ratio` defines the compression ratio threshold, i.e. compressed
-#'     data size vs. original data size. An estimated compression ratio larger
-#'     than this threshold indicates poor compression relative to the desired
-#'     level.
+#'   - `compress_ratio` defines the compression ratio threshold, i.e. numeric
+#'     in the range `[0,1]` defining the minimum acceptable compressed versus
+#'     the original data size. Default value of `NULL` means that the threshold
+#'     will be automatically determined based on some internal heuristic
+#'     (e.g., 0.01 for models without fixed effects).
 #'   - `compress_nmax` defines the maximum allowable size (in rows) of the
 #'     compressed dataset that can be serialized into R. Pays heed to the idea
 #'     that big data serialization can be costly (esp. for remote databases),
 #'     even if we have achieved good compression on top of the original dataset.
+#'     Default value is 1e6 (i.e., a million rows).
 #'
-#' If both conditions are met, i.e. (1) estimated compression ratio <
-#' `compress_ratio` and (2) estimated compressed data size < `compress_nmax`,
-#' then the `"compress"` strategy is used. Otherwise, either the `"demean"` or
-#' `"moments"` strategy will be used, depending on the number of FE.
-#' Note: for two-way FE (TWFE) on unbalanced panels, if compression limits
-#' are exceeded, `"auto"` will error rather than silently select a different
-#' estimand. Users must explicitly choose `"compress"` (with higher limits) or
-#' `"mundlak"` (CRE, different model).
+#'   See the Acceleration Strategies section below for further details.
 #' @param query_only Logical indicating whether only the underlying compression
 #'   SQL query should be returned (i.e., no computation will be performed).
 #'   Default is `FALSE`.
@@ -73,8 +68,8 @@
 #'   regression software. It is *strongly* recommended not to change this value
 #'   unless you are absolutely sure that your data have no missings and you wish
 #'   to skip some internal checks. (Even then, it probably isn't worth it.)
-#' @param verbose Logical. Print progress messages to the console? Defaults to
-#'   `TRUE`.
+#' @param verbose Logical. Print auto strategy and progress messages to the
+#'   console? Defaults to `TRUE`.
 #'
 #' @return A list of class "dbreg" containing various slots, including a table
 #' of coefficients (which the associated print method will display).
@@ -219,7 +214,7 @@ dbreg = function(
   path = NULL,
   vcov = c("iid", "hc1"),
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
-  compress_ratio = 0.001,
+  compress_ratio = NULL,
   compress_nmax = 1e6,
   query_only = FALSE,
   data_only = FALSE,
@@ -378,7 +373,15 @@ process_dbreg_inputs = function(
     FALSE
   }
 
-    # Filter missing cases
+  # compression ratio sanity check
+  if (is.null(compress_ratio)) {
+    # Stricter compress_ratio logic for 1 and 2 FE cases
+    compress_ratio = if (length(fes) %in% 1:2) 0.6 else 0.01
+  } else if (!(is.numeric(compress_ratio) && compress_ratio >= 0 && compress_ratio <= 1)) {
+    stop("Argument `compress_ratio` ratio must be a numeric in the range [0, 1]\n.")
+  }
+
+  # Filter missing cases
   if (isTRUE(drop_missings)) {
     # Wrap in subquery if path already contains WHERE clause
     if (grepl("WHERE", from_statement, ignore.case = TRUE)) {
@@ -501,9 +504,6 @@ choose_strategy = function(inputs) {
     fes = inputs$fes
     from_statement = inputs$from_statement
 
-    if (verbose) {
-      message("[dbreg] Estimating compression ratio and data size...")
-    }
     key_cols = c(xvars, fes)
     if (!length(key_cols)) {
       return(1)
@@ -540,14 +540,23 @@ choose_strategy = function(inputs) {
       error = function(e) NA_integer_
     )
 
-    if (verbose && length(fes) && !is.na(n_groups_fe)) {
-      message(
-        "[dbreg] Data has ",
-        format(total_n, big.mark = ","),
-        " rows and ",
-        format(n_groups_fe, big.mark = ","),
-        " unique FE groups."
+    if (verbose) {
+      data_msg = paste0(
+        "        - ", 
+        "data has ",
+        format(total_n, big.mark = ","), " rows"
       )
+      if (length(fes) && !is.na(n_groups_fe)) {
+        data_msg = paste0(
+          data_msg,
+          " with ",
+          length(fes), " FE ",
+          "(", format(n_groups_fe, big.mark = ","), " unique groups)"
+        )
+      } else if (length(fes) == 0) {
+        data_msg = paste0(data_msg, " with 0 FE")
+      }
+      message(data_msg)
     }
 
     comp_rat = n_groups_total / max(total_n, 1)
@@ -561,21 +570,48 @@ choose_strategy = function(inputs) {
 
   # Auto logic
   if (strategy == "auto") {
+    if (verbose) {
+      message("[dbreg] Auto strategy:")
+    }
     est_cr = tryCatch(estimate_compression(inputs), error = function(e) {
       NA_real_
     })
     comp_size = attr(est_cr, "comp_size")
+    fail_compress_ratio = !is.na(est_cr) && est_cr > compress_ratio
+    fail_compress_nmax = !is.na(est_cr) && comp_size > compress_nmax
+
+    if (verbose) {
+      compress_ratio_msg_sign = if (fail_compress_ratio) " exceeds " else " satisfies "
+      message(paste0(
+        "        - ",
+        "compression ratio (", sprintf("%.2f", est_cr), ")",
+        compress_ratio_msg_sign,
+        "threshold (", compress_ratio, ")"
+      ))
+      # only print compress nmax message if it fails (edge case)
+      if (fail_compress_nmax) {
+        compress_nmax_msg_sign = if (fail_compress_nmax) " exceeds " else " satisfies "
+        message(paste0(
+          "        - ",
+          "compressed data size (", prettyNum(comp_size, big.mark = ","), " rows)",
+          compress_nmax_msg_sign,
+          "threshold (", prettyNum(compress_nmax, big.mark = ","), " rows)"
+        ))
+      }
+    }
+
     if (length(fes) == 0) {
-      fail_compress_ratio = !is.na(est_cr) && est_cr > compress_ratio
-      fail_compress_nmax = !is.na(est_cr) && comp_size > compress_nmax
+      if (verbose) {
+        if (any_continuous) {
+          message("        - continuous variables detected")
+        }
+      }
       if (any_continuous || (fail_compress_ratio || fail_compress_nmax)) {
         chosen_strategy = "moments"
       } else {
         chosen_strategy = "compress"
       }
     } else if (length(fes) %in% c(1, 2)) {
-      fail_compress_ratio = !is.na(est_cr) && est_cr > max(0.6, compress_ratio)
-      fail_compress_nmax = !is.na(est_cr) && comp_size > compress_nmax
       if (fail_compress_ratio || fail_compress_nmax) {
         # For 2-way FE, check balance
         if (length(fes) == 2) {
@@ -586,73 +622,41 @@ choose_strategy = function(inputs) {
           is_balanced = tryCatch(dbGetQuery(conn, balance_sql)$n == 1, error = function(e) NA)
           if (isTRUE(is_balanced)) {
             chosen_strategy = "demean"
+            if (verbose) {
+              message("        - panel is balanced")
+            }
           } else {
             stop(
-              "Exact TWFE infeasible for unbalanced panel under current transfer limits.\n\n",
-              "Options:\n",
-              "  - strategy='compress' with higher compress_nmax (exact TWFE)\n",
-              "  - strategy='mundlak' (CRE estimator; different model; explicit opt-in)",
+              "[dbreg] Exact TWFE infeasible for unbalanced panel under current transfer limits.\n\n",
+              "Users have two recommended options:\n",
+              "  - strategy = 'compress' with less strict compression thresholds (for exact TWFE), or\n",
+              "  - strategy = 'mundlak' (for CRE estimator; different model so requires explicit opt-in)",
               call. = FALSE
             )
           }
         } else {
           chosen_strategy = "demean"
         }
-        if (verbose) {
-          message("[dbreg] Auto strategy decision:")
-          if (fail_compress_ratio) {
-            reason = paste0(
-              "compression ratio (",
-              sprintf("%.2f", est_cr),
-              ") > threshold (",
-              max(0.6, compress_ratio),
-              ")"
-            )
-          } else {
-            reason = paste0(
-              "compressed data size (",
-              prettyNum(comp_size, big.mark = ","),
-              " rows) > threshold (",
-              prettyNum(compress_nmax, big.mark = ","),
-              " rows)"
-            )
-          }
-          message("        - ", reason)
-          if (length(fes) == 2) {
-            message("        - panel is balanced")
-          }
-        }
       } else {
         chosen_strategy = "compress"
       }
-      if (verbose && chosen_strategy != "compress") {
-        message("        - choose: ", chosen_strategy)
-      }
     } else {
-      chosen_strategy = "compress"
-      if (!is.na(est_cr) && est_cr > 0.8 && verbose) {
-        message(sprintf(
-          "[dbreg] Auto: high compression ratio (%.4f). Group compression preferred for this FE structure.",
-          est_cr
-        ))
+      # browser()
+      # > 3 FEs, default to compress
+      if (verbose) {
+        message("        - more than 2 FEs")
       }
+      chosen_strategy = "compress"
     }
-    if (verbose && (strategy != "auto")) {
-      message(
-        "Compression ratio: ",
-        ifelse(is.na(est_cr), "unknown", sprintf("%.2f", est_cr))
-      )
+    if (verbose) {
+      message("        - decision: ", chosen_strategy)
     }
-  } else {
+    } else {
     chosen_strategy = strategy
     if (verbose) {
       message("[dbreg] Using strategy: ", chosen_strategy)
     }
   }
-
-  # if (verbose) {
-  #   message("[dbreg] Using strategy: ", chosen_strategy)
-  # }
 
   # Guard unsupported combos
   if (chosen_strategy == "moments" && length(fes) > 0) {
@@ -665,7 +669,7 @@ choose_strategy = function(inputs) {
   }
   if (chosen_strategy == "demean" && !(length(fes) %in% c(1, 2))) {
     if (verbose) {
-      message("[dbreg] demean requires one or two FEs. Using compress.")
+      message("[dbreg] demean requires <= 2 FEs. Using compress.")
     }
     chosen_strategy = "compress"
   }
@@ -1351,9 +1355,12 @@ execute_compress_strategy = function(inputs) {
   compression_ratio = nobs_comp / max(nobs_orig, 1)
 
   if (inputs$verbose && compression_ratio > 0.8) {
-    warning(sprintf(
-      "[dbreg] compression ineffective (%.1f%% of original rows).",
-      100 * compression_ratio
+    warning(paste0(
+      sprintf(
+        "[dbreg] compression ineffective (%.1f%% of original rows). ",
+        100 * compression_ratio
+      ),
+      "Consider strategy = 'mundlak'."
     ))
   }
 
