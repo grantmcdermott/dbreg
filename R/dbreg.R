@@ -123,7 +123,7 @@
 #' (quote unquote) "standard" cases, the `"compress"` strategy can yield
 #' remarkable performance gains and should justifiably be viewed as a good
 #' default. However, the compression approach tends to be less efficient for
-#' true panels panels (repeated cross-sections over time), where N >> T. In such
+#' true panels (repeated cross-sections over time), where N >> T. In such
 #' cases, it can be more efficient to use a demeaning strategy that first
 #' controls for (e.g. subtracts) group means, before computing sufficient
 #' statistics on the aggregated data. The reason for this is that time and unit
