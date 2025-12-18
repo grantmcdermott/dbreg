@@ -31,7 +31,7 @@ New features
     means of X. Unlike the `"demean"` strategy (above), this revised `"mundlak"`
     model obtains consistent coefficients regardless of panel structure (incl.
     unbalanced panels) and supports any number of fixed effects. However, users
-    should note that Mundlak/CRE is a different model from "vanila" fixed
+    should note that Mundlak/CRE is a different model from "vanilla" fixed
     effects---albeit asymptotically equivalent under certain assumptions---and
     may obtain different coefficients as a result.
   - Please consult the expanded `Acceleration Strategies` section in the
