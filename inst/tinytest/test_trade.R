@@ -29,7 +29,7 @@ trade_feols = feols(
   lean = TRUE
 )
 
-trade_coefs = row.names(trade_feols)
+trade_coefs = row.names(trade_feols$coeftable)
 
 # check results
 for (i in seq_along(dict_db)) {
@@ -75,7 +75,7 @@ expect_true(nrow(trade_data) == 210)
 # demean strategy (requires balanced panel for 2 FE, so use 1 FE instead)
 trade_fml1 = Euros ~ dist_km | Destination
 trade_demean1 = dbreg(
-  trade_fml,
+  trade_fml1,
   data = trade,
   strategy = "demean",
   vcov = "hc1",
@@ -89,7 +89,7 @@ trade_feols1 = feols(
   lean = TRUE
 )
 
-trade_coefs1 = row.names(trade_feols1)
+trade_coefs1 = row.names(trade_feols1$coeftable)
 
 for (i in seq_along(dict_db)) {
   expect_equal(
