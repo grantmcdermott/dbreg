@@ -40,7 +40,7 @@ New features
   the default Cholesky solver fails. (#7)
 - Improved integration for running regressions on AWS Athena datasets via the
   **noctua** package/driver. (#8)
-- The `"auto` strategy logic now considers a `compress_nmax` threshold, which
+- The `"auto"` strategy logic now considers a `compress_nmax` threshold, which
   governs the maximum allowable size of the compressed data object (default
   threshold = 1 million rows). This additional guardrail is intended to avoid
   cases where the `"compress"` strategy satisfies the `compress_ratio`
