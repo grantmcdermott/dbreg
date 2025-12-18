@@ -135,7 +135,7 @@ demeaning:
 where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This
 (single-pass) within transformation is algebraically equivalent to the
 fixed effects projection---i.e., Frisch-Waugh-Lovell partialling out---in
-the presence or a single FE. It is also identical for the two-way FE
+the presence of a single FE. It is also identical for the two-way FE
 (TWFE) case if your panel is balanced. For unbalanced two-way panels,
 however, the double demeaning strategy is not algebraically equivalent to
 the fixed effects projection and therefore does not recover the exact TWFE
