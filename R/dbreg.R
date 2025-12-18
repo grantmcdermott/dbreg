@@ -631,6 +631,9 @@ choose_strategy = function(inputs) {
               message("        - panel is balanced")
             }
           } else {
+            if (verbose) {
+              message("        - panel is unbalanced")
+            }
             stop(
               "[dbreg] Exact TWFE infeasible for unbalanced panel under current transfer limits.\n\n",
               "Users have two recommended options:\n",
@@ -665,18 +668,26 @@ choose_strategy = function(inputs) {
 
   # Guard unsupported combos
   if (chosen_strategy == "moments" && length(fes) > 0) {
-    if (verbose) {
-      message(
-        "[dbreg] FE present; moments (no-FE) not applicable. Using compress."
-      )
-    }
+    warning(
+      "[dbreg] FE present; moments (no-FE) not applicable. Using compress."
+    )
     chosen_strategy = "compress"
   }
-  if (chosen_strategy == "demean" && !(length(fes) %in% c(1, 2))) {
-    if (verbose) {
-      message("[dbreg] demean requires <= 2 FEs. Using compress.")
+  if (chosen_strategy == "demean") {
+    if (!(length(fes) %in% c(1, 2))) {
+      warning("[dbreg] demean requires <= 2 FEs. Using compress.")
+      chosen_strategy = "compress"
+    } else if (verbose && length(fes) == 2) {
+      # For 2-way FE, check balance; just a warning since user has explicitly selected into demean
+      fe_expr = paste(fes, collapse = ", ")
+      balance_sql = glue(
+        "SELECT COUNT(DISTINCT cnt) AS n FROM (SELECT COUNT(*) AS cnt {from_statement} GROUP BY {fe_expr}) t"
+      )
+      is_balanced = tryCatch(dbGetQuery(conn, balance_sql)$n == 1, error = function(e) NA)
+      if (!is_balanced) {
+        warning("[dbreg] Panel appears unbalanced. Double demeaning may yield different coefficients than exact TWFE.")
+      }
     }
-    chosen_strategy = "compress"
   }
 
   # Store compression ratio estimate for later use
