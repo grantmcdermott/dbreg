@@ -99,7 +99,7 @@ for (i in seq_along(dict_db)) {
   )
 }
 
-# mundlak strategy (comparison with manual feols impementation)
+# mundlak strategy (comparison with manual feols implementation)
 # Create group means for manual Mundlak
 trade$dist_km_mean_dest = ave(trade$dist_km, trade$Destination, FUN = mean)
 trade$dist_km_mean_orig = ave(trade$dist_km, trade$Origin, FUN = mean)
