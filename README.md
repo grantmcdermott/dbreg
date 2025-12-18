@@ -48,9 +48,10 @@ library(fixest)   # for data and comparison
 data("trade", package = "fixest")
 
 dbreg(Euros ~ dist_km | Destination + Origin, data = trade, vcov = 'hc1')
-#> [dbreg] Estimating compression ratio...
-#> [dbreg] Data has 38,325 rows and 210 unique FE groups.
-#> [dbreg] Using strategy: compress
+#> [dbreg] Auto strategy:
+#>         - data has 38,325 rows with 2 FE (210 unique groups)
+#>         - compression ratio (0.01) satisfies threshold (0.6)
+#>         - decision: compress
 #> [dbreg] Executing compress strategy SQL
 #> 
 #> Compressed OLS estimation, Dep. Var.: Euros 
@@ -109,10 +110,21 @@ dbreg(
    path = "read_parquet('nyc-taxi/**/*.parquet')", ## path to hive-partitioned dataset
    vcov = "hc1"
 )
-#> [dbreg] Estimating compression ratio...
-#> [dbreg] Data has 178,544,324 rows and 24 unique FE groups.
-#> [dbreg] Using strategy: compress
+#> [dbreg] Auto strategy:
+#>         - data has 178,544,324 rows with 2 FE (24 unique groups)
+#>         - compression ratio (0.00) satisfies threshold (0.6)
+#>         - decision: compress
 #> [dbreg] Executing compress strategy SQL
+#> 
+#> Compressed OLS estimation, Dep. Var.: tip_amount 
+#> Observations.: 178,544,324 (original) | 70,782 (compressed)
+#> Standard Errors: Heteroskedasticity-robust
+#>                  Estimate Std. Error  t value  Pr(>|t|)    
+#> fare_amount      0.106744   0.000068 1564.742 < 2.2e-16 ***
+#> passenger_count -0.029086   0.000106 -273.866 < 2.2e-16 ***
+#> ---
+#> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+#> RMSE: 1.7                 Adj. R2: 0.243549
 #> 
 #> Compressed OLS estimation, Dep. Var.: tip_amount 
 #> Observations.: 178,544,324 (original) | 70,782 (compressed)
@@ -163,9 +175,10 @@ dbreg(
    table = "taxi", # table name
    vcov = "hc1"
 )
-#> [dbreg] Estimating compression ratio...
-#> [dbreg] Data has 178,544,324 rows and 24 unique FE groups.
-#> [dbreg] Using strategy: compress
+#> [dbreg] Auto strategy:
+#>         - data has 178,544,324 rows with 2 FE (24 unique groups)
+#>         - compression ratio (0.00) satisfies threshold (0.6)
+#>         - decision: compress
 #> [dbreg] Executing compress strategy SQL
 #> 
 #> Compressed OLS estimation, Dep. Var.: tip_amount 
