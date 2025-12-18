@@ -68,7 +68,16 @@ Bug fixes
   Previously, these could sometimes be silently ignored due to internal
   overrides. Also, clarify in the argument documentation that the default
   (automatic) `compress_ratio` threshold can vary based on heuristics related to
-  model structure. (#25) 
+  model structure. (#25)
+- Correctly estimate HC1 standard errors for the `"moments"`, `"demean"`, and
+  `"mundlak"` strategies. While the old analytic HC1 approach worked (and still
+  does) for the `"compress"` case, it led to misleading SEs for these other
+  strategies. The fix does impose some additional computational overhead, since
+  it requires a second pass over the data to calculate the indidividual errors
+  and "meat" of the sandwich matrix. But testing suggests that this leads to a
+  <2 increase in total estimation time, which seems a reasonable tradeoff for
+  heteroskedastic-robust SEs. (#27)
+
 
 Internals
 
