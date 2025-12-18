@@ -47,7 +47,7 @@ New features
   threshold, but could still return a prohibitively large dataset. The most
   common example would be querying a massive dataset on a remote database, where
   network latency makes data I/O transfer expensive, even though we've achieved
-  goood compression relative to the original data size. (#10)
+  good compression relative to the original data size. (#10)
   - Aside: Improved documentation and messaging (when `verbose = TRUE`) should
     also help users understand the `"auto"` strategy decision tree.
 - Enabled weights for double demean (within) specification. (#13)
