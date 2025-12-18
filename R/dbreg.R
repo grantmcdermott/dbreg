@@ -388,8 +388,8 @@ process_dbreg_inputs = function(
 
   # Filter missing cases
   if (isTRUE(drop_missings)) {
-    # Wrap in subquery if path already contains WHERE clause
-    if (grepl("WHERE", from_statement, ignore.case = TRUE)) {
+    # Wrap in subquery if from_statement contains clauses that must come after WHERE
+    if (grepl("WHERE|LIMIT|ORDER\\s+BY|GROUP\\s+BY|HAVING", from_statement, ignore.case = TRUE)) {
       from_statement = glue("FROM (SELECT * {from_statement}) AS subq")
     }
     from_statement = glue("
