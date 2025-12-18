@@ -43,7 +43,7 @@ New features
 - The `"auto` strategy logic now considers a `compress_nmax` threshold, which
   governs the maximum allowable size of the compressed data object (default
   threshold = 1 million rows). This additional guardrail is intended to avoid
-  cases where the `"compress"` strategy satisifes the `compress_ratio`
+  cases where the `"compress"` strategy satisfies the `compress_ratio`
   threshold, but could still return a prohibitively large dataset. The most
   common example would be querying a massive dataset on a remote database, where
   network latency makes data I/O transfer expensive, even though we've achieved
