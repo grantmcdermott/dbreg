@@ -171,7 +171,7 @@ obtain exact TWFE results in unbalanced panels, and it is also limited to at
 most two FE. Conversely, the \code{"mundlak"} (CRE) strategy obtains consistent
 coefficients regardless of panel structure and FE count, but at the "cost" of
 recovering a different estimand. (It is a different model to TWFE, after
-all.)
+all.) See Wooldridge (2025) for an extended discussion of these issues.
 
 Users should weigh these tradeoffs when choosing their acceleration strategy.
 Summarising, we can provide a few guiding principles. \code{"compress"} is a good
@@ -239,6 +239,11 @@ Wong, J., Forsell, E., Lewis, R., Mao, T., & Wardrop, M. (2021).
 \cite{You Only Compress Once: Optimal Data Compression for Estimating Linear Models.}
 arXiv preprint arXiv:2102.11297.
 Available: https://doi.org/10.48550/arXiv.2102.11297
+
+Wooldridge, J.M. (2025)
+\cite{Two-way fixed effects, the two-way mundlak regression, and difference-in-differences estimators}.
+Empirical Economics, 69, pp. 2545–2587.
+Available: https://doi.org/10.1007/s00181-025-02807-z
 }
 \seealso{
 \code{\link[DBI]{dbConnect}} for creating database connections,
