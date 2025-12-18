@@ -139,7 +139,7 @@ dbreg(
 
 Note the size of the original dataset, which is nearly 180 million rows, versus
 the compressed dataset, which is down to only 70k. On my laptop (M4 MacBook Pro)
-this regression completes in **under 2 seconds**... and that includes the time
+this regression completes in **under 3 seconds**... and that includes the time
 it took to determine an optimal estimation strategy, as well as read the data
 from disk![^2]
 
