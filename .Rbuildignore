@@ -3,6 +3,6 @@
 ^\.Rproj\.user$
 ^\.github$
 ^LICENSE\.md$
-^benchmarks/
+^\_benchmarks/
 SCRATCH/
 nyc-taxi/
