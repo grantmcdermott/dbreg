@@ -173,7 +173,7 @@ coefficients regardless of panel structure and FE count, but at the "cost" of
 recovering a different estimand. (It is a different model to TWFE, after
 all.)
 
-Users should weigh these tradeoffs when choosing their accleration strategy.
+Users should weigh these tradeoffs when choosing their acceleration strategy.
 Summarising, we can provide a few guiding principles. \code{"compress"} is a good
 default that guarantees the "exact" FE estimates and is usually very
 efficient (barring data I/O costs and high FE dimensionality). \code{"mundlak"} is
