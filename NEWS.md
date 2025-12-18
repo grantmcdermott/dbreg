@@ -27,7 +27,7 @@ New features
     `"mundlak"` strategy, which was somewhat erroneously named. Speaking of
     which...
   - The revised `"mundlak"` strategy now implements a "true" Mundlak/CRE
-    (correlated random effects) estimator by regressesing Y on X plus group
+    (correlated random effects) estimator by regressing Y on X plus group
     means of X. Unlike the `"demean"` strategy (above), this revised `"mundlak"`
     model obtains consistent coefficients regardless of panel structure (incl.
     unbalanced panels) and supports any number of fixed effects. However, users
