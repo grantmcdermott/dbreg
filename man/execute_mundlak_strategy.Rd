@@ -2,11 +2,12 @@
 % Please edit documentation in R/dbreg.R
 \name{execute_mundlak_strategy}
 \alias{execute_mundlak_strategy}
-\title{Execute mundlak strategy (1-2 fixed effects)}
+\title{Execute true Mundlak/CRE strategy}
 \usage{
 execute_mundlak_strategy(inputs)
 }
 \description{
-Execute mundlak strategy (1-2 fixed effects)
+Regresses Y on X plus group means of X for each fixed effect.
+Y is NOT demeaned - predictions are on the original scale.
 }
 \keyword{internal}

@@ -12,7 +12,8 @@ compute_vcov(
   df_res,
   nobs_orig,
   X = NULL,
-  rss_g = NULL
+  rss_g = NULL,
+  meat = NULL
 )
 }
 \description{

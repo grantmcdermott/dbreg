@@ -11,8 +11,8 @@ dbreg(
   data = NULL,
   path = NULL,
   vcov = c("iid", "hc1"),
-  strategy = c("auto", "compress", "moments", "mundlak"),
-  compress_ratio = 0.001,
+  strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
+  compress_ratio = NULL,
   compress_nmax = 1e+06,
   query_only = FALSE,
   data_only = FALSE,
@@ -22,7 +22,7 @@ dbreg(
 }
 \arguments{
 \item{fml}{A \code{\link[stats]{formula}} representing the relation to be
-estimated. Fixed-effects should be included after a pipe, e.g
+estimated. Fixed effects should be included after a pipe, e.g
 \code{fml = y ~ x1 + x2 | fe1 + f2}. Currently, only simple additive terms
 are supported (i.e., no interaction terms, transformations or literals).}
 
@@ -53,32 +53,34 @@ Ignored if either \code{table} or \code{data} is provided.
 }}
 
 \item{vcov}{Character string denoting the desired type of variance-
-covariance correction / standard errors. At present, only "iid" (default) or
-"hc1" (heteroskedasticity-consistent) are supported.}
+covariance correction / standard errors. At present, only \code{"iid"} (default)
+or \code{"hc1"} (heteroskedasticity-consistent) are supported. Note that the
+latter requires a second pass over the data unless \code{strategy = "compress"} to
+construct the residuals.}
 
 \item{strategy}{Character string indicating the preferred acceleration
 strategy. The default \code{"auto"} will pick an optimal strategy based on
 internal heuristics. Users can also override with one of the following
-explicit strategies: \code{"compress"}, \code{"mundlak"}, or \code{"moments"}. See
-the Acceleration Strategies section below for details.}
+explicit strategies: \code{"compress"}, \code{"demean"} (alias: \code{"within"}),
+\code{"mundlak"}, or \code{"moments"}. See the Acceleration Strategies section below
+for details.}
 
 \item{compress_ratio, compress_nmax}{Numeric(s). Parameters that help to
 determine the acceleration \code{strategy} under the default \code{"auto"} option.
 \itemize{
-\item \code{compress_ratio} defines the compression ratio threshold, i.e. compressed
-data size vs. original data size. An estimated compression ratio larger
-than this threshold indicates poor compression relative to the desired
-level.
+\item \code{compress_ratio} defines the compression ratio threshold, i.e. numeric
+in the range \verb{[0,1]} defining the minimum acceptable compressed versus
+the original data size. Default value of \code{NULL} means that the threshold
+will be automatically determined based on some internal heuristic
+(e.g., 0.01 for models without fixed effects).
 \item \code{compress_nmax} defines the maximum allowable size (in rows) of the
 compressed dataset that can be serialized into R. Pays heed to the idea
 that big data serialization can be costly (esp. for remote databases),
 even if we have achieved good compression on top of the original dataset.
+Default value is 1e6 (i.e., a million rows).
 }
 
-If both conditions are met, i.e. (1) estimated compression ratio <
-\code{compress_ratio} and (2) estimated compressed data size < \code{compress_nmax},
-then the \code{"compress"} strategy is used. Otherwise, either the \code{"mundlak"} or
-\code{"moments"} strategy will be used, depending on the number of fixed effects.}
+See the Acceleration Strategies section below for further details.}
 
 \item{query_only}{Logical indicating whether only the underlying compression
 SQL query should be returned (i.e., no computation will be performed).
@@ -88,14 +90,14 @@ Default is \code{FALSE}.}
 should be returned (i.e., no regression is run). Default is \code{FALSE}.}
 
 \item{drop_missings}{Logical indicating whether incomplete cases (i.e., rows
-where any of the dependent, independent or fixed-effects variables are
+where any of the dependent, independent or FE variables are
 missing) should be dropped. The default is \code{TRUE}, according with standard
 regression software. It is \emph{strongly} recommended not to change this value
 unless you are absolutely sure that your data have no missings and you wish
 to skip some internal checks. (Even then, it probably isn't worth it.)}
 
-\item{verbose}{Logical. Print progress messages to the console? Defaults to
-\code{TRUE}.}
+\item{verbose}{Logical. Print auto strategy and progress messages to the
+console? Defaults to \code{TRUE}.}
 }
 \value{
 A list of class "dbreg" containing various slots, including a table
@@ -107,35 +109,102 @@ which may not fit into R's memory. Various acceleration strategies allow for
 highly efficient computation, while robust standard errors are computed from
 sufficient statistics.
 }
-\section{Acceleration strategies}{
+\section{Acceleration Strategies}{
 
 
-\code{dbreg} offers three primary acceleration (shortcut) strategies for
-estimating regression results from simplied data representations:
+\code{dbreg} offers four primary acceleration strategies for estimating regression
+results from simplified data representations. Below we use the shorthand
+Y (outcome), X (explanatory variables), and FE (fixed effects) for exposition
+purposes:
 \enumerate{
-\item \code{"compress"}: compress the data via a \verb{GROUP BY} operation (using regressors + fixed effects as groups) and then run frequency-weighted least squares on the smaller dataset. This procedure follows the "optimal data compression" strategy proposed by Wang et. al. (2021).
-\item \code{"moments"}: calculate sufficient statistics from global means (\eqn{X'X, X'y}), i.e. a single-row data frame computed on the database backend. Limited to cases without fixed effects.
-\item \code{"mundlak"}: as per \code{"moments"}, but first subtract group-level means from the observations. Permits at most two fixed-effects (i.e., either demean or double-demean). This procedure follows the "generalized Mundlak estimator" proposed by Arkhangelsky & Imbens (2024).
+\item \code{"compress"}: compresses the data via a \verb{GROUP BY} operation (using X and
+the FE as groups), before running weighted least squares on this much
+smaller dataset:
+\deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
+where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure
+follows Wang et al. (2021).
+\item \code{"moments"}: computes sufficient statistics (\eqn{X'X, X'y}) directly via
+SQL aggregation, returning a single-row result. This solves the standard
+OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases
+without FE.
+\item \code{"demean"} (alias \code{"within"}): subtracts group-level means from both Y and
+X before computing sufficient statistics (per the \code{"moments"} strategy).
+For example, given unit \eqn{i} and time \eqn{t} FE, we apply double
+demeaning:
+\deqn{\ddot{Y}_{it} = \beta \ddot{X}_{it} + \varepsilon_{it}}
+where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This
+(single-pass) within transformation is algebraically equivalent to the
+fixed effects projection---i.e., Frisch-Waugh-Lovell partialling out---in
+the presence of a single FE. It is also identical for the two-way FE
+(TWFE) case if your panel is balanced. For unbalanced two-way panels,
+however, the double demeaning strategy is not algebraically equivalent to
+the fixed effects projection and therefore does not recover the exact TWFE
+coefficients. Moreover, note that this \code{"demean"} strategy permits at most
+two FE.
+\item \code{"mundlak"}: a generalized Mundlak (1978), or correlated random effects
+(CRE) estimator that regresses Y on X plus group means of X:
+\deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
+\deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_{i} + \delta \bar{X}_{t} + \varepsilon_{it} \quad \text{(two-way, etc.)}}
+Unlike \code{"demean"}, Y is not transformed, so predictions are on the
+original scale. Supports any number of FE and works correctly for any
+panel structure (balanced or unbalanced). However, note that CRE is a
+\emph{different model} from FE: while coefficients are asymptotically
+equivalent under certain assumptions, they will generally differ in
+finite samples.
 }
 
 The relative efficiency of each of these strategies depends on the size and
-structure of the data, as well the number of unique regressors and
-fixed-effects. While the compression approach can yield remarkable
-performance gains for "standard" cases, it is less efficient for a true panel
-(repeated cross-sections over time), where N >> T. In such cases, it is more
-efficient to use a Mundlak-type representation that subtracts group means
-first. (Reason: unit and time fixed-effects are typically high dimensional,
-but covariate averages are not.)
+structure of the data, as well the number of unique regressors and FE. For
+(quote unquote) "standard" cases, the \code{"compress"} strategy can yield
+remarkable performance gains and should justifiably be viewed as a good
+default. However, the compression approach tends to be less efficient for
+true panels (repeated cross-sections over time), where N >> T. In such
+cases, it can be more efficient to use a demeaning strategy that first
+controls for (e.g. subtracts) group means, before computing sufficient
+statistics on the aggregated data. The reason for this is that time and unit
+FE are typically high dimensional, but covariate averages are not; see
+Arkhangelsky & Imbens (2024).
 
-If the user does not specify an explicit acceleration strategy, then
-\code{dbreg} will invoke an \code{"auto"} heuristic behind the scenes. This requires
-some additional overhead, but in most cases should be negligible next to the
-overall time savings. The heuristic is as follows:
+However, the demeaning approaches invite tradeoffs of their own. For example,
+the double demeaning transformation of the \code{"demean"} strategy does not
+obtain exact TWFE results in unbalanced panels, and it is also limited to at
+most two FE. Conversely, the \code{"mundlak"} (CRE) strategy obtains consistent
+coefficients regardless of panel structure and FE count, but at the "cost" of
+recovering a different estimand. (It is a different model to TWFE, after
+all.) See Wooldridge (2025) for an extended discussion of these issues.
+
+Users should weigh these tradeoffs when choosing their acceleration strategy.
+Summarising, we can provide a few guiding principles. \code{"compress"} is a good
+default that guarantees the "exact" FE estimates and is usually very
+efficient (barring data I/O costs and high FE dimensionality). \code{"mundlak"} is
+another efficient alternative provided that the CRE estimand is acceptable
+(don't be alarmed if your coefficients are not identical). Finally, the
+\code{"demean"} and \code{"moments"} strategies are great for particular use cases
+(i.e., balanced panels and cases without FE, respectively).
+
+If this all sounds like too much to think about, don't fret. The good news
+is that \code{dbreg} can do a lot (all?) of the deciding for you. Specifically, it
+will invoke an \code{"auto"} heuristic behind the scenes if a user does not
+provide an explicit acceleration strategy. Working through the heuristic
+logic does impose some additional overhead, but this should be negligible in
+most cases (certainly compared to the overall time savings). The \code{"auto"}
+heuristic is as follows:
 \itemize{
-\item IF no fixed-effects AND (any continuous regressor OR poor compression ratio OR too big compressed data) THEN \code{"moments"}.
-\item ELSE IF 1-2 fixed-effects AND (poor compression ratio OR too big compressed data) THEN \code{"mundlak"}.
+\item IF no FE AND (any continuous regressor OR poor compression ratio OR too big
+compressed data) THEN \code{"moments"}.
+\item ELSE IF 1 FE AND (poor compression ratio OR too big compressed data) THEN
+\code{"demean"}.
+\item ELSE IF 2 FE AND (poor compression ratio OR too big compressed data):
+\itemize{
+\item IF balanced panel THEN \code{"demean"}.
+\item ELSE error (exact TWFE infeasible; user must explicitly choose
+\code{"compress"} or \code{"mundlak"}).
+}
 \item ELSE THEN \code{"compress"}.
 }
+
+\emph{Tip: set \code{dbreg(..., verbose = TRUE)} to print information about the auto
+strategy decision criteria.}
 }
 
 \examples{
@@ -161,10 +230,20 @@ Arkhangelsky, D. & Imbens, G. (2024)
 The Review of Economic Studies, 91(5), pp. 2545–2571.
 Available: https://doi.org/10.1093/restud/rdad089
 
+Mundlak, Y. (1978)
+\cite{On the Pooling of Time Series and Cross Section Data}.
+Econometrica, 46(1), pp. 69–85.
+Available: https://doi.org/10.2307/1913646
+
 Wong, J., Forsell, E., Lewis, R., Mao, T., & Wardrop, M. (2021).
 \cite{You Only Compress Once: Optimal Data Compression for Estimating Linear Models.}
 arXiv preprint arXiv:2102.11297.
 Available: https://doi.org/10.48550/arXiv.2102.11297
+
+Wooldridge, J.M. (2025)
+\cite{Two-way fixed effects, the two-way mundlak regression, and difference-in-differences estimators}.
+Empirical Economics, 69, pp. 2545–2587.
+Available: https://doi.org/10.1007/s00181-025-02807-z
 }
 \seealso{
 \code{\link[DBI]{dbConnect}} for creating database connections,

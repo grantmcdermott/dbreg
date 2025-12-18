@@ -1,4 +1,4 @@
-# Concise benchmark comparing Mundlak/sufficient statistics vs group-by approach
+# Concise benchmark comparing demean/sufficient statistics vs group-by approach
 # Uses data.table for efficient data manipulation
 
 #
@@ -87,44 +87,57 @@ time_fit = function(
   data,
   fml,
   strategy,
-  size_limit = NULL,
   compressible = FALSE
 ) {
-  # Manual override for some compress runs (which take too long)
-  # Match original script logic: compress strategy has different limits for compressible vs non-compressible
-  if (is.null(size_limit)) {
-    size_limit = if (strategy == "compress") {
-      if (isTRUE(compressible)) 5e5 else 1e4
-    } else {
-      Inf
+  # Skip compress for large data (sparse matrix ops blow up memory)
+  # Non-compressible: lower threshold due to high FE dimensionality
+  # Compressible: higher threshold but still limited
+  if (strategy == "compress") {
+    skip_threshold = if (compressible) 5e5 else 1e4
+    if (nrow(data) >= skip_threshold) {
+      cat(sprintf("  [skip] %s (n=%s > %s)\n", strategy, prettyNum(nrow(data), big.mark=","), prettyNum(skip_threshold, big.mark=",")))
+      return(data.table(
+        strategy = strategy,
+        compressible = compressible,
+        tt = NA,
+        x1_coef = NA,
+        x1_se = NA,
+        x2_coef = NA,
+        x2_se = NA
+      ))
     }
   }
-
-  if (nrow(data) > size_limit) {
-    cat(sprintf(
-      "Skipping: nrow(data) = %d > size_limit = %d\n",
-      nrow(data),
-      size_limit
-    ))
-    return(data.table(
-      strategy = strategy,
-      compressible = compressible,
-      tt = NA,
-      x1_coef = NA,
-      x1_se = NA,
-      x2_coef = NA,
-      x2_se = NA
-    ))
-  }
-
+  
+  cat(sprintf("  [run]  %s\n", strategy))
+  
   if (strategy != "feols") {
-    tt = system.time({
-      fit = dbreg(fml = fml, data = data, vcov = "iid", strategy = strategy)
-    })["elapsed"]
+    res = tryCatch({
+      tt = system.time({
+        fit = dbreg(fml = fml, data = data, vcov = "iid", strategy = strategy, verbose = FALSE)
+      })[["elapsed"]]
+      list(tt = tt, fit = fit)
+    }, error = function(e) {
+      message(sprintf("Strategy '%s' failed: %s", strategy, conditionMessage(e)))
+      NULL
+    })
+    
+    if (is.null(res)) {
+      return(data.table(
+        strategy = strategy,
+        compressible = compressible,
+        tt = NA,
+        x1_coef = NA,
+        x1_se = NA,
+        x2_coef = NA,
+        x2_se = NA
+      ))
+    }
+    tt = res$tt
+    fit = res$fit
   } else {
     tt = system.time({
       fit = feols(fml = fml, data = data, vcov = "iid", lean = TRUE)
-    })["elapsed"]
+    })[["elapsed"]]
   }
   x1_coef = fit$coeftable["x1", 1]
   x1_se = fit$coeftable["x1", 2]
@@ -146,7 +159,7 @@ time_fit = function(
 ## Run benchmark -----
 
 # Benchmark parameters
-N_grid = 10^(3:8)
+N_grid = 10^(3:7)
 n_iters = 3
 fml = y ~ x1 + x2 | unit_fe + time_fe
 
@@ -165,12 +178,12 @@ res = rbindlist(lapply(
         set.seed(123)
         dat = gen_dat(N_units = N_units, T_periods = T_periods)
         ret = rbindlist(lapply(
-          c("feols", "compress", "mundlak"),
+          c("feols", "compress", "demean", "mundlak"),
           function(s) time_fit(dat, fml, strategy = s, compressible = FALSE)
         ))[,
           strategy := factor(
             strategy,
-            levels = c("feols", "compress", "mundlak")
+            levels = c("feols", "compress", "demean", "mundlak")
           )
         ]
         ret$compressible = FALSE
@@ -186,12 +199,12 @@ res = rbindlist(lapply(
           y := y + rnorm(.N, sd = 1e-4)
         ]
         retc = rbindlist(lapply(
-          c("feols", "compress", "mundlak"),
+          c("feols", "compress", "demean", "mundlak"),
           function(s) time_fit(dat, fml, strategy = s, compressible = TRUE)
         ))[,
           strategy := factor(
             strategy,
-            levels = c("feols", "compress", "mundlak")
+            levels = c("feols", "compress", "demean", "mundlak")
           )
         ]
         retc$compressible = TRUE
@@ -216,8 +229,6 @@ res_summ = res[,
   by = .(strategy, compressible, N),
   .SDcols = x1_coef:x2_se
 ]
-res_summ
-
 res_summ
 
 #
@@ -254,7 +265,7 @@ res_long = res_summ |>
   ) |>
   dcast(compressible + N + coef + part ~ strategy) |>
   melt(
-    measure = c('compress', 'mundlak'),
+    measure = c('compress', 'demean', 'mundlak'),
     value = 'dbreg',
     variable = 'strategy'
   )
@@ -286,3 +297,4 @@ plt(
   width = 8,
   height = 5
 )
+

@@ -21,12 +21,12 @@ for (i in seq_along(dict_db)) {
   )
 }
 
-# Single fixed effect (mundlak strategy)
+# Single fixed effect (demean strategy)
 
-aq_fe1_mundlak = dbreg(
+aq_fe1_demean = dbreg(
   Temp ~ Wind | Month,
   data = airquality,
-  strategy = "mundlak",
+  strategy = "demean",
   verbose = FALSE
 )$coeftable
 
@@ -39,7 +39,24 @@ aq_fe1_feols = feols(
 
 for (i in seq_along(dict_db)) {
   expect_equal(
-    aq_fe1_mundlak[, dict_db[i]],
+    aq_fe1_demean[, dict_db[i]],
+    aq_fe1_feols[, names(dict_db)[i]],
+    tolerance = 1e-6
+  )
+}
+
+# Test 'within' alias for demean
+
+aq_fe1_within = dbreg(
+  Temp ~ Wind | Month,
+  data = airquality,
+  strategy = "within",
+  verbose = FALSE
+)$coeftable
+
+for (i in seq_along(dict_db)) {
+  expect_equal(
+    aq_fe1_within[, dict_db[i]],
     aq_fe1_feols[, names(dict_db)[i]],
     tolerance = 1e-6
   )
