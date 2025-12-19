@@ -87,7 +87,7 @@ See the Acceleration Strategies section below for further details.}
 
 \item{cluster}{Optional. Provides an alternative way to specify
 cluster-robust standard errors (i.e., instead of \code{vcov = ~cluster_var}).
-Either a  one-sided formula (e.g., \code{~firm}) or character string giving the
+Either a one-sided formula (e.g., \code{~firm}) or character string giving the
 variable name. Only single-variable clustering is currently supported.}
 
 \item{ssc}{Character string controlling the small-sample correction for
