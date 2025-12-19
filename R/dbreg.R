@@ -33,11 +33,16 @@
 #' part of this string, e.g. `"read_parquet('mydata/**/*.parquet')"` for DuckDB;
 #' note the use of single quotes.
 #' Ignored if either `table` or `data` is provided.
-#' @param vcov Character string denoting the desired type of variance-
-#' covariance correction / standard errors. At present, only `"iid"` (default)
-#' or `"hc1"` (heteroskedasticity-consistent) are supported. Note that the
-#' latter requires a second pass over the data unless `strategy = "compress"` to
-#' construct the residuals.
+#' @param vcov Character string or formula denoting the desired type of variance-
+#' covariance correction / standard errors. Options are `"iid"` (default),
+#' `"hc1"` (heteroskedasticity-consistent), or a one-sided formula like
+#' `~cluster_var` for cluster-robust standard errors. Note that `"hc1"` and
+#' clustered SEs require a second pass over the data unless
+#' `strategy = "compress"` to construct the residuals.
+#' @param cluster Optional. A one-sided formula (e.g., `~firm`) or character
+#' string specifying the clustering variable for cluster-robust standard errors.
+#' If provided, this overrides the `vcov` argument. Only single-variable
+#' clustering is currently supported.
 #' @param strategy Character string indicating the preferred acceleration
 #'   strategy. The default `"auto"` will pick an optimal strategy based on
 #'   internal heuristics. Users can also override with one of the following
@@ -223,6 +228,7 @@ dbreg = function(
   data = NULL,
   path = NULL,
   vcov = c("iid", "hc1"),
+  cluster = NULL,
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = NULL,
   compress_nmax = 1e6,
@@ -231,8 +237,28 @@ dbreg = function(
   drop_missings = TRUE,
   verbose = TRUE
 ) {
-  vcov = tolower(vcov)
-  vcov = match.arg(vcov)
+  # Parse vcov: can be string or formula (for clustering)
+  # Check formula first before any string operations
+  if (inherits(vcov, "formula")) {
+    cluster = vcov
+    vcov = "cluster"
+  } else if (is.character(vcov)) {
+    vcov = tolower(vcov[1])
+    vcov = match.arg(vcov, c("iid", "hc1"))
+  } else {
+    stop("vcov must be a character string ('iid', 'hc1') or a formula for clustering")
+  }
+  # Parse cluster argument
+  if (!is.null(cluster)) {
+    if (inherits(cluster, "formula")) {
+      cluster_vars = all.vars(cluster)
+      if (length(cluster_vars) != 1) {
+        stop("Only single-variable clustering is currently supported")
+      }
+      cluster = cluster_vars
+    }
+    vcov = "cluster"
+  }
   strategy = match.arg(strategy)
   if (strategy == "within") strategy = "demean"  # alias
 
@@ -244,6 +270,7 @@ dbreg = function(
     data = data,
     path = path,
     vcov = vcov,
+    cluster = cluster,
     strategy = strategy,
     query_only = query_only,
     data_only = data_only,
@@ -283,6 +310,7 @@ process_dbreg_inputs = function(
   data,
   path,
   vcov,
+  cluster,
   strategy,
   query_only,
   data_only,
@@ -292,6 +320,7 @@ process_dbreg_inputs = function(
   verbose
 ) {
   vcov_type_req = vcov
+  cluster_var = cluster
   own_conn = FALSE
   if (is.null(conn)) {
     conn = dbConnect(duckdb(), shutdown = TRUE)
@@ -420,6 +449,7 @@ process_dbreg_inputs = function(
     from_statement = from_statement,
     data = data,
     vcov_type_req = vcov_type_req,
+    cluster_var = cluster_var,
     strategy = strategy,
     query_only = query_only,
     data_only = data_only,
@@ -785,16 +815,29 @@ execute_moments_strategy = function(inputs) {
   sum_y_sq = moments_df$sum_y_sq
   tss = sum_y_sq - (sum_y^2 / n_total)
   
-  # Compute HC1 meat matrix if needed
+  # Compute meat matrix if needed (HC1 or cluster)
   meat = NULL
+  is_athena = inherits(inputs$conn, "AthenaConnection")
   if (inputs$vcov_type_req == "hc1") {
-    is_athena = inherits(inputs$conn, "AthenaConnection")
     meat = compute_meat_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
       vars = inputs$xvars,
       yvar = inputs$yvar,
       betahat = betahat,
+      is_athena = is_athena,
+      var_suffix = "",
+      cte_name = "base",
+      has_intercept = TRUE
+    )
+  } else if (inputs$vcov_type_req == "cluster") {
+    meat = compute_meat_cluster_sql(
+      conn = inputs$conn,
+      cte_sql = cte_sql,
+      vars = inputs$xvars,
+      yvar = inputs$yvar,
+      betahat = betahat,
+      cluster_var = inputs$cluster_var,
       is_athena = is_athena,
       var_suffix = "",
       cte_name = "base",
@@ -809,6 +852,7 @@ execute_moments_strategy = function(inputs) {
     rss = rss,
     df_res = df_res,
     nobs_orig = n_total,
+    n_params = p,
     meat = meat
   )
   attr(vcov_mat, "rss") = rss
@@ -1101,16 +1145,26 @@ execute_demean_strategy = function(inputs) {
   df_fe = n_fe1 + n_fe2 - 1
   df_res = max(n_total - p - df_fe, 1)
   
-  # Compute HC1 meat matrix if needed
+  # Compute meat matrix if needed (HC1 or cluster)
   meat = NULL
+  is_athena = inherits(inputs$conn, "AthenaConnection")
   if (inputs$vcov_type_req == "hc1") {
-    is_athena = inherits(inputs$conn, "AthenaConnection")
     meat = compute_meat_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
       vars = inputs$xvars,
       yvar = inputs$yvar,
       betahat = betahat,
+      is_athena = is_athena
+    )
+  } else if (inputs$vcov_type_req == "cluster") {
+    meat = compute_meat_cluster_sql(
+      conn = inputs$conn,
+      cte_sql = cte_sql,
+      vars = inputs$xvars,
+      yvar = inputs$yvar,
+      betahat = betahat,
+      cluster_var = inputs$cluster_var,
       is_athena = is_athena
     )
   }
@@ -1122,6 +1176,7 @@ execute_demean_strategy = function(inputs) {
     rss = rss,
     df_res = df_res,
     nobs_orig = n_total,
+    n_params = p + df_fe,
     meat = meat
   )
   attr(vcov_mat, "rss") = rss
@@ -1306,16 +1361,29 @@ execute_mundlak_strategy = function(inputs) {
 
   df_res = max(n_total - p, 1)
 
-  # Compute HC1 meat matrix if needed
+  # Compute meat matrix if needed (HC1 or cluster)
   meat = NULL
+  is_athena = inherits(inputs$conn, "AthenaConnection")
   if (inputs$vcov_type_req == "hc1") {
-    is_athena = inherits(inputs$conn, "AthenaConnection")
     meat = compute_meat_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
       vars = all_regressors,
       yvar = yvar,
       betahat = betahat,
+      is_athena = is_athena,
+      var_suffix = "",
+      cte_name = "augmented",
+      has_intercept = TRUE
+    )
+  } else if (inputs$vcov_type_req == "cluster") {
+    meat = compute_meat_cluster_sql(
+      conn = inputs$conn,
+      cte_sql = cte_sql,
+      vars = all_regressors,
+      yvar = yvar,
+      betahat = betahat,
+      cluster_var = inputs$cluster_var,
       is_athena = is_athena,
       var_suffix = "",
       cte_name = "augmented",
@@ -1330,6 +1398,7 @@ execute_mundlak_strategy = function(inputs) {
     rss = rss,
     df_res = df_res,
     nobs_orig = n_total,
+    n_params = p,
     meat = meat
   )
   attr(vcov_mat, "rss") = rss
@@ -1458,6 +1527,21 @@ execute_compress_strategy = function(inputs) {
   sum_Y_sq_total = sum(compressed_dat$sum_Y_sq)
   tss = sum_Y_sq_total - (sum_Y_total^2 / nobs_orig)
   
+  # For clustered SEs, need to query cluster-by-cell stats
+  meat = NULL
+  if (inputs$vcov_type_req == "cluster") {
+    meat = compute_meat_cluster_compress(
+      conn = inputs$conn,
+      from_statement = from_statement,
+      group_cols = group_cols,
+      yvar = inputs$yvar,
+      cluster_var = inputs$cluster_var,
+      compressed_dat = compressed_dat,
+      X = X,
+      yhat = yhat
+    )
+  }
+  
   vcov_mat = compute_vcov(
     vcov_type = inputs$vcov_type_req,
     strategy = "compress",
@@ -1465,8 +1549,10 @@ execute_compress_strategy = function(inputs) {
     rss = rss_total,
     df_res = df_res,
     nobs_orig = nobs_orig,
+    n_params = ncol(X),
     X = X,
-    rss_g = rss_g
+    rss_g = rss_g,
+    meat = meat
   )
   attr(vcov_mat, "rss") = rss_total
   attr(vcov_mat, "tss") = tss
@@ -1516,7 +1602,8 @@ compute_vcov = function(
   XtX_inv,
   rss,
   df_res,
-  nobs_orig,
+  nobs_orig, # N
+  n_params = NULL, # K
   X = NULL,
   rss_g = NULL,
   meat = NULL
@@ -1533,6 +1620,21 @@ compute_vcov = function(
     scale_hc1 = nobs_orig / df_res
     vcov_mat = scale_hc1 * (XtX_inv %*% meat %*% XtX_inv)
     attr(vcov_mat, "type") = "hc1"
+  } else if (vcov_type == "cluster") {
+    # Cluster-robust (CR1) standard errors
+    if (is.null(meat)) {
+      stop("Clustered SEs require meat matrix from compute_meat_cluster_sql")
+    }
+    n_clusters = attr(meat, "n_clusters") # G
+    if (is.null(n_clusters)) {
+      stop("Meat matrix missing n_clusters attribute")
+    }
+    if (is.null(n_params)) n_params = ncol(XtX_inv)
+    # CR1 small-sample correction: (G/(G-1)) * (N/(N-K))
+    scale_cr1 = (n_clusters / (n_clusters - 1)) * (nobs_orig / (nobs_orig - n_params))
+    vcov_mat = scale_cr1 * (XtX_inv %*% meat %*% XtX_inv)
+    attr(vcov_mat, "type") = "cluster"
+    attr(vcov_mat, "n_clusters") = n_clusters
   } else {
     # IID case (same for all strategies)
     sigma2 = rss / df_res
@@ -1646,6 +1748,174 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
       meat_mat[vi, vj] = meat_mat[vj, vi] = val
     }
   }
+  meat_mat
+}
+
+#' Compute cluster-robust meat matrix via SQL
+#' 
+#' Computes the meat matrix for cluster-robust (CR0) standard errors by
+#' aggregating score vectors within clusters and computing outer products.
+#' 
+#' @keywords internal
+compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat, 
+                                    cluster_var,
+                                    is_athena = FALSE, 
+                                    var_suffix = "_tilde",
+                                    cte_name = "demeaned",
+                                    has_intercept = FALSE) {
+  # Build variable names with suffix
+  vars_sql = paste0(vars, var_suffix)
+  yvar_sql = paste0(yvar, var_suffix)
+  
+  # Extract beta values
+  beta_vals = as.numeric(betahat[vars, 1])
+  
+  # Build residual expression: y - intercept - sum(beta_j * x_j)
+  if (has_intercept) {
+    intercept_val = as.numeric(betahat["(Intercept)", 1])
+    beta_terms = paste(
+      sprintf("%.15g * %s", beta_vals, vars_sql),
+      collapse = " + "
+    )
+    resid_expr = sprintf("(%s - %.15g - (%s))", yvar_sql, intercept_val, beta_terms)
+  } else {
+    beta_terms = paste(
+      sprintf("%.15g * %s", beta_vals, vars_sql),
+      collapse = " + "
+    )
+    resid_expr = sprintf("(%s - (%s))", yvar_sql, beta_terms)
+  }
+  
+  # Build cluster score terms: SUM(e * x_j) for each variable within cluster
+  score_terms = character(0)
+  
+  if (has_intercept) {
+    # Score for intercept: SUM(e * 1) = SUM(e)
+    score_terms = c(score_terms, sprintf(
+      "SUM(CAST(%s AS FLOAT)) AS score_intercept",
+      resid_expr
+    ))
+  }
+  
+  # Score for each variable: SUM(e * x_j)
+  for (j in seq_along(vars)) {
+    vj = vars[j]
+    vj_sql = paste0(vj, var_suffix)
+    score_terms = c(score_terms, sprintf(
+      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS score_%s",
+      resid_expr, vj_sql, vj
+    ))
+  }
+  
+  # Query: aggregate scores by cluster
+  cluster_sql = paste0(
+    cte_sql,
+    ",\ncluster_scores AS (\n  SELECT ", cluster_var, ", ",
+    paste(score_terms, collapse = ", "),
+    "\n  FROM ", cte_name,
+    "\n  GROUP BY ", cluster_var,
+    "\n)\nSELECT * FROM cluster_scores"
+  )
+  
+  if (is_athena) {
+    cluster_sql = gsub("FLOAT", "REAL", cluster_sql, fixed = TRUE)
+  }
+  
+  cluster_df = dbGetQuery(conn, cluster_sql)
+  
+  # Build meat matrix from cluster scores: M = sum_g(s_g %*% t(s_g))
+  if (has_intercept) {
+    vars_all = c("(Intercept)", vars)
+  } else {
+    vars_all = vars
+  }
+  p = length(vars_all)
+  meat_mat = matrix(0, p, p, dimnames = list(vars_all, vars_all))
+  
+  # Extract score columns
+  score_cols = if (has_intercept) {
+    c("score_intercept", paste0("score_", vars))
+  } else {
+    paste0("score_", vars)
+  }
+  
+  # Sum outer products across clusters
+  for (i in seq_len(nrow(cluster_df))) {
+    s_g = as.numeric(cluster_df[i, score_cols])
+    meat_mat = meat_mat + tcrossprod(s_g)
+  }
+  
+  # Return meat matrix and number of clusters for df adjustment
+  attr(meat_mat, "n_clusters") = nrow(cluster_df)
+  meat_mat
+}
+
+#' Compute cluster-robust meat matrix for compress strategy
+#' 
+#' For compress strategy, we need to query cluster-by-cell stats from the
+#' original data, then compute cluster scores using the cell-level fitted values.
+#' 
+#' @keywords internal
+compute_meat_cluster_compress = function(conn, from_statement, group_cols, 
+                                         yvar, cluster_var, compressed_dat,
+                                         X, yhat) {
+  group_cols_sql = paste(group_cols, collapse = ", ")
+  
+  # Query cluster-by-cell sufficient statistics
+  cluster_cell_sql = paste0(
+    "SELECT ", cluster_var, ", ", group_cols_sql, ",\n",
+    "  COUNT(*) AS n_gc,\n",
+    "  SUM(", yvar, ") AS sum_y_gc\n",
+    from_statement, "\n",
+    "GROUP BY ", cluster_var, ", ", group_cols_sql
+  )
+  
+  cluster_cell_df = dbGetQuery(conn, cluster_cell_sql)
+  
+  # Create cell key for matching (same grouping as compress strategy)
+  compressed_dat$cell_key = interaction(compressed_dat[, group_cols, drop = FALSE])
+  cluster_cell_df$cell_key = interaction(cluster_cell_df[, group_cols, drop = FALSE])
+  
+  # Add yhat to compressed_dat and create lookup
+  compressed_dat$yhat = yhat
+  yhat_lookup = compressed_dat[, c("cell_key", "yhat")]
+  
+  # Merge to get yhat for each cluster-cell combo (only keep needed cols from cluster_cell_df)
+  cluster_cell_df = merge(
+    cluster_cell_df[, c("cell_key", cluster_var, "n_gc", "sum_y_gc")], 
+    yhat_lookup, 
+    by = "cell_key", 
+    all.x = TRUE
+  )
+  
+  # Compute summed residuals per (cluster, cell): u_sum_gc = sum_y_gc - n_gc * yhat
+  cluster_cell_df$u_sum_gc = cluster_cell_df$sum_y_gc - cluster_cell_df$n_gc * cluster_cell_df$yhat
+  
+  # Get unique clusters
+  clusters = unique(cluster_cell_df[[cluster_var]])
+  n_clusters = length(clusters)
+  p = ncol(X)
+  
+  # Initialize meat matrix
+  meat_mat = matrix(0, p, p, dimnames = list(colnames(X), colnames(X)))
+  
+  # Create cell_key to row index mapping for X matrix
+  cell_to_row = match(compressed_dat$cell_key, compressed_dat$cell_key)
+  names(cell_to_row) = as.character(compressed_dat$cell_key)
+  
+  # For each cluster, compute score vector and add outer product to meat
+  for (g in clusters) {
+    cells_in_g = cluster_cell_df[cluster_cell_df[[cluster_var]] == g, ]
+    
+    # Find which rows in X correspond to these cells
+    cell_matches = cell_to_row[as.character(cells_in_g$cell_key)]
+    
+    # Compute s_g = X' * u_sum (weighted by u_sum_gc for each cell)
+    s_g = as.numeric(crossprod(X[cell_matches, , drop = FALSE], cells_in_g$u_sum_gc))
+    meat_mat = meat_mat + tcrossprod(s_g)
+  }
+  
+  attr(meat_mat, "n_clusters") = n_clusters
   meat_mat
 }
 
