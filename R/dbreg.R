@@ -62,7 +62,7 @@
 #'   See the Acceleration Strategies section below for further details.
 #' @param cluster Optional. Provides an alternative way to specify
 #' cluster-robust standard errors (i.e., instead of `vcov = ~cluster_var`).
-#' Either a  one-sided formula (e.g., `~firm`) or character string giving the
+#' Either a one-sided formula (e.g., `~firm`) or character string giving the
 #' variable name. Only single-variable clustering is currently supported.
 #' @param ssc Character string controlling the small-sample correction for
 #' clustered standard errors. Options are `"full"` (default) or `"nested"`.
@@ -1967,8 +1967,7 @@ compute_meat_cluster_compress = function(conn, from_statement, group_cols,
   meat_mat = matrix(0, p, p, dimnames = list(colnames(X), colnames(X)))
   
   # Create cell_key to row index mapping for X matrix
-  cell_to_row = match(compressed_dat$cell_key, compressed_dat$cell_key)
-  names(cell_to_row) = as.character(compressed_dat$cell_key)
+  cell_to_row = setNames(seq_len(nrow(compressed_dat)), as.character(compressed_dat$cell_key))
   
   # For each cluster, compute score vector and add outer product to meat
   for (g in clusters) {
