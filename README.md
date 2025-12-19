@@ -244,6 +244,18 @@ unlink("nyc.db") # remove from disk
 > )
 > ```
 
+## Accelerations strategies
+
+All of the examples in this README have made use of the `"compress"` strategy.
+But the compression trick is not the only game in town and `dbreg` supports
+several other acceleration strategies:`"moments"`, `"demean"`, and `"mundlak"`.
+Depending on your data and regression requirements, one of these other
+strategies may better suit your problem. The good news is that (the default)
+`strategy = "auto"` option uses some intelligent heuristics to determine which
+strategy is (probably) optimal for each case. The **Accleration Strategies**
+section of the `?dbreg` helpfile contains a lot detail about the different
+options and tradeoffs involved, so please do consult the documentation.
+
 ## Limitations
 
 **dbreg** is a maturing package and there are a number of features that we still
