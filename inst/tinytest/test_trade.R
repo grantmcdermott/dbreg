@@ -128,3 +128,163 @@ for (i in seq_along(dict_db)) {
   )
 }
 
+#
+## Test clustered standard errors ----
+
+# Note: we use feols(..., ssc = ssc(K.fixef = "full")) since we don't do the
+# small sample correction by default for dbreg; since it's very unlikely to 
+# matter/bind for the large datasets that dbreg is intended for
+
+# Test with compress strategy (default for this data)
+trade_cluster_compress = dbreg(
+  trade_fml,
+  data = trade,
+  vcov = ~Destination,
+  verbose = FALSE
+)
+
+trade_cluster_feols = feols(
+  trade_fml,
+  data = trade,
+  vcov = ~Destination,
+  ssc = ssc(K.fixef = "full"),
+  lean = TRUE
+)
+
+# Check coefficients match
+expect_equal(
+  trade_cluster_compress$coeftable[trade_coefs, "estimate"],
+  trade_cluster_feols$coeftable[trade_coefs, "Estimate"],
+  tolerance = 1e-6
+)
+
+# Check SEs match (dbreg uses K.fixef="full" equivalent)
+expect_equal(
+  trade_cluster_compress$coeftable[trade_coefs, "std.error"],
+  trade_cluster_feols$coeftable[trade_coefs, "Std. Error"],
+  tolerance = 2e-5
+)
+
+# Test cluster argument syntax (alternative to vcov formula)
+trade_cluster_arg = dbreg(
+  trade_fml,
+  data = trade,
+  cluster = ~Destination,
+  verbose = FALSE
+)
+
+expect_equal(
+  trade_cluster_arg$coeftable[trade_coefs, "std.error"],
+  trade_cluster_compress$coeftable[trade_coefs, "std.error"],
+  tolerance = 1e-10
+)
+
+# Test ssc = "nested" option (matches fixest default)
+trade_cluster_nested = dbreg(
+  trade_fml,
+  data = trade,
+  vcov = ~Destination,
+  ssc = "nested",
+  verbose = FALSE
+)
+
+trade_cluster_feols_nested = feols(
+  trade_fml,
+  data = trade,
+  vcov = ~Destination,
+  lean = TRUE
+)
+
+expect_equal(
+  trade_cluster_nested$coeftable[trade_coefs, "std.error"],
+  trade_cluster_feols_nested$coeftable[trade_coefs, "Std. Error"],
+  tolerance = 2e-5
+)
+
+# Test with demean strategy (1 FE)
+trade_cluster_demean = dbreg(
+  trade_fml1,
+  data = trade,
+  strategy = "demean",
+  vcov = ~Destination,
+  verbose = FALSE
+)
+
+trade_cluster_demean_feols = feols(
+  trade_fml1,
+  data = trade,
+  vcov = ~Destination,
+  ssc = ssc(K.fixef = "full"),
+  lean = TRUE
+)
+
+expect_equal(
+  trade_cluster_demean$coeftable[trade_coefs, "estimate"],
+  trade_cluster_demean_feols$coeftable[trade_coefs, "Estimate"],
+  tolerance = 1e-6
+)
+
+expect_equal(
+  trade_cluster_demean$coeftable[trade_coefs, "std.error"],
+  trade_cluster_demean_feols$coeftable[trade_coefs, "Std. Error"],
+  tolerance = 2e-5
+)
+
+# Test with mundlak strategy
+trade_cluster_mundlak = dbreg(
+  trade_fml,
+  data = trade,
+  strategy = "mundlak",
+  vcov = ~Destination,
+  verbose = FALSE
+)
+
+# Manual Mundlak with feols and clustered SEs
+trade_cluster_mundlak_manual = feols(
+  Euros ~ dist_km + dist_km_mean_dest + dist_km_mean_orig,
+  data = trade,
+  vcov = ~Destination,
+  lean = TRUE
+)
+
+expect_equal(
+  trade_cluster_mundlak$coeftable[trade_coefs, "estimate"],
+  trade_cluster_mundlak_manual$coeftable[trade_coefs, "Estimate"],
+  tolerance = 1e-6
+)
+
+expect_equal(
+  trade_cluster_mundlak$coeftable[trade_coefs, "std.error"],
+  trade_cluster_mundlak_manual$coeftable[trade_coefs, "Std. Error"],
+  tolerance = 2e-5
+)
+
+# Test with moments strategy (no FE)
+trade_fml_nofe = Euros ~ dist_km
+trade_cluster_moments = dbreg(
+  trade_fml_nofe,
+  data = trade,
+  strategy = "moments",
+  vcov = ~Destination,
+  verbose = FALSE
+)
+
+trade_cluster_moments_feols = feols(
+  trade_fml_nofe,
+  data = trade,
+  vcov = ~Destination,
+  lean = TRUE
+)
+
+expect_equal(
+  trade_cluster_moments$coeftable["dist_km", "estimate"],
+  trade_cluster_moments_feols$coeftable["dist_km", "Estimate"],
+  tolerance = 1e-6
+)
+
+expect_equal(
+  trade_cluster_moments$coeftable["dist_km", "std.error"],
+  trade_cluster_moments_feols$coeftable["dist_km", "Std. Error"],
+  tolerance = 2e-5
+)
+

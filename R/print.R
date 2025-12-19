@@ -11,10 +11,16 @@ print.dbreg = function(x, fes = FALSE, ...) {
         ct = ct[xvars, , drop = FALSE]
     }
     se_type = attr(x$vcov, "type")
+    n_clusters = attr(x$vcov, "n_clusters")
     se_type = switch(
       se_type,
       "iid" = "IID",
-      "hc1" = "Heteroskedasticity-robust"
+      "hc1" = "Heteroskedasticity-robust",
+      "cluster" = if (!is.null(n_clusters)) {
+        sprintf("Clustered (%d clusters)", n_clusters)
+      } else {
+        "Clustered"
+      }
     )
     if (x$strategy == "compress") {
       cat("Compressed OLS estimation, Dep. Var.:", x$yvar, "\n")
