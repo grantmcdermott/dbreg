@@ -31,7 +31,10 @@ be very similar.
 [R-universe](https://grantmcdermott.r-universe.dev/).
 
 ```r
-install.packages("dbreg", repos = "https://grantmcdermott.r-universe.dev")
+install.packages(
+   "dbreg",
+   repos = c("https://grantmcdermott.r-universe.dev", getOption("repos"))
+)
 ```
 
 ## Quickstart
@@ -43,7 +46,7 @@ dataset.
 
 ```r
 library(dbreg)
-library(fixest)   # for data and comparison
+library(fixest) # for data and comparison
 
 data("trade", package = "fixest")
 
@@ -125,16 +128,6 @@ dbreg(
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 #> RMSE: 1.7                 Adj. R2: 0.243549
-#> 
-#> Compressed OLS estimation, Dep. Var.: tip_amount 
-#> Observations.: 178,544,324 (original) | 70,782 (compressed)
-#> Standard Errors: Heteroskedasticity-robust
-#>                  Estimate Std. Error  t value  Pr(>|t|)    
-#> fare_amount      0.106744   0.000068 1564.742 < 2.2e-16 ***
-#> passenger_count -0.029086   0.000106 -273.866 < 2.2e-16 ***
-#> ---
-#> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-#> RMSE: 1.7                 Adj. R2: 0.243549
 ```
 
 Note the size of the original dataset, which is nearly 180 million rows, versus
@@ -143,13 +136,40 @@ this regression completes in **under 3 seconds**... and that includes the time
 it took to determine an optimal estimation strategy, as well as read the data
 from disk![^2]
 
+In case you were wondering, obtaining clustered standard errors is just as easy;
+simply pass the relevant cluster variable as a formula to the `vcov` argument.
+Since we know that the optimal acceleration strategy is `"compress"`, we'll also
+go ahead a specify this explicitly to skip the auto strategy overhead.
+
+```r
+dbreg(
+   tip_amount ~ fare_amount + passenger_count | month + vendor_name,
+   path     = "read_parquet('nyc-taxi/**/*.parquet')",
+   vcov     = ~month,    # clustered SEs
+   strategy = "compress" # skip auto strategy overhead
+)
+#> [dbreg] Using strategy: compress
+#> [dbreg] Executing compress strategy SQL
+#>
+#> Compressed OLS estimation, Dep. Var.: tip_amount 
+#> Observations.: 178,544,324 (original) | 70,782 (compressed)
+#> Standard Errors: Clustered (12 clusters)
+#>                  Estimate Std. Error  t value   Pr(>|t|)    
+#> fare_amount      0.106744   0.000657 162.4934  < 2.2e-16 ***
+#> passenger_count -0.029086   0.001030 -28.2278 1.2923e-11 ***
+#> ---
+#> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+#> RMSE: 1.7                 Adj. R2: 0.243549
+```
+
+
 #### Option 2: Persistent database
 
 While querying on-the-fly with our default DuckDB backend is both convenient and 
 extremely performant, you can also run regressions against existing tables in a
-persistent database connection. This could be DuckDB, but it could also be any
+persistent database connection. This could be DuckDB, but it could also be _any_
 other [supported backend](https://github.com/r-dbi/backends#readme).
-All you need do is specify the appropriate `conn` and `table` arguments.
+All you need to do is specify the appropriate `conn` and `table` arguments.
 
 ```r
 # load the DBI package to connect to a persistent database
@@ -173,26 +193,24 @@ dbreg(
    tip_amount ~ fare_amount + passenger_count | month + vendor_name,
    conn = con,     # database connection,
    table = "taxi", # table name
-   vcov = "hc1"
+   vcov = ~month,
+   strategy = "compress"
 )
-#> [dbreg] Auto strategy:
-#>         - data has 178,544,324 rows with 2 FE (24 unique groups)
-#>         - compression ratio (0.00) satisfies threshold (0.6)
-#>         - decision: compress
+#> [dbreg] Using strategy: compress
 #> [dbreg] Executing compress strategy SQL
 #> 
 #> Compressed OLS estimation, Dep. Var.: tip_amount 
 #> Observations.: 178,544,324 (original) | 70,782 (compressed) 
-#> Standard Errors: Heteroskedasticity-robust
-#>                  Estimate Std. Error  t value  Pr(>|t|)    
-#> fare_amount      0.106744   0.000068 1564.742 < 2.2e-16 ***
-#> passenger_count -0.029086   0.000106 -273.866 < 2.2e-16 ***
+#> Standard Errors: Clustered (12 clusters)
+#>                  Estimate Std. Error  t value   Pr(>|t|)    
+#> fare_amount      0.106744   0.000657 162.4934  < 2.2e-16 ***
+#> passenger_count -0.029086   0.001030 -28.2278 1.2923e-11 ***
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 #> RMSE: 1.7                 Adj. R2: 0.243549
 ```
 
-Result: we get the same coefficient estimates as earlier.
+Result: we get the same coefficient and standard error estimates as earlier.
 
 We'll close by doing some (optional) clean up.
 
@@ -201,6 +219,30 @@ dbRemoveTable(con, "taxi")
 dbDisconnect(con)
 unlink("nyc.db") # remove from disk
 ```
+
+> [!TIP]
+> If you don't want to create a persistent database (and materialize data), a
+> nice alternative is `CREATE VIEW`. This lets you define subsets or computed
+> columns on-the-fly. For example, to regress on Q1 2012 data with a day-of-week
+> fixed effect:
+> ```r
+> dbExecute(con, "
+>    CREATE VIEW nyc_subset AS
+>    SELECT
+>       tip_amount, trip_distance, passenger_count,
+>       vendor_name, month,
+>       dayofweek(dropoff_datetime) AS dofw
+>    FROM read_parquet('nyc-taxi/**/*.parquet')
+>    WHERE year = 2012 AND month <= 3
+> ")
+> 
+> dbreg(
+>    tip_amount ~ trip_distance + passenger_count | month + dofw + vendor_name,
+>    conn = con,
+>    table = "nyc_subset",
+>    vcov = ~dofw
+> )
+> ```
 
 ## Limitations
 
@@ -219,6 +261,6 @@ GitHub issues for both bug reports and feature requests.
    would cause your whole system to crash... never mind doing any statistical
    analysis on it.
 
-[^2]: If we provided an explicit strategy (and could thus skip the automatic
-   strategy determination), then the total computation time drops to
-   _less than 1 second_...
+[^2]: If we provided an explicit `dbreg(..., strategy = "compress")` argument
+   (thus skipping the automatic strategy determination), then the total
+   computation time drops to _less than 1 second_...

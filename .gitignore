@@ -80,3 +80,5 @@ SCRATCH/
 nyc-taxi/
 nyc.db
 /.quarto/
+
+**/*.quarto_ipynb
