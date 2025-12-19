@@ -211,7 +211,7 @@
 #' @importFrom duckdb duckdb duckdb_register
 #' @importFrom Formula Formula
 #' @importFrom Matrix chol2inv crossprod Diagonal sparse.model.matrix
-#' @importFrom stats formula reformulate pt
+#' @importFrom stats formula pt reformulate setNames
 #' @importFrom glue glue glue_sql
 #'
 #' @examples
@@ -1967,7 +1967,7 @@ compute_meat_cluster_compress = function(conn, from_statement, group_cols,
   meat_mat = matrix(0, p, p, dimnames = list(colnames(X), colnames(X)))
   
   # Create cell_key to row index mapping for X matrix
-  cell_to_row = stats::setNames(seq_len(nrow(compressed_dat)), as.character(compressed_dat$cell_key))
+  cell_to_row = setNames(seq_len(nrow(compressed_dat)), as.character(compressed_dat$cell_key))
   
   # For each cluster, compute score vector and add outer product to meat
   for (g in clusters) {
