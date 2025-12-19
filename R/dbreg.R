@@ -39,10 +39,6 @@
 #' `~cluster_var` for cluster-robust standard errors. Note that `"hc1"` and
 #' clustered SEs require a second pass over the data unless
 #' `strategy = "compress"` to construct the residuals.
-#' @param cluster Optional. A one-sided formula (e.g., `~firm`) or character
-#' string specifying the clustering variable for cluster-robust standard errors.
-#' If provided, this overrides the `vcov` argument. Only single-variable
-#' clustering is currently supported.
 #' @param strategy Character string indicating the preferred acceleration
 #'   strategy. The default `"auto"` will pick an optimal strategy based on
 #'   internal heuristics. Users can also override with one of the following
@@ -64,6 +60,20 @@
 #'     Default value is 1e6 (i.e., a million rows).
 #'
 #'   See the Acceleration Strategies section below for further details.
+#' @param cluster Optional. Provides an alternative way to specify
+#' cluster-robust standard errors (i.e., instead of `vcov = ~cluster_var`).
+#' Either a  one-sided formula (e.g., `~firm`) or character string giving the
+#' variable name. Only single-variable clustering is currently supported.
+#' @param ssc Character string controlling the small-sample correction for
+#' clustered standard errors. Options are `"full"` (default) or `"nested"`.
+#' With `"full"`, all parameters (including fixed effect dummies) are counted
+#' in K for the CR1 correction. With `"nested"`, fixed effects that are nested
+#' within the cluster variable are excluded from K, matching the default
+#' behavior of `fixest::feols`. Only applies to `"compress"` and `"demean"`
+#' strategies (Mundlak uses explicit group mean regressors, not FE dummies).
+#' This distinction only matters for small samples. For large datasets
+#' (`dbreg`'s target use case), the difference is negligible and hence we
+#' default to the simple `"full"` option.
 #' @param query_only Logical indicating whether only the underlying compression
 #'   SQL query should be returned (i.e., no computation will be performed).
 #'   Default is `FALSE`.
@@ -228,15 +238,17 @@ dbreg = function(
   data = NULL,
   path = NULL,
   vcov = c("iid", "hc1"),
-  cluster = NULL,
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = NULL,
   compress_nmax = 1e6,
+  cluster = NULL,
+  ssc = c("full", "nested"),
   query_only = FALSE,
   data_only = FALSE,
   drop_missings = TRUE,
   verbose = TRUE
 ) {
+  ssc = match.arg(ssc)
   # Parse vcov: can be string or formula (for clustering)
   # Check formula first before any string operations
   if (inherits(vcov, "formula")) {
@@ -271,6 +283,7 @@ dbreg = function(
     path = path,
     vcov = vcov,
     cluster = cluster,
+    ssc = ssc,
     strategy = strategy,
     query_only = query_only,
     data_only = data_only,
@@ -311,6 +324,7 @@ process_dbreg_inputs = function(
   path,
   vcov,
   cluster,
+  ssc,
   strategy,
   query_only,
   data_only,
@@ -450,6 +464,7 @@ process_dbreg_inputs = function(
     data = data,
     vcov_type_req = vcov_type_req,
     cluster_var = cluster_var,
+    ssc = ssc,
     strategy = strategy,
     query_only = query_only,
     data_only = data_only,
@@ -1147,6 +1162,7 @@ execute_demean_strategy = function(inputs) {
   
   # Compute meat matrix if needed (HC1 or cluster)
   meat = NULL
+  n_params_cluster = p + df_fe  # K for CR1 correction
   is_athena = inherits(inputs$conn, "AthenaConnection")
   if (inputs$vcov_type_req == "hc1") {
     meat = compute_meat_sql(
@@ -1167,6 +1183,13 @@ execute_demean_strategy = function(inputs) {
       cluster_var = inputs$cluster_var,
       is_athena = is_athena
     )
+    # For ssc = "nested", exclude nested FE levels from K
+    if (inputs$ssc == "nested") {
+      nested_levels = count_nested_fe_levels(
+        inputs$conn, inputs$from_statement, inputs$fes, inputs$cluster_var
+      )
+      n_params_cluster = p + df_fe - nested_levels
+    }
   }
   
   vcov_mat = compute_vcov(
@@ -1176,7 +1199,7 @@ execute_demean_strategy = function(inputs) {
     rss = rss,
     df_res = df_res,
     nobs_orig = n_total,
-    n_params = p + df_fe,
+    n_params = n_params_cluster,
     meat = meat
   )
   attr(vcov_mat, "rss") = rss
@@ -1529,6 +1552,7 @@ execute_compress_strategy = function(inputs) {
   
   # For clustered SEs, need to query cluster-by-cell stats
   meat = NULL
+  n_params_cluster = ncol(X)  # K for CR1 correction
   if (inputs$vcov_type_req == "cluster") {
     meat = compute_meat_cluster_compress(
       conn = inputs$conn,
@@ -1540,6 +1564,13 @@ execute_compress_strategy = function(inputs) {
       X = X,
       yhat = yhat
     )
+    # For ssc = "nested", exclude nested FE levels from K
+    if (inputs$ssc == "nested") {
+      nested_levels = count_nested_fe_levels(
+        inputs$conn, from_statement, inputs$fes, inputs$cluster_var
+      )
+      n_params_cluster = ncol(X) - nested_levels
+    }
   }
   
   vcov_mat = compute_vcov(
@@ -1549,7 +1580,7 @@ execute_compress_strategy = function(inputs) {
     rss = rss_total,
     df_res = df_res,
     nobs_orig = nobs_orig,
-    n_params = ncol(X),
+    n_params = n_params_cluster,
     X = X,
     rss_g = rss_g,
     meat = meat
@@ -1594,6 +1625,42 @@ solve_with_fallback = function(XtX, Xty) {
   list(betahat = betahat, XtX_inv = XtX_inv)
 }
 
+#' Count levels of FE variables nested within cluster variable
+#' 
+#' For ssc = "nested", we exclude FE levels from K if the FE is nested within
+#' the cluster variable (i.e., each FE value belongs to exactly one cluster).
+#' 
+#' @keywords internal
+count_nested_fe_levels = function(conn, from_statement, fes, cluster_var) {
+  if (is.null(fes) || length(fes) == 0 || is.null(cluster_var)) {
+    return(0L)
+  }
+  
+  nested_levels = 0L
+  for (fe in fes) {
+    # Check if FE is nested: each FE value should map to exactly one cluster
+    # If any FE value spans multiple clusters, it's not nested
+    nested_sql = glue(
+      "SELECT 1 FROM (SELECT * {from_statement}) t ",
+      "GROUP BY {fe} ",
+      "HAVING COUNT(DISTINCT {cluster_var}) > 1 ",
+      "LIMIT 1"
+    )
+    result = tryCatch(dbGetQuery(conn, nested_sql), error = function(e) NULL)
+    
+    if (is.null(result) || nrow(result) == 0) {
+      # FE is nested - count its levels
+      count_sql = glue(
+        "SELECT COUNT(DISTINCT {fe}) AS n FROM (SELECT * {from_statement}) t"
+      )
+      n_levels = tryCatch(dbGetQuery(conn, count_sql)$n, error = function(e) 0L)
+      nested_levels = nested_levels + n_levels
+    }
+  }
+  
+  nested_levels
+}
+
 #' Compute variance-covariance matrix
 #' @keywords internal
 compute_vcov = function(
@@ -1603,7 +1670,7 @@ compute_vcov = function(
   rss,
   df_res,
   nobs_orig, # N
-  n_params = NULL, # K
+  n_params = NULL, # K (for CR1 correction)
   X = NULL,
   rss_g = NULL,
   meat = NULL

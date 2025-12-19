@@ -11,10 +11,11 @@ dbreg(
   data = NULL,
   path = NULL,
   vcov = c("iid", "hc1"),
-  cluster = NULL,
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = NULL,
   compress_nmax = 1e+06,
+  cluster = NULL,
+  ssc = c("full", "nested"),
   query_only = FALSE,
   data_only = FALSE,
   drop_missings = TRUE,
@@ -60,11 +61,6 @@ covariance correction / standard errors. Options are \code{"iid"} (default),
 clustered SEs require a second pass over the data unless
 \code{strategy = "compress"} to construct the residuals.}
 
-\item{cluster}{Optional. A one-sided formula (e.g., \code{~firm}) or character
-string specifying the clustering variable for cluster-robust standard errors.
-If provided, this overrides the \code{vcov} argument. Only single-variable
-clustering is currently supported.}
-
 \item{strategy}{Character string indicating the preferred acceleration
 strategy. The default \code{"auto"} will pick an optimal strategy based on
 internal heuristics. Users can also override with one of the following
@@ -88,6 +84,22 @@ Default value is 1e6 (i.e., a million rows).
 }
 
 See the Acceleration Strategies section below for further details.}
+
+\item{cluster}{Optional. Provides an alternative way to specify
+cluster-robust standard errors (i.e., instead of \code{vcov = ~cluster_var}).
+Either a  one-sided formula (e.g., \code{~firm}) or character string giving the
+variable name. Only single-variable clustering is currently supported.}
+
+\item{ssc}{Character string controlling the small-sample correction for
+clustered standard errors. Options are \code{"full"} (default) or \code{"nested"}.
+With \code{"full"}, all parameters (including fixed effect dummies) are counted
+in K for the CR1 correction. With \code{"nested"}, fixed effects that are nested
+within the cluster variable are excluded from K, matching the default
+behavior of \code{fixest::feols}. Only applies to \code{"compress"} and \code{"demean"}
+strategies (Mundlak uses explicit group mean regressors, not FE dummies).
+This distinction only matters for small samples. For large datasets
+(\code{dbreg}'s target use case), the difference is negligible and hence we
+default to the simple \code{"full"} option.}
 
 \item{query_only}{Logical indicating whether only the underlying compression
 SQL query should be returned (i.e., no computation will be performed).

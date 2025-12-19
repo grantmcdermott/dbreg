@@ -179,6 +179,28 @@ expect_equal(
   tolerance = 1e-10
 )
 
+# Test ssc = "nested" option (matches fixest default)
+trade_cluster_nested = dbreg(
+  trade_fml,
+  data = trade,
+  vcov = ~Destination,
+  ssc = "nested",
+  verbose = FALSE
+)
+
+trade_cluster_feols_nested = feols(
+  trade_fml,
+  data = trade,
+  vcov = ~Destination,
+  lean = TRUE
+)
+
+expect_equal(
+  trade_cluster_nested$coeftable[trade_coefs, "std.error"],
+  trade_cluster_feols_nested$coeftable[trade_coefs, "Std. Error"],
+  tolerance = 2e-5
+)
+
 # Test with demean strategy (1 FE)
 trade_cluster_demean = dbreg(
   trade_fml1,
@@ -217,11 +239,25 @@ trade_cluster_mundlak = dbreg(
   verbose = FALSE
 )
 
-# Mundlak gives different model, so just check it runs and has reasonable output
-expect_true(inherits(trade_cluster_mundlak, "dbreg"))
-expect_true(!is.na(trade_cluster_mundlak$coeftable[trade_coefs, "std.error"]))
-expect_true(attr(trade_cluster_mundlak$vcov, "type") == "cluster")
-expect_true(attr(trade_cluster_mundlak$vcov, "n_clusters") == 15)  # 15 Destinations
+# Manual Mundlak with feols and clustered SEs
+trade_cluster_mundlak_manual = feols(
+  Euros ~ dist_km + dist_km_mean_dest + dist_km_mean_orig,
+  data = trade,
+  vcov = ~Destination,
+  lean = TRUE
+)
+
+expect_equal(
+  trade_cluster_mundlak$coeftable[trade_coefs, "estimate"],
+  trade_cluster_mundlak_manual$coeftable[trade_coefs, "Estimate"],
+  tolerance = 1e-6
+)
+
+expect_equal(
+  trade_cluster_mundlak$coeftable[trade_coefs, "std.error"],
+  trade_cluster_mundlak_manual$coeftable[trade_coefs, "Std. Error"],
+  tolerance = 2e-5
+)
 
 # Test with moments strategy (no FE)
 trade_fml_nofe = Euros ~ dist_km
