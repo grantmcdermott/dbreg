@@ -11,6 +11,7 @@ dbreg(
   data = NULL,
   path = NULL,
   vcov = c("iid", "hc1"),
+  cluster = NULL,
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = NULL,
   compress_nmax = 1e+06,
@@ -52,11 +53,17 @@ note the use of single quotes.
 Ignored if either \code{table} or \code{data} is provided.
 }}
 
-\item{vcov}{Character string denoting the desired type of variance-
-covariance correction / standard errors. At present, only \code{"iid"} (default)
-or \code{"hc1"} (heteroskedasticity-consistent) are supported. Note that the
-latter requires a second pass over the data unless \code{strategy = "compress"} to
-construct the residuals.}
+\item{vcov}{Character string or formula denoting the desired type of variance-
+covariance correction / standard errors. Options are \code{"iid"} (default),
+\code{"hc1"} (heteroskedasticity-consistent), or a one-sided formula like
+\code{~cluster_var} for cluster-robust standard errors. Note that \code{"hc1"} and
+clustered SEs require a second pass over the data unless
+\code{strategy = "compress"} to construct the residuals.}
+
+\item{cluster}{Optional. A one-sided formula (e.g., \code{~firm}) or character
+string specifying the clustering variable for cluster-robust standard errors.
+If provided, this overrides the \code{vcov} argument. Only single-variable
+clustering is currently supported.}
 
 \item{strategy}{Character string indicating the preferred acceleration
 strategy. The default \code{"auto"} will pick an optimal strategy based on
