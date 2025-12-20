@@ -45,10 +45,6 @@ New features
   Please note that these clustered SEs are computed _analytically_ (not
   bootstrapped) and should thus add minimal overhead to your regressions. See
   the updated README for examples. (#29)
-- Added QR decomposition fallback for regression calculations, for cases where
-  the default Cholesky solver fails. (#7)
-- Improved integration for running regressions on AWS Athena datasets via the
-  **noctua** package/driver. (#8)
 - The `"auto"` strategy logic now considers a `compress_nmax` threshold, which
   governs the maximum allowable size of the compressed data object (default
   threshold = 1 million rows). This additional guardrail is intended to avoid
@@ -71,6 +67,10 @@ New features
 
 Bug fixes
 
+- Added QR decomposition fallback for regression calculations, for cases where
+  the default Cholesky solver fails. (#7)
+- Improved integration for running regressions on AWS Athena datasets via the
+  **noctua** package/driver. (#8)
 - Automatically drop incomplete cases (i.e., missing values) prior to any
   aggregation steps, avoiding mismatched matrices during estimation. (#19)
 - User-specified `compress_ratio` values should now bind in all cases.
