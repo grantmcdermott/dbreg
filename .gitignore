@@ -76,7 +76,9 @@ vignettes/*.pdf
 SCRATCH/
 
 .DS_Store
-*.png
 
+nyc-taxi/
 nyc.db
 /.quarto/
+
+**/*.quarto_ipynb

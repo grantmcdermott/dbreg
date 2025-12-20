@@ -47,8 +47,9 @@ Imports:
   glue,
   Matrix,
   stats
-Suggests: 
-  fixest,
+Suggests:
+  here,
+  fixest (>= 0.13.0),
   tinytest
 Enhances:
   dbplyr

@@ -11,8 +11,10 @@ compute_vcov(
   rss,
   df_res,
   nobs_orig,
+  n_params = NULL,
   X = NULL,
-  rss_g = NULL
+  rss_g = NULL,
+  meat = NULL
 )
 }
 \description{

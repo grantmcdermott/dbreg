@@ -11,14 +11,29 @@ print.dbreg = function(x, fes = FALSE, ...) {
         ct = ct[xvars, , drop = FALSE]
     }
     se_type = attr(x$vcov, "type")
+    n_clusters = attr(x$vcov, "n_clusters")
     se_type = switch(
       se_type,
       "iid" = "IID",
-      "hc1" = "Heteroskedasticity-robust"
+      "hc1" = "Heteroskedasticity-robust",
+      "cluster" = if (!is.null(n_clusters)) {
+        sprintf("Clustered (%d clusters)", n_clusters)
+      } else {
+        "Clustered"
+      }
     )
     if (x$strategy == "compress") {
       cat("Compressed OLS estimation, Dep. Var.:", x$yvar, "\n")
       cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "(original) |", prettyNum(x$nobs, big.mark = ","), "(compressed)", "\n")
+    } else if (x$strategy == "demean") {
+      num_fes = length(x$fes)
+      if (num_fes == 1) {
+        mstring = "Demeaned"
+      } else {
+        mstring = "Double Demeaned"
+      }
+      cat(paste(mstring, "OLS estimation, Dep. Var.:", x$yvar, "\n"))
+      cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
     } else if (x$strategy == "mundlak") {
       num_fes = length(x$fes)
       mstring = "Mundlak"
@@ -26,6 +41,8 @@ print.dbreg = function(x, fes = FALSE, ...) {
         mstring = paste("One-way", mstring)
       } else if (num_fes == 2) {
         mstring = paste("Two-way", mstring)
+      } else if (num_fes > 2) {
+        mstring = paste0(num_fes, "-way ", mstring)
       }
       cat(paste(mstring, "OLS estimation, Dep. Var.:", x$yvar, "\n"))
       cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")

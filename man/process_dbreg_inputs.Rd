@@ -11,6 +11,8 @@ process_dbreg_inputs(
   data,
   path,
   vcov,
+  cluster,
+  ssc,
   strategy,
   query_only,
   data_only,
