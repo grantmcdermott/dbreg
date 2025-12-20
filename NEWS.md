@@ -36,6 +36,15 @@ New features
     may obtain different coefficients as a result.
   - Please consult the expanded `Acceleration Strategies` section in the
     `?dbreg` helpfile for technical details.
+- Add support for clustered standard errors. Follows the `fixest` API:
+
+  ```r
+  dbreg(..., vcov = ~cluster_var)
+  ```
+
+  Please note that these clustered SEs are computed _analytically_ (not
+  bootstrapped) and should thus add minimal overhead to your regressions. See
+  the updated README for examples. (#29)
 - Added QR decomposition fallback for regression calculations, for cases where
   the default Cholesky solver fails. (#7)
 - Improved integration for running regressions on AWS Athena datasets via the
