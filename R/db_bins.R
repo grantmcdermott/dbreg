@@ -23,8 +23,9 @@
 #' @param weights Character string naming the weight column. Default is NULL
 #'   (equal weights).
 #' @param partition Bin partitioning method: "quantile" (equal-count bins),
-#'   "equal" (equal-width bins), or "manual" (user-specified breaks). Default is
-#'   "quantile".
+#'   "equal" (equal-width bins), "log_equal" (equal-width in log-space, for
+#'   right-skewed variables; requires x > 0), or "manual" (user-specified breaks).
+#'   Default is "quantile".
 #' @param breaks Numeric vector of breakpoints if `partition = "manual"`.
 #'   Ignored otherwise.
 #' @param engine Estimation engine: "design_ols" (formula-based, uses existing
@@ -67,7 +68,7 @@ db_bins = function(
   controls = NULL,
   fe = NULL,
   weights = NULL,
-  partition = c("quantile", "equal", "manual"),
+  partition = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
   engine = c("design_ols", "moments_kkt"),
   strategy = "auto",
@@ -99,8 +100,24 @@ db_bins = function(
   if (smooth > 0 && engine == "design_ols") {
     stop("smooth > 0 requires engine = 'moments_kkt' (not yet implemented)")
   }
+  if (degree == 2) {
+    stop(
+      "degree = 2 (quadratic) is not yet fully supported.\n",
+      "  This requires a predict.dbreg() method to evaluate the piecewise quadratic curves.\n",
+      "  See: https://github.com/grantmcdermott/dbreg/issues/XX\n",
+      "  For now, please use degree = 0 (bin means) or degree = 1 (piecewise linear)."
+    )
+  }
   if (partition == "manual" && is.null(breaks)) {
     stop("breaks must be provided when partition = 'manual'")
+  }
+  if (partition == "manual" && !is.null(breaks)) {
+    if (!is.numeric(breaks) || length(breaks) < 2) {
+      stop("breaks must be a numeric vector with at least 2 values")
+    }
+    if (is.unsorted(breaks)) {
+      stop("breaks must be sorted in increasing order")
+    }
   }
   if (engine == "moments_kkt") {
     stop("engine = 'moments_kkt' not yet implemented; use 'design_ols'")
@@ -223,17 +240,72 @@ create_binned_data = function(inputs) {
   # Weight column handling
   wt_expr = if (is.null(weights)) "1.0" else weights
   
+  # Detect backend for SQL compatibility
+  # SQL Server doesn't support LEAST() or LN(), so we adapt
+  bd = dbreg:::detect_backend(conn)
+  is_sql_server = bd$name == "sqlserver"
+  
+  # Backend-specific function names
+  # SQL Server: LEAST() → CASE WHEN expr < val THEN expr ELSE val END
+  # Others: native LEAST()
+  least_fn = if (is_sql_server) {
+    function(val, expr) sprintf("(CASE WHEN %s < %d THEN %s ELSE %d END)", expr, val, expr, val)
+  } else {
+    function(val, expr) sprintf("LEAST(%d, %s)", val, expr)
+  }
+  
+  # SQL Server: LN() → LOG() (natural log)
+  # Others: native LN()
+  ln_fn = if (is_sql_server) "LOG" else "LN"
+  
   # Bin assignment expression
   if (partition == "quantile") {
     bin_expr = sprintf("ntile(%d) OVER (ORDER BY %s)", B, x_name)
   } else if (partition == "equal") {
-    bin_expr = sprintf(
-      "width_bucket(%s, (SELECT MIN(%s) FROM %s), (SELECT MAX(%s) FROM %s), %d)",
-      x_name, x_name, table_name, x_name, table_name, B
+    # Equal-width bins: manually compute bin number
+    # bin = 1 + floor((x - min) / width) but need to handle edge case where x = max
+    bin_expr = least_fn(
+      B,
+      sprintf(
+        "1 + FLOOR((%s - (SELECT MIN(%s) FROM %s)) / (((SELECT MAX(%s) FROM %s) - (SELECT MIN(%s) FROM %s)) / %d))",
+        x_name, x_name, table_name, x_name, table_name, x_name, table_name, B
+      )
     )
+  } else if (partition == "log_equal") {
+    # Equal-width bins in log-space (for right-skewed distributions)
+    # Requires x > 0
+    bin_expr = least_fn(
+      B,
+      sprintf(
+        "1 + FLOOR((%s(%s) - (SELECT %s(MIN(%s)) FROM %s WHERE %s > 0)) / ((( SELECT %s(MAX(%s)) FROM %s WHERE %s > 0) - (SELECT %s(MIN(%s)) FROM %s WHERE %s > 0)) / %d))",
+        ln_fn, x_name, ln_fn, x_name, table_name, x_name, ln_fn, x_name, table_name, x_name, ln_fn, x_name, table_name, x_name, B
+      )
+    )
+  } else if (partition == "manual") {
+    # Manual breakpoints using CASE WHEN
+    # Use left-closed, right-open intervals [breaks[i], breaks[i+1])
+    # except the last bin which is closed on both ends
+    case_whens = character()
+    for (i in 1:(length(inputs$breaks) - 1)) {
+      lower = inputs$breaks[i]
+      upper = inputs$breaks[i + 1]
+      
+      if (i == length(inputs$breaks) - 1) {
+        # Last bin: closed on both ends
+        case_whens = c(case_whens, 
+                      sprintf("WHEN %s >= %.15g AND %s <= %.15g THEN %d", 
+                             x_name, lower, x_name, upper, i))
+      } else {
+        # Other bins: left-closed, right-open
+        case_whens = c(case_whens, 
+                      sprintf("WHEN %s >= %.15g AND %s < %.15g THEN %d", 
+                             x_name, lower, x_name, upper, i))
+      }
+    }
+    
+    bin_expr = sprintf("CASE %s END", paste(case_whens, collapse = " "))
   } else {
-    # manual - will implement if needed
-    stop("partition = 'manual' not yet implemented")
+    stop("Unknown partition type: ", partition)
   }
   
   # Build query - fetch binned data into R
@@ -253,6 +325,19 @@ create_binned_data = function(inputs) {
     y_name,
     x_name
   )
+  
+  # Add filter for x > 0 if using log_equal
+  if (partition == "log_equal") {
+    query = paste0(query, sprintf(" AND %s > 0", x_name))
+  }
+  
+  # Add filter for values within breaks range if using manual
+  if (partition == "manual") {
+    min_break = min(inputs$breaks)
+    max_break = max(inputs$breaks)
+    query = paste0(query, sprintf(" AND %s >= %.15g AND %s <= %.15g", 
+                                   x_name, min_break, x_name, max_break))
+  }
   
   # Add filter for non-null controls/fe if present
   if (!is.null(controls)) {
@@ -427,6 +512,21 @@ execute_bins_design_ols = function(inputs) {
 
 
 #' Construct output tibble from fitted model
+#' 
+#' @details
+#' **Future enhancement:** Once predict.dbreg() is implemented, this function
+#' can be extended to provide dense predictions for degree >= 1, especially 
+#' quadratic fits. The approach would be:
+#' 
+#' 1. Store the dbreg fit object in the output (e.g., as an attribute)
+#' 2. For each bin, create a sequence of x values: seq(x_left, x_right, length.out = 50)
+#' 3. Build newdata with these x values + corresponding bin indicators
+#' 4. Call predict(fit, newdata = newdata) to get dense y predictions
+#' 5. Return as a list-column or separate dense output option
+#' 
+#' This would enable smooth curve plotting for quadratic fits instead of just
+#' showing segment endpoints (y_left, y_right).
+#' 
 #' @keywords internal
 construct_output = function(inputs, fit, geo) {
   

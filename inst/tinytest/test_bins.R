@@ -100,6 +100,12 @@ expect_error(
   "smooth > 0 requires engine = 'moments_kkt'"
 )
 
+# Quadratic (degree=2) not yet supported - requires predict.dbreg()
+expect_error(
+  db_bins(mtcars, mpg, wt, B = 5, degree = 2),
+  "degree = 2.*not yet fully supported"
+)
+
 # Invalid degree
 expect_error(
   db_bins(mtcars, mpg, wt, degree = 3),
@@ -128,3 +134,48 @@ expect_equal(nrow(bins_db), 5)
 expect_true(all(c("y_left", "y_right") %in% names(bins_db)))
 
 dbDisconnect(con2, shutdown = TRUE)
+
+
+#
+## Test partition types ----
+#
+
+# Equal-width partition
+bins_equal = db_bins(mtcars, mpg, wt, B = 5, degree = 0, partition = "equal", verbose = FALSE)
+expect_equal(nrow(bins_equal), 5)
+expect_true(all(bins_equal$x_left[2:5] > bins_equal$x_right[1:4]))  # Non-overlapping bins
+
+# Log-equal partition (requires x > 0)
+bins_log = db_bins(mtcars, mpg, wt, B = 5, degree = 0, partition = "log_equal", verbose = FALSE)
+expect_equal(nrow(bins_log), 5)
+# Check that bins are narrower at low x and wider at high x
+widths = bins_log$x_right - bins_log$x_left
+expect_true(widths[1] < widths[5])  # First bin narrower than last
+
+# Manual partition with custom breaks
+custom_breaks = c(1.5, 2.5, 3.5, 4.5, 5.5)
+bins_manual = db_bins(
+  mtcars, mpg, wt, 
+  B = 4, 
+  degree = 0, 
+  partition = "manual", 
+  breaks = custom_breaks,
+  verbose = FALSE
+)
+expect_equal(nrow(bins_manual), 4)
+expect_equal(bins_manual$x_left[1], 1.513, tolerance = 0.01)  # Lightest car
+expect_true(bins_manual$x_right[4] <= 5.5)  # Within max break
+
+# Manual partition error handling
+expect_error(
+  db_bins(mtcars, mpg, wt, partition = "manual"),
+  "breaks must be provided"
+)
+expect_error(
+  db_bins(mtcars, mpg, wt, partition = "manual", breaks = 5),
+  "breaks must be a numeric vector with at least 2 values"
+)
+expect_error(
+  db_bins(mtcars, mpg, wt, partition = "manual", breaks = c(5, 3, 1)),
+  "breaks must be sorted"
+)

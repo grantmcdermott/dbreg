@@ -14,7 +14,7 @@ db_bins(
   controls = NULL,
   fe = NULL,
   weights = NULL,
-  partition = c("quantile", "equal", "manual"),
+  partition = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
   engine = c("design_ols", "moments_kkt"),
   strategy = "auto",
@@ -50,8 +50,9 @@ Default is NULL (no controls).}
 (equal weights).}
 
 \item{partition}{Bin partitioning method: "quantile" (equal-count bins),
-"equal" (equal-width bins), or "manual" (user-specified breaks). Default is
-"quantile".}
+"equal" (equal-width bins), "log_equal" (equal-width in log-space, for
+right-skewed variables; requires x > 0), or "manual" (user-specified breaks).
+Default is "quantile".}
 
 \item{breaks}{Numeric vector of breakpoints if `partition = "manual"`.
 Ignored otherwise.}
