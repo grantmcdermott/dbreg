@@ -50,6 +50,7 @@ Imports:
 Suggests:
   here,
   fixest (>= 0.13.0),
+  tinyplot,
   tinytest
 Enhances:
   dbplyr

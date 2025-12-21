@@ -50,15 +50,15 @@
 #' @examples
 #' \dontrun{
 #' # Simple bin means
-#' db_bins(mtcars, mpg, wt, B = 10, degree = 0)
+#' dbbin(mtcars, mpg, wt, B = 10, degree = 0)
 #'
 #' # Piecewise linear fit
-#' db_bins(mtcars, mpg, wt, B = 10, degree = 1)
+#' dbbin(mtcars, mpg, wt, B = 10, degree = 1)
 #'
 #' # With controls
-#' db_bins(mtcars, mpg, wt, controls = ~ hp + cyl, B = 10, degree = 1)
+#' dbbin(mtcars, mpg, wt, controls = ~ hp + cyl, B = 10, degree = 1)
 #' }
-db_bins = function(
+dbbin = function(
   data,
   y,
   x,
@@ -177,6 +177,17 @@ db_bins = function(
   }
   on.exit(cleanup_tables(), add = TRUE)
   
+  # Construct formula for display
+  formula_str = if (!is.null(controls) && !is.null(fe)) {
+    sprintf("%s ~ %s | controls + fe", y_name, x_name)
+  } else if (!is.null(controls)) {
+    sprintf("%s ~ %s | controls", y_name, x_name)
+  } else if (!is.null(fe)) {
+    sprintf("%s ~ %s | fe", y_name, x_name)
+  } else {
+    sprintf("%s ~ %s", y_name, x_name)
+  }
+  
   # Bundle inputs
   inputs = list(
     conn = conn,
@@ -193,7 +204,8 @@ db_bins = function(
     breaks = breaks,
     engine = engine,
     strategy = strategy,
-    verbose = verbose
+    verbose = verbose,
+    formula = as.formula(formula_str)
   )
   
   # Dispatch to engine
@@ -416,7 +428,7 @@ add_basis_columns = function(binned_data, geo, x_name, degree) {
 execute_bins_design_ols = function(inputs) {
   
   if (inputs$verbose) {
-    cat("[db_bins] Executing design_ols strategy\n")
+    cat("[dbbin] Executing design_ols strategy\n")
   }
   
   # Fetch binned data into R (no temp tables created)
@@ -489,7 +501,7 @@ execute_bins_design_ols = function(inputs) {
   actual_strategy = if (inputs$strategy == "auto") "compress" else inputs$strategy
   if (actual_strategy %in% c("moments", "demean", "within", "mundlak")) {
     if (inputs$verbose) {
-      cat("[db_bins] Note: Using 'compress' strategy (required for binned regression)\n")
+      cat("[dbbin] Note: Using 'compress' strategy (required for binned regression)\n")
     }
     actual_strategy = "compress"
   }
@@ -628,7 +640,131 @@ construct_output = function(inputs, fit, geo) {
                  "y_left", "y_right", "B", "degree", "smooth", "partition")]
   }
   
-  return(out)
+  # Add S3 class and metadata attributes
+  structure(
+    out,
+    class = c("dbbin", "tbl_df", "tbl", "data.frame"),
+    fit = fit,
+    formula = inputs$formula,
+    breaks = inputs$breaks
+  )
+}
+
+
+#
+## S3 Methods ----
+#
+
+#' Print method for dbbin objects
+#' 
+#' @param x A dbbin object
+#' @param ... Additional arguments passed to print
+#' @export
+print.dbbin = function(x, ...) {
+  cat("Database binned regression\n")
+  cat("Formula:", deparse(attr(x, "formula")), "\n")
+  cat(sprintf("Bins: %d | Degree: %d | Partition: %s\n", 
+              unique(x$B), unique(x$degree), unique(x$partition)))
+  cat("\n")
+  NextMethod("print")
+}
+
+
+#' Plot method for dbbin objects
+#' 
+#' @param x A dbbin object
+#' @param y Ignored (for S3 consistency)
+#' @param type Plot type: "line" (piecewise segments), "points" (bin midpoints),
+#'   or "connected" (points connected with lines). Default is "line".
+#' @param backend Graphics backend: "auto" (use tinyplot if available, else base),
+#'   "tinyplot", or "base". Default is "auto".
+#' @param ... Additional arguments passed to plotting functions
+#' @export
+plot.dbbin = function(x, y = NULL, 
+                      type = c("line", "points", "connected"),
+                      backend = c("auto", "tinyplot", "base"), 
+                      ...) {
+  
+  backend = match.arg(backend)
+  type = match.arg(type)
+  
+  # Auto-detect backend
+  if (backend == "auto") {
+    backend = if (requireNamespace("tinyplot", quietly = TRUE)) "tinyplot" else "base"
+  }
+  
+  degree = unique(x$degree)
+  
+  # Check if tinyplot is requested but not available
+  if (backend == "tinyplot" && !requireNamespace("tinyplot", quietly = TRUE)) {
+    message("tinyplot not available, falling back to base graphics")
+    backend = "base"
+  }
+  
+  if (backend == "tinyplot") {
+    # Use tinyplot
+    tinytheme("clean")
+    if (degree == 0) {
+      # Bin means - step function
+      if (type == "points") {
+        tinyplot::tinyplot(x$x_mid, x$y, type = "p", 
+                          xlab = "x", ylab = "y", ...)
+      } else {
+        # Step function for degree 0
+        tinyplot::tinyplot(x$x_mid, x$y, type = "s", 
+                          xlab = "x", ylab = "y", ...)
+      }
+    } else {
+      # Piecewise linear/polynomial
+      if (type == "points") {
+        # Just show bin midpoints
+        y_mid = (x$y_left + x$y_right) / 2
+        tinyplot::tinyplot(x$x_mid, y_mid, type = "p",
+                          xlab = "x", ylab = "y", ...)
+      } else {
+        # Plot piecewise segments - draw manually to keep single color
+        # Set up plot region first
+        tinyplot::tinyplot(range(c(x$x_left, x$x_right)), 
+                          range(c(x$y_left, x$y_right)),
+                          type = "n", xlab = "x", ylab = "y", ...)
+        
+        # Draw line segments
+        for (i in seq_len(nrow(x))) {
+          lines(c(x$x_left[i], x$x_right[i]),
+                c(x$y_left[i], x$y_right[i]), ...)
+        }
+      }
+    }
+  } else {
+    # Use base graphics
+    if (degree == 0) {
+      # Bin means
+      if (type == "points") {
+        plot(x$x_mid, x$y, type = "p", xlab = "x", ylab = "y", ...)
+      } else {
+        plot(x$x_mid, x$y, type = "s", xlab = "x", ylab = "y", ...)
+      }
+    } else {
+      # Piecewise linear/polynomial
+      if (type == "points") {
+        y_mid = (x$y_left + x$y_right) / 2
+        plot(x$x_mid, y_mid, type = "p", xlab = "x", ylab = "y", ...)
+      } else {
+        # Set up plot region
+        plot(range(c(x$x_left, x$x_right)), 
+             range(c(x$y_left, x$y_right)),
+             type = "n", xlab = "x", ylab = "y", ...)
+        
+        # Draw line segments
+        for (i in seq_len(nrow(x))) {
+          lines(c(x$x_left[i], x$x_right[i]),
+                c(x$y_left[i], x$y_right[i]), ...)
+        }
+      }
+    }
+  }
+  
+  invisible(x)
 }
 
 

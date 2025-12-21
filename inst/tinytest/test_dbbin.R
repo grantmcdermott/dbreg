@@ -1,7 +1,7 @@
 library(dbreg)
 
 #
-## Test db_bins: focused, minimal coverage ----
+## Test dbbin: focused, minimal coverage ----
 #
 
 # Use mtcars for quick smoke tests
@@ -11,7 +11,7 @@ data(mtcars)
 ## Basic sanity: p=0 (bin means) ----
 #
 
-bins0 = db_bins(mtcars, mpg, wt, B = 5, degree = 0, verbose = FALSE)
+bins0 = dbbin(mtcars, mpg, wt, B = 5, degree = 0, verbose = FALSE)
 
 # Check structure
 expect_true(inherits(bins0, "data.frame"))
@@ -47,7 +47,7 @@ dbDisconnect(con, shutdown = TRUE)
 ## Piecewise linear: p=1 ----
 #
 
-bins1 = db_bins(mtcars, mpg, wt, B = 5, degree = 1, verbose = FALSE)
+bins1 = dbbin(mtcars, mpg, wt, B = 5, degree = 1, verbose = FALSE)
 
 expect_true(all(c("y_left", "y_right") %in% names(bins1)))
 expect_equal(nrow(bins1), 5)
@@ -62,7 +62,7 @@ expect_true(all(!is.na(bins1$y_right)))
 ## Piecewise quadratic: p=2 ----
 #
 
-bins2 = db_bins(mtcars, mpg, wt, B = 5, degree = 2, verbose = FALSE)
+bins2 = dbbin(mtcars, mpg, wt, B = 5, degree = 2, verbose = FALSE)
 
 expect_true(all(c("y_left", "y_right") %in% names(bins2)))
 expect_equal(nrow(bins2), 5)
@@ -72,7 +72,7 @@ expect_equal(nrow(bins2), 5)
 ## With controls ----
 #
 
-bins_ctrl = db_bins(
+bins_ctrl = dbbin(
   mtcars, mpg, wt, 
   controls = ~ hp + cyl, 
   B = 5, 
@@ -90,25 +90,25 @@ expect_true(all(c("y_left", "y_right") %in% names(bins_ctrl)))
 
 # Validate smooth > degree error
 expect_error(
-  db_bins(mtcars, mpg, wt, B = 5, degree = 1, smooth = 2),
+  dbbin(mtcars, mpg, wt, B = 5, degree = 1, smooth = 2),
   "smooth must be <= degree"
 )
 
 # Validate smooth > 0 requires moments_kkt
 expect_error(
-  db_bins(mtcars, mpg, wt, B = 5, degree = 1, smooth = 1, engine = "design_ols"),
+  dbbin(mtcars, mpg, wt, B = 5, degree = 1, smooth = 1, engine = "design_ols"),
   "smooth > 0 requires engine = 'moments_kkt'"
 )
 
 # Quadratic (degree=2) not yet supported - requires predict.dbreg()
 expect_error(
-  db_bins(mtcars, mpg, wt, B = 5, degree = 2),
+  dbbin(mtcars, mpg, wt, B = 5, degree = 2),
   "degree = 2.*not yet fully supported"
 )
 
 # Invalid degree
 expect_error(
-  db_bins(mtcars, mpg, wt, degree = 3),
+  dbbin(mtcars, mpg, wt, degree = 3),
   "degree must be 0, 1, or 2"
 )
 
@@ -120,7 +120,7 @@ expect_error(
 con2 = dbConnect(duckdb())
 dbWriteTable(con2, "cars", mtcars)
 
-bins_db = db_bins(
+bins_db = dbbin(
   data = "cars",
   y = mpg,
   x = wt,
@@ -141,12 +141,12 @@ dbDisconnect(con2, shutdown = TRUE)
 #
 
 # Equal-width partition
-bins_equal = db_bins(mtcars, mpg, wt, B = 5, degree = 0, partition = "equal", verbose = FALSE)
+bins_equal = dbbin(mtcars, mpg, wt, B = 5, degree = 0, partition = "equal", verbose = FALSE)
 expect_equal(nrow(bins_equal), 5)
 expect_true(all(bins_equal$x_left[2:5] > bins_equal$x_right[1:4]))  # Non-overlapping bins
 
 # Log-equal partition (requires x > 0)
-bins_log = db_bins(mtcars, mpg, wt, B = 5, degree = 0, partition = "log_equal", verbose = FALSE)
+bins_log = dbbin(mtcars, mpg, wt, B = 5, degree = 0, partition = "log_equal", verbose = FALSE)
 expect_equal(nrow(bins_log), 5)
 # Check that bins are narrower at low x and wider at high x
 widths = bins_log$x_right - bins_log$x_left
@@ -154,7 +154,7 @@ expect_true(widths[1] < widths[5])  # First bin narrower than last
 
 # Manual partition with custom breaks
 custom_breaks = c(1.5, 2.5, 3.5, 4.5, 5.5)
-bins_manual = db_bins(
+bins_manual = dbbin(
   mtcars, mpg, wt, 
   B = 4, 
   degree = 0, 
@@ -168,14 +168,14 @@ expect_true(bins_manual$x_right[4] <= 5.5)  # Within max break
 
 # Manual partition error handling
 expect_error(
-  db_bins(mtcars, mpg, wt, partition = "manual"),
+  dbbin(mtcars, mpg, wt, partition = "manual"),
   "breaks must be provided"
 )
 expect_error(
-  db_bins(mtcars, mpg, wt, partition = "manual", breaks = 5),
+  dbbin(mtcars, mpg, wt, partition = "manual", breaks = 5),
   "breaks must be a numeric vector with at least 2 values"
 )
 expect_error(
-  db_bins(mtcars, mpg, wt, partition = "manual", breaks = c(5, 3, 1)),
+  dbbin(mtcars, mpg, wt, partition = "manual", breaks = c(5, 3, 1)),
   "breaks must be sorted"
 )
