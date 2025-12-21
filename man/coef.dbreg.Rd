@@ -7,7 +7,7 @@
 \method{coef}{dbreg}(object, fes = FALSE, ...)
 }
 \arguments{
-\item{object}{a model of class `dbreg` produced by the [dbreg()] function}
+\item{object}{A `dbreg` object.}
 
 \item{fes}{Should the fixed effects be included? Default is `FALSE`.}
 

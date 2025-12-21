@@ -7,7 +7,7 @@
 \method{confint}{dbreg}(object, parm, level = 0.95, fes = FALSE, ...)
 }
 \arguments{
-\item{object}{a model of class `dbreg` produced by the [dbreg()] function.}
+\item{object}{A `dbreg` object.}
 
 \item{parm}{a specification of which parameters are to be given confidence
 intervals, either a vector of numbers or a vector of names. If missing,

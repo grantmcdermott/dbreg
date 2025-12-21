@@ -4,7 +4,7 @@
 
 #' Extract coefficients from dbreg objects
 #'
-#' @param object a model of class `dbreg` produced by the [dbreg()] function
+#' @param object A `dbreg` object.
 #' @param fes Should the fixed effects be included? Default is `FALSE`.
 #' @param ... Additional arguments (currently unused).
 #' @export
@@ -202,7 +202,7 @@ predict.dbreg = function(
 
 #' Variance-covariance matrix for dbreg objects
 #'
-#' @param object a model of class `dbreg` produced by the [dbreg()] function
+#' @param object A `dbreg` object.
 #' @param ... Additional arguments (currently unused).
 #' @export
 vcov.dbreg = function(object, ...) {
@@ -211,7 +211,7 @@ vcov.dbreg = function(object, ...) {
 
 #' Confidence intervals for dbreg objects
 #'
-#' @param object a model of class `dbreg` produced by the [dbreg()] function.
+#' @param object A `dbreg` object.
 #' @param parm a specification of which parameters are to be given confidence
 #'   intervals, either a vector of numbers or a vector of names. If missing,
 #'   all parameters are considered.
