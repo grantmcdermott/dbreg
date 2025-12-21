@@ -13,13 +13,31 @@
 )
 }
 \arguments{
-\item{object}{a model of class `dbreg` produced by the [dbreg()] function}
+\item{object}{A `dbreg` object.}
 
-\item{newdata}{Data frame for predictions. Required since dbreg does not
-retain the original data.}
+\item{newdata}{Data frame for predictions. Required for objects that were
+estimated using the `"mundlak"` and `"moments"` strategies, since `dbreg`
+does not retain any data for these estimations.}
+
+\item{interval}{Type of interval to compute: `"none"` (default), 
+`"confidence"`, or `"prediction"`. Note that `"confidence"`` intervals
+reflect uncertainty in the estimated mean, while `"prediction"` intervals
+additionally account for residual variance. See
+\code{\link[stats]{predict.lm}} for details.}
+
+\item{level}{Confidence level for intervals. Default is 0.95.}
 
 \item{...}{Additional arguments (currently unused).}
 }
 \description{
 Predict method for dbreg objects
 }
+\section{Demean strategy predictions}{
+
+For models estimated with `strategy = "demean"`, predictions require
+group means to transform back to the original scale. If `newdata` contains
+the outcome variable, group means are computed from `newdata` and used to
+return level predictions. If the outcome is absent, within-group predictions
+(deviations from group means) are returned instead, with a message.
+}
+

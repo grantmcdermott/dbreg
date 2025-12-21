@@ -38,7 +38,8 @@ coef.dbreg = function(object, fes = FALSE, ...) {
 #' return level predictions. If the outcome is absent, within-group predictions
 #' (deviations from group means) are returned instead, with a message.
 #'
-#' @importFrom stats model.matrix
+#' @importFrom stats model.matrix reformulate
+#' @importFrom Matrix sparse.model.matrix
 #' @export
 predict.dbreg = function(
   object,
@@ -139,11 +140,10 @@ predict.dbreg = function(
     fml_xvars = formula(fml, lhs = 0, rhs = 1)
     fml = update(fml_xvars, as.formula(paste("~ . +", paste(gmeans, collapse = " + "))))
 
-    mm = model.matrix(fml, data = newdata)
+    mm = sparse.model.matrix(fml, data = newdata)
   } else {
-    # compress/moments: use model matrix with FE dummies
-    rhs = seq_len(length(fml)[2])
-    mm = model.matrix(fml, data = newdata, rhs = rhs)
+    # compress/moments: use sparse model matrix with FE dummies
+    mm = sparse.model.matrix(reformulate(c(xvars, fes)), data = newdata)
   }
 
   # Generate predictions
