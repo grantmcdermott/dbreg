@@ -31,12 +31,23 @@ coef.dbreg = function(object, fes = FALSE, ...) {
 #' @param level Confidence level for intervals. Default is 0.95.
 #' @param ... Additional arguments (currently unused).
 #' 
-#' @section Demean strategy predictions:
-#' For models estimated with `strategy = "demean"`, predictions require
-#' group means to transform back to the original scale. If `newdata` contains
-#' the outcome variable, group means are computed from `newdata` and used to
-#' return level predictions. If the outcome is absent, within-group predictions
-#' (deviations from group means) are returned instead, with a message.
+#' @section Predicting on "demean" strategy objects:
+#' 
+#' Predicting on `dbreg` objects should generally work as expected. However,
+#' predictions from `"demean"` strategy models carry two important caveats:
+#' 
+#' 1. Predictions require group means to transform back to the original scale.
+#' If `newdata` contains the outcome variable, group means are computed from
+#' `newdata` and used to return level predictions. If the outcome is absent,
+#' within-group predictions (deviations from group means) are returned instead,
+#' with a message.
+#' 
+#' 2. Confidence/prediction intervals are not supported. A demeaned model cannot
+#' account for uncertainty in the fixed-effects (since these were absorbed at
+#' estimation time), which in turn would yield intervals that are too narrow.
+#' Requesting intervals for `"demean"` strategy models will return point
+#' predictions with a message. Users should re-estimate with a different
+#' strategy if intervals are needed.
 #'
 #' @importFrom stats model.matrix reformulate
 #' @importFrom Matrix sparse.model.matrix
@@ -50,6 +61,15 @@ predict.dbreg = function(
 ) {
   interval = match.arg(interval)
   strategy = object[["strategy"]] 
+
+  # Demean strategy doesn't support intervals (FE uncertainty not available)
+  if (strategy == "demean" && interval != "none") {
+    message(
+      "Confidence/prediction intervals not supported for demean strategy ",
+      "(fixed effect uncertainty unavailable). Returning point predictions."
+    )
+    interval = "none"
+  }
 
   if (is.null(newdata)) {
     if (strategy == "compress" && !is.null(object$data)) {

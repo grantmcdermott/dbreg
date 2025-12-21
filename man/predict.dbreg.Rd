@@ -32,12 +32,23 @@ additionally account for residual variance. See
 \description{
 Predict method for dbreg objects
 }
-\section{Demean strategy predictions}{
+\section{Predicting on "demean" strategy objects}{
 
-For models estimated with `strategy = "demean"`, predictions require
-group means to transform back to the original scale. If `newdata` contains
-the outcome variable, group means are computed from `newdata` and used to
-return level predictions. If the outcome is absent, within-group predictions
-(deviations from group means) are returned instead, with a message.
+
+Predicting on `dbreg` objects should generally work as expected. However,
+predictions from `"demean"` strategy models carry two important caveats:
+
+1. Predictions require group means to transform back to the original scale.
+If `newdata` contains the outcome variable, group means are computed from
+`newdata` and used to return level predictions. If the outcome is absent,
+within-group predictions (deviations from group means) are returned instead,
+with a message.
+
+2. Confidence/prediction intervals are not supported. A demeaned model cannot
+account for uncertainty in the fixed-effects (since these were absorbed at
+estimation time), which in turn would yield intervals that are too narrow.
+Requesting intervals for `"demean"` strategy models will return point
+predictions with a message. Users should re-estimate with a different
+strategy if intervals are needed.
 }
 
