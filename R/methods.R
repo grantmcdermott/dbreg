@@ -24,7 +24,10 @@ coef.dbreg = function(object, fes = FALSE, ...) {
 #'   estimated using the `"mundlak"` and `"moments"` strategies, since `dbreg`
 #'   does not retain any data for these estimations.
 #' @param interval Type of interval to compute: `"none"` (default), 
-#'   `"confidence"`, or `"prediction"`.
+#'   `"confidence"`, or `"prediction"`. Note that `"confidence"`` intervals
+#'   reflect uncertainty in the estimated mean, while `"prediction"` intervals
+#'   additionally account for residual variance. See
+#'   \code{\link[stats]{predict.lm}} for details.
 #' @param level Confidence level for intervals. Default is 0.95.
 #' @param ... Additional arguments (currently unused).
 #' 
@@ -155,8 +158,12 @@ predict.dbreg = function(
     if (interval == "confidence") {
       ses = sqrt(Matrix::rowSums((mm %*% vcovm) * mm))
     } else if (interval == "prediction") {
-      residuals = newdata[["mean_Y"]] - fit ## FIXME!!
-      sig2 = c(Matrix::crossprod(residuals)) / dof
+      # Use stored RSS from training to estimate sigma^2
+      rss = attr(object$vcov, "rss")
+      if (is.null(rss)) {
+        stop("Prediction intervals require RSS, which is not stored in this model.")
+      }
+      sig2 = rss / dof
       ses = sqrt(Matrix::rowSums((mm %*% vcovm) * mm) + sig2)
     }
     a = (1 - level) / 2
