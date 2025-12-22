@@ -215,18 +215,35 @@
 #' @importFrom glue glue glue_sql
 #'
 #' @examples
+#' #
+#' ## Small dataset ----
+#' 
+#' # dbreg is primarily intended for use against big datasets/databases. But it
+#' # also works with small in-memory datasets, which lets us demo the syntax...
 #'
-#' # A not very compelling example using a small in-memory dataset:
+#' # auto strategy defaults to "compress" in this case
 #' (mod = dbreg(Temp ~ Wind | Month, data = airquality))
-#'
+#' 
 #' # Same result as lm
-#' summary(lm(Temp ~ Wind + factor(Month), data = airquality))
-#'
-#' # Aside: dbreg's default print method hides the "nuisance" coefficients
+#' coef(lm(Temp ~ Wind + factor(Month), data = airquality))
+#' 
+#' # aside: dbreg's default print method hides the "nuisance" coefficients
 #' # like the intercept and fixed effect(s). But we can grab them if we want.
 #' print(mod, fes = TRUE)
+#' 
+#' # "robust" SEs can also be computed using a sufficient statistics approach
+#' dbreg(Temp ~ Wind | Month, data = airquality, vcov = "hc1")
+#' dbreg(Temp ~ Wind | Month, data = airquality, vcov = ~Month)
 #'
-#' # Note: for a more compelling and appropriate use-case, i.e. regression on a
+#' # other strategies
+#' dbreg(Temp ~ Wind | Month, data = airquality, strategy = "demean")
+#' dbreg(Temp ~ Wind | Month, data = airquality, strategy = "mundlak")
+#' dbreg(Temp ~ Wind, data = airquality, strategy = "moments") # no FEs
+#' 
+#' #
+#' ## Big dataset ----
+#' 
+#' # For a more compelling and appropriate dbreg use-case, i.e. regression on a
 #' # big (~180 million row) dataset of Hive-partioned parquet files, see the
 #' # package website:
 #' # https://github.com/grantmcdermott/dbreg?tab=readme-ov-file#quickstart
@@ -1590,20 +1607,23 @@ execute_compress_strategy = function(inputs) {
 
   coeftable = gen_coeftable(betahat, vcov_mat, max(nobs_orig - ncol(X), 1))
 
-  list(
-    coeftable = coeftable,
-    vcov = vcov_mat,
-    fml = inputs$fml,
-    yvar = inputs$yvar,
-    xvars = inputs$xvars,
-    fes = inputs$fes,
-    query_string = query_string,
-    nobs = nobs_comp,
-    nobs_orig = nobs_orig,
-    strategy = "compress",
-    compression_ratio = compression_ratio,
-    compression_ratio_est = inputs$compression_ratio_est,
-    df_residual = max(nobs_orig - ncol(X), 1)
+  return(
+    list(
+      coeftable = coeftable,
+      data = compressed_dat,
+      vcov = vcov_mat,
+      fml = inputs$fml,
+      yvar = inputs$yvar,
+      xvars = inputs$xvars,
+      fes = inputs$fes,
+      query_string = query_string,
+      nobs = nobs_comp,
+      nobs_orig = nobs_orig,
+      strategy = "compress",
+      compression_ratio = compression_ratio,
+      compression_ratio_est = inputs$compression_ratio_est,
+      df_residual = max(nobs_orig - ncol(X), 1)
+    )
   )
 }
 

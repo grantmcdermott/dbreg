@@ -1,6 +1,6 @@
 #' Calculate goodness-of-fit metrics for dbreg objects
 #'
-#' @param object a model of class `dbreg` produced by the [dbreg()] function
+#' @param object A `dbreg` object.
 #' @param ... Additional arguments (currently unused)
 #' @return Named vector with r2, adj_r2, and rmse
 #' @keywords internal

@@ -121,3 +121,66 @@ expect_equal(
   info = "balanced panel (sim): moments SEs match feols"
 )
 
+
+#
+## Test predictions (balanced panel) ----
+
+# Need non-lean fixest for predictions
+sim_feols_full = feols(
+  y ~ x1 + x2 | firm + year,
+  data = sim_panel
+)
+
+sim_compress = dbreg(
+  y ~ x1 + x2 | firm + year,
+  data = sim_panel,
+  strategy = "compress",
+  verbose = FALSE
+)
+
+# Compress: point predictions match fixest
+sim_pred_compress = predict(sim_compress, newdata = sim_panel)
+sim_pred_feols = predict(sim_feols_full, newdata = sim_panel)
+
+expect_equal(
+  sim_pred_compress,
+  as.numeric(sim_pred_feols),
+  tolerance = 1e-6,
+  info = "balanced panel: compress predictions match fixest"
+)
+
+# Demean: point predictions match fixest (balanced panel = exact TWFE)
+sim_pred_demean = predict(sim_dbreg, newdata = sim_panel)
+
+expect_equal(
+  sim_pred_demean,
+  as.numeric(sim_pred_feols),
+  tolerance = 1e-6,
+  info = "balanced panel: demean predictions match fixest"
+)
+
+# Compress: confidence intervals
+sim_ci_compress = predict(sim_compress, newdata = sim_panel, interval = "confidence")
+expect_true(
+  all(sim_ci_compress$lwr < sim_ci_compress$fit & sim_ci_compress$fit < sim_ci_compress$upr),
+  info = "balanced panel: compress CI bounds are sensible"
+)
+
+# Compress: prediction intervals wider than confidence intervals
+sim_pi_compress = predict(sim_compress, newdata = sim_panel, interval = "prediction")
+expect_true(
+  all((sim_pi_compress$upr - sim_pi_compress$lwr) > (sim_ci_compress$upr - sim_ci_compress$lwr)),
+  info = "balanced panel: prediction intervals wider than confidence intervals"
+)
+
+
+# Moments: point predictions match fixest (no FE case)
+sim_pred_moments = predict(sim_moments, newdata = sim_panel)
+sim_pred_ols = predict(sim_ols, newdata = sim_panel)
+
+expect_equal(
+  sim_pred_moments,
+  as.numeric(sim_pred_ols),
+  tolerance = 1e-6,
+  info = "moments: predictions match fixest OLS"
+)

@@ -58,8 +58,8 @@ New features
 - Enabled weights for double demean (within) specification. (#13)
 - Esimations now report some goodness-of-fit statistics like R2 and RMSE,
   powered by the (user-facing) `gof()` function. (#21) 
-- Added support for various `*.dbreg` methods (#21):
-  - From **stats**: `confint()` and `vcov()`.
+- Added support for various `*.dbreg` methods (#21, #30):
+  - From **stats**: `coef()`, `confint()`, `predict()`, and `vcov()`.
   - From **broom**/**generics**: `tidy()` and `glance()`. These also enable
   post-processing operations like exporting results to coefficient tables via
   `modelsummary::msummary()`. Thanks to @HariharanJayashankar for the request in
