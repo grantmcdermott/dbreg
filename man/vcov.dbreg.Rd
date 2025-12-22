@@ -14,3 +14,20 @@
 \description{
 Variance-covariance matrix for dbreg objects
 }
+\examples{
+mod = dbreg(Temp ~ Wind | Month, data = airquality, verbose = FALSE)
+
+# coefficients
+coef(mod)
+coef(mod, fes = TRUE)  # include fixed effects
+
+# confidence intervals
+confint(mod)
+
+# variance-covariance matrix
+vcov(mod)
+
+# predictions
+head(predict(mod, newdata = airquality))
+head(predict(mod, newdata = airquality, interval = "confidence"))
+}

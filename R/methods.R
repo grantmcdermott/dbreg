@@ -7,6 +7,22 @@
 #' @param object A `dbreg` object.
 #' @param fes Should the fixed effects be included? Default is `FALSE`.
 #' @param ... Additional arguments (currently unused).
+#' @examples
+#' mod = dbreg(Temp ~ Wind | Month, data = airquality, verbose = FALSE)
+#' 
+#' # coefficients
+#' coef(mod)
+#' coef(mod, fes = TRUE)  # include fixed effects
+#' 
+#' # confidence intervals
+#' confint(mod)
+#' 
+#' # variance-covariance matrix
+#' vcov(mod)
+#' 
+#' # predictions
+#' head(predict(mod, newdata = airquality))
+#' head(predict(mod, newdata = airquality, interval = "confidence"))
 #' @export
 coef.dbreg = function(object, fes = FALSE, ...) {
   ct = object[["coeftable"]]
@@ -53,6 +69,8 @@ coef.dbreg = function(object, fes = FALSE, ...) {
 #' predictions with a message. Users should re-estimate with a different
 #' strategy if intervals are needed.
 #'
+#' @seealso [dbreg()] for examples.
+#' @inherit coef.dbreg examples
 #' @importFrom stats model.matrix reformulate ave update as.formula coef vcov qt
 #' @importFrom Matrix sparse.model.matrix
 #' @export
@@ -204,6 +222,7 @@ predict.dbreg = function(
 #'
 #' @param object A `dbreg` object.
 #' @param ... Additional arguments (currently unused).
+#' @inherit coef.dbreg examples
 #' @export
 vcov.dbreg = function(object, ...) {
   object[["vcov"]]
@@ -218,6 +237,7 @@ vcov.dbreg = function(object, ...) {
 #' @param level the confidence level required. Default is 0.95.
 #' @param fes Should the fixed effects be included? Default is `FALSE`.
 #' @param ... Additional arguments (currently unused).
+#' @inherit coef.dbreg examples
 #' @importFrom stats qt
 #' @export
 confint.dbreg = function(object, parm, level = 0.95, fes = FALSE, ...) {

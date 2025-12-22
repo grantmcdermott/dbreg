@@ -52,3 +52,23 @@ predictions with a message. Users should re-estimate with a different
 strategy if intervals are needed.
 }
 
+\examples{
+mod = dbreg(Temp ~ Wind | Month, data = airquality, verbose = FALSE)
+
+# coefficients
+coef(mod)
+coef(mod, fes = TRUE)  # include fixed effects
+
+# confidence intervals
+confint(mod)
+
+# variance-covariance matrix
+vcov(mod)
+
+# predictions
+head(predict(mod, newdata = airquality))
+head(predict(mod, newdata = airquality, interval = "confidence"))
+}
+\seealso{
+[dbreg()] for examples.
+}
