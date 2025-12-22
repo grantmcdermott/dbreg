@@ -20,7 +20,7 @@ estimated using the `"mundlak"` and `"moments"` strategies, since `dbreg`
 does not retain any data for these estimations.}
 
 \item{interval}{Type of interval to compute: `"none"` (default), 
-`"confidence"`, or `"prediction"`. Note that `"confidence"`` intervals
+`"confidence"`, or `"prediction"`. Note that `"confidence"` intervals
 reflect uncertainty in the estimated mean, while `"prediction"` intervals
 additionally account for residual variance. See
 \code{\link[stats]{predict.lm}} for details.}

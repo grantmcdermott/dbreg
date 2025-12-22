@@ -44,7 +44,7 @@ coef.dbreg = function(object, fes = FALSE, ...) {
 #'   estimated using the `"mundlak"` and `"moments"` strategies, since `dbreg`
 #'   does not retain any data for these estimations.
 #' @param interval Type of interval to compute: `"none"` (default), 
-#'   `"confidence"`, or `"prediction"`. Note that `"confidence"`` intervals
+#'   `"confidence"`, or `"prediction"`. Note that `"confidence"` intervals
 #'   reflect uncertainty in the estimated mean, while `"prediction"` intervals
 #'   additionally account for residual variance. See
 #'   \code{\link[stats]{predict.lm}} for details.
@@ -168,7 +168,7 @@ predict.dbreg = function(
     gmeans = c()
     for (x in xvars) {
       for (fe in fes) {
-        demean_x = paste0(x, "_mean_", fe)
+        demean_x = paste0(x, "_bar_", fe)
         gmeans = c(gmeans, demean_x)
         newdata[[demean_x]] = ave(
           newdata[[x]],
