@@ -5,14 +5,11 @@
 \title{Database-native binned regression}
 \usage{
 dbbin(
+  fml,
   data,
-  y,
-  x,
   B = 20,
   degree = 1,
   smooth = 0,
-  controls = NULL,
-  fe = NULL,
   weights = NULL,
   partition_method = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
@@ -25,12 +22,13 @@ dbbin(
 )
 }
 \arguments{
+\item{fml}{A \code{\link[stats]{formula}} representing the binscatter relation.
+Use the syntax \code{y ~ x} for unconditional binning, \code{y ~ x | controls} to
+partial out controls, or \code{y ~ x | controls | fe} to include fixed effects.
+For example: \code{mpg ~ wt | hp + cyl | gear}.}
+
 \item{data}{A data source: R dataframe, database table name (character), or
 dplyr::tbl object pointing to a database table.}
-
-\item{y}{Character string or unquoted name of the outcome variable.}
-
-\item{x}{Character string or unquoted name of the binning variable.}
 
 \item{B}{Integer number of bins. Default is 20.}
 
@@ -41,12 +39,6 @@ dplyr::tbl object pointing to a database table.}
 level), or 2 (continuous level and slope). Must satisfy \code{smooth <= degree}.
 Default is 0. Values greater than 0 require the \code{dbplyr} package and
 use constrained least squares estimation to enforce continuity at bin boundaries.}
-
-\item{controls}{Optional formula specifying control variables, e.g. \code{~ z1 + z2}.
-Default is NULL (no controls).}
-
-\item{fe}{Optional formula specifying fixed effects using dbreg syntax, e.g.
-\code{~ id + time}. Default is NULL (no fixed effects).}
 
 \item{weights}{Character string naming the weight column. Default is NULL
 (equal weights).}
@@ -101,12 +93,15 @@ conditional models (with controls and/or fixed effects).
 \examples{
 \dontrun{
 # Simple bin means
-dbbin(mtcars, mpg, wt, B = 10, degree = 0)
+dbbin(mpg ~ wt, mtcars, B = 10, degree = 0)
 
 # Piecewise linear fit
-dbbin(mtcars, mpg, wt, B = 10, degree = 1)
+dbbin(mpg ~ wt, mtcars, B = 10, degree = 1)
 
 # With controls
-dbbin(mtcars, mpg, wt, controls = ~ hp + cyl, B = 10, degree = 1)
+dbbin(mpg ~ wt | hp + cyl, mtcars, B = 10, degree = 1)
+
+# With controls and fixed effects
+dbbin(mpg ~ wt | hp + cyl | gear, mtcars, B = 10, degree = 1)
 }
 }

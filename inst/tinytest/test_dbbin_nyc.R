@@ -28,9 +28,8 @@ dbExecute(con, sprintf("
 #
 
 bins_quantile = dbbin(
-  "nyc_jan", 
-  y = fare_amount,
-  x = trip_distance,
+  fare_amount ~ trip_distance,
+  "nyc_jan",
   B = 20, 
   degree = 1, 
   partition_method = "quantile",
@@ -56,9 +55,8 @@ expect_equal(unique(bins_quantile$degree), 1)
 #
 try(dbExecute(con, "DROP VIEW IF EXISTS tmp_table_dbreg"), silent = TRUE)
 bins_equal = dbbin(
+  fare_amount ~ trip_distance,
   "nyc_jan",
-  y = fare_amount,
-  x = trip_distance,
   B = 15,
   degree = 1,
   partition_method = "equal",
@@ -79,12 +77,10 @@ expect_true(max(bin_widths) / min(bin_widths) < 1.1)  # Within 10% variation
 #
 try(dbExecute(con, "DROP VIEW IF EXISTS tmp_table_dbreg"), silent = TRUE)
 bins_controls = dbbin(
+  fare_amount ~ trip_distance | passenger_count,
   "nyc_jan",
-  y = fare_amount,
-  x = trip_distance,
   B = 10,
   degree = 1,
-  controls = ~ passenger_count,
   partition_method = "quantile",
   conn = con,
   verbose = FALSE
@@ -101,9 +97,8 @@ try(dbExecute(con, "DROP VIEW IF EXISTS tmp_table_dbreg"), silent = TRUE)
 
 # Test that plot doesn't error (both backends)
 bins_plot = dbbin(
+  fare_amount ~ trip_distance,
   "nyc_jan",
-  y = fare_amount,
-  x = trip_distance,
   B = 10,
   degree = 1,
   conn = con,
@@ -123,9 +118,8 @@ dev.off()
 # Test degree = 0 (step function)
 try(dbExecute(con, "DROP VIEW IF EXISTS tmp_table_dbreg"), silent = TRUE)
 bins_means = dbbin(
+  fare_amount ~ trip_distance,
   "nyc_jan",
-  y = fare_amount,
-  x = trip_distance,
   B = 10,
   degree = 0,
   conn = con,
@@ -143,9 +137,8 @@ dev.off()
 try(dbExecute(con, "DROP VIEW IF EXISTS tmp_table_dbreg"), silent = TRUE)
 
 bins_smooth1 = dbbin(
+  fare_amount ~ trip_distance,
   "nyc_jan",
-  y = fare_amount,
-  x = trip_distance,
   B = 20,
   degree = 2,
   smooth = 1,
@@ -167,9 +160,8 @@ for (b in 1:(nrow(bins_smooth1) - 1)) {
 
 # Compare to unconstrained: should be different
 bins_smooth0 = dbbin(
+  fare_amount ~ trip_distance,
   "nyc_jan",
-  y = fare_amount,
-  x = trip_distance,
   B = 20,
   degree = 2,
   smooth = 0,
@@ -193,9 +185,8 @@ expect_true(
 try(dbExecute(con, "DROP VIEW IF EXISTS tmp_table_dbreg"), silent = TRUE)
 
 bins_smooth2 = dbbin(
+  fare_amount ~ trip_distance,
   "nyc_jan",
-  y = fare_amount,
-  x = trip_distance,
   B = 8,
   degree = 2,
   smooth = 2,

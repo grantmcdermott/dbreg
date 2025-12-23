@@ -5,10 +5,12 @@
 #' estimated bin means or piecewise polynomial fits. Supports unconditional and
 #' conditional models (with controls and/or fixed effects).
 #'
+#' @param fml A \code{\link[stats]{formula}} representing the binscatter relation.
+#'   Use the syntax `y ~ x` for unconditional binning, `y ~ x | controls` to
+#'   partial out controls, or `y ~ x | controls | fe` to include fixed effects.
+#'   For example: `mpg ~ wt | hp + cyl | gear`.
 #' @param data A data source: R dataframe, database table name (character), or
 #'   dplyr::tbl object pointing to a database table.
-#' @param y Character string or unquoted name of the outcome variable.
-#' @param x Character string or unquoted name of the binning variable.
 #' @param B Integer number of bins. Default is 20.
 #' @param degree Polynomial degree within bins: 0 (means), 1 (linear), or 2
 #'   (quadratic). Default is 1.
@@ -16,10 +18,6 @@
 #'   level), or 2 (continuous level and slope). Must satisfy `smooth <= degree`.
 #'   Default is 0. Values greater than 0 require the \code{dbplyr} package and
 #'   use constrained least squares estimation to enforce continuity at bin boundaries.
-#' @param controls Optional formula specifying control variables, e.g. `~ z1 + z2`.
-#'   Default is NULL (no controls).
-#' @param fe Optional formula specifying fixed effects using dbreg syntax, e.g.
-#'   `~ id + time`. Default is NULL (no fixed effects).
 #' @param weights Character string naming the weight column. Default is NULL
 #'   (equal weights).
 #' @param partition_method Bin partitioning method: "quantile" (equal-count bins),
@@ -58,23 +56,23 @@
 #' @examples
 #' \dontrun{
 #' # Simple bin means
-#' dbbin(mtcars, mpg, wt, B = 10, degree = 0)
+#' dbbin(mpg ~ wt, mtcars, B = 10, degree = 0)
 #'
 #' # Piecewise linear fit
-#' dbbin(mtcars, mpg, wt, B = 10, degree = 1)
+#' dbbin(mpg ~ wt, mtcars, B = 10, degree = 1)
 #'
 #' # With controls
-#' dbbin(mtcars, mpg, wt, controls = ~ hp + cyl, B = 10, degree = 1)
+#' dbbin(mpg ~ wt | hp + cyl, mtcars, B = 10, degree = 1)
+#'
+#' # With controls and fixed effects
+#' dbbin(mpg ~ wt | hp + cyl | gear, mtcars, B = 10, degree = 1)
 #' }
 dbbin = function(
+  fml,
   data,
-  y,
-  x,
   B = 20,
   degree = 1,
   smooth = 0,
-  controls = NULL,
-  fe = NULL,
   weights = NULL,
   partition_method = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
@@ -99,9 +97,42 @@ dbbin = function(
     vcov = "iid"
   }
   
-  # Capture quoted variable names
-  y_name = deparse(substitute(y))
-  x_name = deparse(substitute(x))
+  # Parse formula using Formula package (same pattern as dbreg)
+  if (!requireNamespace("Formula", quietly = TRUE)) {
+    stop(
+      "The dbbin() function requires the Formula package.\n",
+      "Install it with: install.packages('Formula')",
+      call. = FALSE
+    )
+  }
+  
+  fml = Formula::Formula(fml)
+  
+  # Extract y variable (LHS)
+  y_name = all.vars(formula(fml, lhs = 1, rhs = 0))
+  if (length(y_name) != 1) {
+    stop("Exactly one outcome variable required on LHS of formula")
+  }
+  
+  # Extract x variable (first RHS component)
+  x_name = all.vars(formula(fml, lhs = 0, rhs = 1))
+  if (length(x_name) != 1) {
+    stop("Exactly one binning variable required on first RHS of formula (e.g., y ~ x)")
+  }
+  
+  # Extract controls (second RHS component, if present)
+  controls = if (length(fml)[2] > 1) {
+    all.vars(formula(fml, lhs = 0, rhs = 2))
+  } else {
+    NULL
+  }
+  
+  # Extract fixed effects (third RHS component, if present)
+  fe = if (length(fml)[2] > 2) {
+    all.vars(formula(fml, lhs = 0, rhs = 3))
+  } else {
+    NULL
+  }
   
   # Check for dplyr package (required for all binscatter operations)
   if (!requireNamespace("dplyr", quietly = TRUE)) {
@@ -185,14 +216,14 @@ dbbin = function(
     if (is.null(table_name)) {
       # Create temp table from subquery
       table_name = sprintf("__db_bins_%s_input", 
-                          format(Sys.time(), "%Y%m%d_%H%M%S_%OS3"))
+                          gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
       dplyr::compute(data, name = table_name, temporary = TRUE)
       temp_tables = c(temp_tables, table_name)
     }
   } else if (is.data.frame(data)) {
     # Copy R dataframe to temp table
     table_name = sprintf("__db_bins_%s_input", 
-                        format(Sys.time(), "%Y%m%d_%H%M%S_%OS3"))
+                        gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
     DBI::dbWriteTable(conn, table_name, data, temporary = TRUE)
     temp_tables = c(temp_tables, table_name)
   } else {
@@ -211,11 +242,11 @@ dbbin = function(
   
   # Construct formula for display
   formula_str = if (!is.null(controls) && !is.null(fe)) {
-    sprintf("%s ~ %s | controls + fe", y_name, x_name)
+    sprintf("%s ~ %s | %s | %s", y_name, x_name, paste(controls, collapse = " + "), paste(fe, collapse = " + "))
   } else if (!is.null(controls)) {
-    sprintf("%s ~ %s | controls", y_name, x_name)
+    sprintf("%s ~ %s | %s", y_name, x_name, paste(controls, collapse = " + "))
   } else if (!is.null(fe)) {
-    sprintf("%s ~ %s | fe", y_name, x_name)
+    sprintf("%s ~ %s | %s", y_name, x_name, paste(fe, collapse = " + "))
   } else {
     sprintf("%s ~ %s", y_name, x_name)
   }
@@ -275,12 +306,10 @@ create_binned_data = function(inputs) {
   cols = c(y_name, x_name)
   if (!is.null(weights)) cols = c(cols, weights)
   if (!is.null(controls)) {
-    control_vars = all.vars(controls)
-    cols = c(cols, control_vars)
+    cols = c(cols, controls)
   }
   if (!is.null(fe)) {
-    fe_vars = all.vars(fe)
-    cols = c(cols, fe_vars)
+    cols = c(cols, fe)
   }
   
   # Weight column handling
@@ -387,12 +416,12 @@ create_binned_data = function(inputs) {
   
   # Add filter for non-null controls/fe if present
   if (!is.null(controls)) {
-    for (v in all.vars(controls)) {
+    for (v in controls) {
       query = paste0(query, sprintf(" AND %s IS NOT NULL", v))
     }
   }
   if (!is.null(fe)) {
-    for (v in all.vars(fe)) {
+    for (v in fe) {
       query = paste0(query, sprintf(" AND %s IS NOT NULL", v))
     }
   }
@@ -550,13 +579,13 @@ execute_unconstrained_binsreg = function(inputs) {
   
   # Add controls if present
   if (!is.null(controls)) {
-    control_terms = paste(all.vars(controls), collapse = " + ")
+    control_terms = paste(controls, collapse = " + ")
     fml_rhs = paste(fml_rhs, control_terms, sep = " + ")
   }
   
   # Build full formula
   if (!is.null(fe)) {
-    fe_terms = paste(all.vars(fe), collapse = " + ")
+    fe_terms = paste(fe, collapse = " + ")
     fml_str = sprintf("%s ~ %s | %s", y_name, fml_rhs, fe_terms)
   } else {
     fml_str = sprintf("%s ~ %s", y_name, fml_rhs)
@@ -1448,7 +1477,7 @@ print.dbbin = function(x, ...) {
   cat("Database binned regression\n")
   cat("Formula:", deparse(attr(x, "formula")), "\n")
   cat(sprintf("Bins: %d | Degree: %d | Partition: %s\n", 
-              unique(x$B), unique(x$degree), unique(x$partition)))
+              unique(x$B), unique(x$degree), unique(x$partition_method)))
   cat("\n")
   NextMethod("print")
 }
