@@ -4,7 +4,15 @@
 \alias{construct_output_from_moments}
 \title{Construct output from constrained solution}
 \usage{
-construct_output_from_moments(beta, geo, degree, smooth, partition)
+construct_output_from_moments(
+  beta,
+  geo,
+  degree,
+  smooth,
+  partition_method,
+  level = 0.05,
+  V_beta = NULL
+)
 }
 \arguments{
 \item{beta}{Coefficient vector (length B*(degree+1))}
@@ -14,6 +22,10 @@ construct_output_from_moments(beta, geo, degree, smooth, partition)
 \item{degree}{Polynomial degree}
 
 \item{smooth}{Smoothness level}
+
+\item{level}{Significance level for CIs (default 0.05 for 95% CIs)}
+
+\item{V_beta}{Covariance matrix of coefficients (optional)}
 
 \item{partition}{Partition type}
 }

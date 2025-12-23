@@ -14,8 +14,11 @@ dbbin(
   controls = NULL,
   fe = NULL,
   weights = NULL,
-  partition = c("quantile", "equal", "log_equal", "manual"),
+  partition_method = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
+  ci = FALSE,
+  vcov = NULL,
+  level = 0.05,
   strategy = "auto",
   conn = NULL,
   verbose = TRUE
@@ -48,13 +51,23 @@ Default is NULL (no controls).}
 \item{weights}{Character string naming the weight column. Default is NULL
 (equal weights).}
 
-\item{partition}{Bin partitioning method: "quantile" (equal-count bins),
+\item{partition_method}{Bin partitioning method: "quantile" (equal-count bins),
 "equal" (equal-width bins), "log_equal" (equal-width in log-space, for
 right-skewed variables; requires x > 0), or "manual" (user-specified breaks).
 Default is "quantile".}
 
-\item{breaks}{Numeric vector of breakpoints if `partition = "manual"`.
+\item{breaks}{Numeric vector of breakpoints if `partition_method = "manual"`.
 Ignored otherwise.}
+
+\item{ci}{Logical. Calculate standard errors and confidence intervals?
+Default is FALSE.}
+
+\item{vcov}{Character string or formula for standard errors. Options are
+"iid" (default if ci=TRUE), "hc1", or a clustering formula like ~cluster_var.
+Only supported for unconstrained estimation (smooth=0).}
+
+\item{level}{Significance level for confidence intervals. Default is 0.05
+(95% confidence intervals). Only used when ci = TRUE.}
 
 \item{strategy}{Acceleration strategy passed to dbreg when `smooth = 0`.
 Options are "auto" (default), "compress", or "scan". This parameter is
@@ -75,7 +88,8 @@ A tibble with bin-level results containing:
     defining a line segment)
   - If `degree = 2`: `y_left`, `y_mid`, `y_right` (fitted values at boundaries
     and midpoint, defining a quadratic curve)
-  - Plus metadata: `B`, `degree`, `smooth`, `partition`
+  - If `ci = TRUE`: `se`, `se_left`, `se_right`, `ci_low`, `ci_high` (and `_left`/`_right` variants)
+  - Plus metadata: `B`, `degree`, `smooth`, `partition_method`
 }
 \description{
 Performs binned regression entirely in SQL, returning plot-ready data with

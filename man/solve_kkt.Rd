@@ -16,7 +16,11 @@ solve_kkt(XtX, Xty, A, smooth)
 \item{smooth}{Smoothness level (for dimensionality check)}
 }
 \value{
-Beta coefficient vector (length B*(degree+1))
+A list with components:
+\itemize{
+  \item \code{beta}: Beta coefficient vector (length \eqn{B \times (\mathrm{degree}+1)}).
+  \item \code{V_beta_unscaled}: Unscaled variance-covariance matrix of \code{beta}.
+}
 }
 \description{
 Solve constrained least squares via KKT system

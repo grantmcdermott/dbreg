@@ -24,7 +24,7 @@ dbExecute(con, sprintf("
 ", nyc_path))
 
 #
-## Test 1: Basic binning with quantile partition ----
+## Test 1: Basic binning with quantile partition_method ----
 #
 
 bins_quantile = dbbin(
@@ -33,7 +33,7 @@ bins_quantile = dbbin(
   x = trip_distance,
   B = 20, 
   degree = 1, 
-  partition = "quantile",
+  partition_method = "quantile",
   conn = con,
   verbose = FALSE
 )
@@ -47,12 +47,12 @@ expect_true(all(c("bin", "x_left", "x_right", "x_mid", "n", "y_left", "y_right")
 # Check metadata attributes
 expect_true(!is.null(attr(bins_quantile, "formula")))
 expect_true(!is.null(attr(bins_quantile, "fit")))
-expect_equal(unique(bins_quantile$partition), "quantile")
+expect_equal(unique(bins_quantile$partition_method), "quantile")
 expect_equal(unique(bins_quantile$degree), 1)
 
 
 #
-## Test 2: Equal-width partition ----
+## Test 2: Equal-width partition_method ----
 #
 try(dbExecute(con, "DROP VIEW IF EXISTS tmp_table_dbreg"), silent = TRUE)
 bins_equal = dbbin(
@@ -61,13 +61,13 @@ bins_equal = dbbin(
   x = trip_distance,
   B = 15,
   degree = 1,
-  partition = "equal",
+  partition_method = "equal",
   conn = con,
   verbose = FALSE
 )
 
 expect_equal(nrow(bins_equal), 15)
-expect_equal(unique(bins_equal$partition), "equal")
+expect_equal(unique(bins_equal$partition_method), "equal")
 
 # Equal-width should have (nearly) constant bin width
 bin_widths = bins_equal$x_right - bins_equal$x_left
@@ -85,7 +85,7 @@ bins_controls = dbbin(
   B = 10,
   degree = 1,
   controls = ~ passenger_count,
-  partition = "quantile",
+  partition_method = "quantile",
   conn = con,
   verbose = FALSE
 )
@@ -149,7 +149,7 @@ bins_smooth1 = dbbin(
   B = 20,
   degree = 2,
   smooth = 1,
-  partition = "equal",
+  partition_method = "equal",
   conn = con,
   verbose = FALSE
 )
@@ -170,16 +170,17 @@ bins_smooth0 = dbbin(
   "nyc_jan",
   y = fare_amount,
   x = trip_distance,
-  B = 10,
-  degree = 1,
+  B = 20,
+  degree = 2,
   smooth = 0,
-  partition = "quantile",
+  partition_method = "equal",
   conn = con,
   verbose = FALSE
 )
 
 # Constrained and unconstrained should give different results
 # (unless data happens to be perfectly continuous, which is unlikely)
+# Compare models with same B, degree, partition_method but different smooth
 expect_true(
   mean(abs(bins_smooth1$y_left - bins_smooth0$y_left)) > 0.01,
   info = "Constrained and unconstrained fits should differ"
@@ -198,7 +199,7 @@ bins_smooth2 = dbbin(
   B = 8,
   degree = 2,
   smooth = 2,
-  partition = "quantile",
+  partition_method = "quantile",
   conn = con,
   verbose = FALSE
 )

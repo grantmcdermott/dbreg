@@ -8,6 +8,8 @@
   x,
   y = NULL,
   type = c("line", "points", "connected"),
+  ci = FALSE,
+  level = 0.05,
   backend = c("auto", "tinyplot", "base"),
   ...
 )
@@ -19,6 +21,11 @@
 
 \item{type}{Plot type: "line" (piecewise segments), "points" (bin midpoints),
 or "connected" (points connected with lines). Default is "line".}
+
+\item{ci}{Logical. Show confidence intervals? Default is FALSE.}
+
+\item{level}{Significance level for confidence intervals. Default is 0.05
+(95% confidence intervals). Only used when ci = TRUE.}
 
 \item{backend}{Graphics backend: "auto" (use tinyplot if available, else base),
 "tinyplot", or "base". Default is "auto".}

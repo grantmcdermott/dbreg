@@ -4,7 +4,7 @@
 \alias{construct_output}
 \title{Construct output tibble from fitted model}
 \usage{
-construct_output(inputs, fit, geo)
+construct_output(inputs, fit, geo, V_beta = NULL)
 }
 \description{
 Construct output tibble from fitted model

@@ -22,17 +22,19 @@
 #'   `~ id + time`. Default is NULL (no fixed effects).
 #' @param weights Character string naming the weight column. Default is NULL
 #'   (equal weights).
-#' @param partition Bin partitioning method: "quantile" (equal-count bins),
+#' @param partition_method Bin partitioning method: "quantile" (equal-count bins),
 #'   "equal" (equal-width bins), "log_equal" (equal-width in log-space, for
 #'   right-skewed variables; requires x > 0), or "manual" (user-specified breaks).
 #'   Default is "quantile".
-#' @param breaks Numeric vector of breakpoints if `partition = "manual"`.
+#' @param breaks Numeric vector of breakpoints if `partition_method = "manual"`.
 #'   Ignored otherwise.
 #' @param ci Logical. Calculate standard errors and confidence intervals?
 #'   Default is FALSE.
 #' @param vcov Character string or formula for standard errors. Options are
 #'   "iid" (default if ci=TRUE), "hc1", or a clustering formula like ~cluster_var.
 #'   Only supported for unconstrained estimation (smooth=0).
+#' @param level Significance level for confidence intervals. Default is 0.05
+#'   (95% confidence intervals). Only used when ci = TRUE.
 #' @param strategy Acceleration strategy passed to dbreg when `smooth = 0`.
 #'   Options are "auto" (default), "compress", or "scan". This parameter is
 #'   ignored when `smooth > 0`. See \code{\link{dbreg}} for details.
@@ -49,8 +51,8 @@
 #'     defining a line segment)
 #'   - If `degree = 2`: `y_left`, `y_mid`, `y_right` (fitted values at boundaries
 #'     and midpoint, defining a quadratic curve)
-#'   - If `ci = TRUE`: `se`, `ci_low`, `ci_high` (and `_left`/`_right` variants)
-#'   - Plus metadata: `B`, `degree`, `smooth`, `partition`
+#'   - If `ci = TRUE`: `se`, `se_left`, `se_right`, `ci_low`, `ci_high` (and `_left`/`_right` variants)
+#'   - Plus metadata: `B`, `degree`, `smooth`, `partition_method`
 #'
 #' @export
 #' @examples
@@ -74,17 +76,23 @@ dbbin = function(
   controls = NULL,
   fe = NULL,
   weights = NULL,
-  partition = c("quantile", "equal", "log_equal", "manual"),
+  partition_method = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
   ci = FALSE,
   vcov = NULL,
+  level = 0.05,
   strategy = "auto",
   conn = NULL,
   verbose = TRUE
 ) {
   
   # Match arguments
-  partition = match.arg(partition)
+  partition_method = match.arg(partition_method)
+  
+  # Validate level
+  if (!is.numeric(level) || length(level) != 1 || level <= 0 || level >= 1) {
+    stop("level must be a numeric value between 0 and 1")
+  }
   
   # Handle vcov / ci interaction
   if (isTRUE(ci) && is.null(vcov)) {
@@ -120,10 +128,10 @@ dbbin = function(
   if (degree > 2) {
     stop("degree > 2 not supported; use degree = 0 (bin means), 1 (piecewise linear), or 2 (piecewise quadratic)")
   }
-  if (partition == "manual" && is.null(breaks)) {
-    stop("breaks must be provided when partition = 'manual'")
+  if (partition_method == "manual" && is.null(breaks)) {
+    stop("breaks must be provided when partition_method = 'manual'")
   }
-  if (partition == "manual" && !is.null(breaks)) {
+  if (partition_method == "manual" && !is.null(breaks)) {
     if (!is.numeric(breaks) || length(breaks) < 2) {
       stop("breaks must be a numeric vector with at least 2 values")
     }
@@ -177,14 +185,14 @@ dbbin = function(
     if (is.null(table_name)) {
       # Create temp table from subquery
       table_name = sprintf("__db_bins_%s_input", 
-                          paste0(sample(letters, 8, replace = TRUE), collapse = ""))
+                          format(Sys.time(), "%Y%m%d_%H%M%S_%OS3"))
       dplyr::compute(data, name = table_name, temporary = TRUE)
       temp_tables = c(temp_tables, table_name)
     }
   } else if (is.data.frame(data)) {
     # Copy R dataframe to temp table
     table_name = sprintf("__db_bins_%s_input", 
-                        paste0(sample(letters, 8, replace = TRUE), collapse = ""))
+                        format(Sys.time(), "%Y%m%d_%H%M%S_%OS3"))
     DBI::dbWriteTable(conn, table_name, data, temporary = TRUE)
     temp_tables = c(temp_tables, table_name)
   } else {
@@ -224,10 +232,11 @@ dbbin = function(
     controls = controls,
     fe = fe,
     weights = weights,
-    partition = partition,
+    partition_method = partition_method,
     breaks = breaks,
     ci = ci,
     vcov = vcov,
+    level = level,
     strategy = strategy,
     verbose = verbose,
     formula = as.formula(formula_str)
@@ -257,7 +266,7 @@ create_binned_data = function(inputs) {
   x_name = inputs$x_name
   y_name = inputs$y_name
   B = inputs$B
-  partition = inputs$partition
+  partition_method = inputs$partition_method
   weights = inputs$weights
   controls = inputs$controls
   fe = inputs$fe
@@ -296,9 +305,9 @@ create_binned_data = function(inputs) {
   ln_fn = if (is_sql_server) "LOG" else "LN"
   
   # Bin assignment expression
-  if (partition == "quantile") {
+  if (partition_method == "quantile") {
     bin_expr = sprintf("ntile(%d) OVER (ORDER BY %s)", B, x_name)
-  } else if (partition == "equal") {
+  } else if (partition_method == "equal") {
     # Equal-width bins: manually compute bin number
     # bin = 1 + floor((x - min) / width) but need to handle edge case where x = max
     bin_expr = least_fn(
@@ -308,7 +317,7 @@ create_binned_data = function(inputs) {
         x_name, x_name, table_name, x_name, table_name, x_name, table_name, B
       )
     )
-  } else if (partition == "log_equal") {
+  } else if (partition_method == "log_equal") {
     # Equal-width bins in log-space (for right-skewed distributions)
     # Requires x > 0
     bin_expr = least_fn(
@@ -318,7 +327,7 @@ create_binned_data = function(inputs) {
         ln_fn, x_name, ln_fn, x_name, table_name, x_name, ln_fn, x_name, table_name, x_name, ln_fn, x_name, table_name, x_name, B
       )
     )
-  } else if (partition == "manual") {
+  } else if (partition_method == "manual") {
     # Manual breakpoints using CASE WHEN
     # Use left-closed, right-open intervals [breaks[i], breaks[i+1])
     # except the last bin which is closed on both ends
@@ -342,7 +351,7 @@ create_binned_data = function(inputs) {
     
     bin_expr = sprintf("CASE %s END", paste(case_whens, collapse = " "))
   } else {
-    stop("Unknown partition type: ", partition)
+    stop("Unknown partition_method type: ", partition_method)
   }
   
   # Build query - fetch binned data into R
@@ -364,12 +373,12 @@ create_binned_data = function(inputs) {
   )
   
   # Add filter for x > 0 if using log_equal
-  if (partition == "log_equal") {
+  if (partition_method == "log_equal") {
     query = paste0(query, sprintf(" AND %s > 0", x_name))
   }
   
   # Add filter for values within breaks range if using manual
-  if (partition == "manual") {
+  if (partition_method == "manual") {
     min_break = min(inputs$breaks)
     max_break = max(inputs$breaks)
     query = paste0(query, sprintf(" AND %s >= %.15g AND %s <= %.15g", 
@@ -609,7 +618,7 @@ execute_constrained_binsreg = function(inputs) {
   B = inputs$B
   degree = inputs$degree
   smooth = inputs$smooth
-  partition = inputs$partition
+  partition_method = inputs$partition_method
   weights = inputs$weights
   
   # Convert table to tbl if needed
@@ -620,11 +629,11 @@ execute_constrained_binsreg = function(inputs) {
   }
   
   # Step 1: Assign bins
-  if (partition == "quantile") {
+  if (partition_method == "quantile") {
     data_binned = data_tbl %>%
       dplyr::filter(!is.na(!!rlang::sym(x_name)), !is.na(!!rlang::sym(y_name))) %>%
       dplyr::mutate(bin = dplyr::ntile(!!rlang::sym(x_name), B))
-  } else if (partition == "equal") {
+  } else if (partition_method == "equal") {
     # Equal-width bins using SQL expressions
     data_binned = data_tbl %>%
       dplyr::filter(!is.na(!!rlang::sym(x_name)), !is.na(!!rlang::sym(y_name))) %>%
@@ -633,7 +642,7 @@ execute_constrained_binsreg = function(inputs) {
                                   ((max(!!rlang::sym(x_name), na.rm = TRUE) - min(!!rlang::sym(x_name), na.rm = TRUE)) / B)))
       )
   } else {
-    stop("partition = '", partition, "' not yet supported for constrained estimation")
+    stop("partition_method = '", partition_method, "' not yet supported for constrained estimation")
   }
   
   # Step 2: Compute bin geometry
@@ -746,7 +755,8 @@ execute_constrained_binsreg = function(inputs) {
   V_beta = if (!is.na(sigma2)) sigma2 * kkt_sol$V_beta_unscaled else NULL
   
   # Step 8: Construct output
-  result = construct_output_from_moments(beta, moments_full, degree, smooth, partition, V_beta)
+  result = construct_output_from_moments(beta, moments_full, degree, smooth, partition_method, 
+                                          level = inputs$level, V_beta = V_beta)
   
   return(result)
 }
@@ -906,7 +916,11 @@ assemble_moments = function(moments, degree) {
 #' @param A Constraint matrix ((B-1)*smooth by B*(degree+1))
 #' @param smooth Smoothness level (for dimensionality check)
 #' 
-#' @return List with beta coefficient vector and V_beta_unscaled matrix
+#' @return A list with components:
+#' \itemize{
+#'   \item \code{beta}: Beta coefficient vector (length \eqn{B \times (\mathrm{degree}+1)}).
+#'   \item \code{V_beta_unscaled}: Unscaled variance-covariance matrix of \code{beta}.
+#' }
 #' 
 #' @keywords internal
 solve_kkt = function(XtX, Xty, A, smooth) {
@@ -918,7 +932,13 @@ solve_kkt = function(XtX, Xty, A, smooth) {
     # No constraints, solve unconstrained
     # V_beta_unscaled = (X'X)^-1
     # Use Cholesky for stability if possible, or solve
-    XtX_inv = tryCatch(Matrix::solve(XtX), error = function(e) Matrix::solve(XtX + Matrix::Diagonal(n_params, 1e-10)))
+    XtX_inv = tryCatch(
+      Matrix::solve(XtX), 
+      error = function(e) {
+        warning("Matrix solve failed, using ridge regularization (adding 1e-10 to diagonal)", call. = FALSE)
+        Matrix::solve(XtX + Matrix::Diagonal(n_params, 1e-10))
+      }
+    )
     beta = as.numeric(XtX_inv %*% Xty)
     return(list(beta = beta, V_beta_unscaled = XtX_inv))
   }
@@ -945,7 +965,13 @@ solve_kkt = function(XtX, Xty, A, smooth) {
   #         [ *        * ]
   # The top-left block of K_inv is exactly the unscaled covariance of beta
   
-  K_inv = tryCatch(Matrix::solve(K), error = function(e) Matrix::solve(K + Matrix::Diagonal(nrow(K), 1e-10)))
+  K_inv = tryCatch(
+    Matrix::solve(K), 
+    error = function(e) {
+      warning("KKT matrix solve failed, using ridge regularization (adding 1e-10 to diagonal)", call. = FALSE)
+      Matrix::solve(K + Matrix::Diagonal(nrow(K), 1e-10))
+    }
+  )
   solution = K_inv %*% rhs
   
   # Extract beta (first n_params elements)
@@ -965,12 +991,13 @@ solve_kkt = function(XtX, Xty, A, smooth) {
 #' @param degree Polynomial degree
 #' @param smooth Smoothness level
 #' @param partition Partition type
+#' @param level Significance level for CIs (default 0.05 for 95% CIs)
 #' @param V_beta Covariance matrix of coefficients (optional)
 #' 
 #' @return Tibble with dbbin output structure
 #' 
 #' @keywords internal
-construct_output_from_moments = function(beta, geo, degree, smooth, partition, V_beta = NULL) {
+construct_output_from_moments = function(beta, geo, degree, smooth, partition_method, level = 0.05, V_beta = NULL) {
   
   B = nrow(geo)
   p = degree + 1
@@ -1045,7 +1072,7 @@ construct_output_from_moments = function(beta, geo, degree, smooth, partition, V
     B = B,
     degree = degree,
     smooth = smooth,
-    partition = partition
+    partition_method = partition_method
   )
   
   # Add SEs and CIs if available
@@ -1054,8 +1081,8 @@ construct_output_from_moments = function(beta, geo, degree, smooth, partition, V
     result$se_right = se_right
     if (degree >= 1) result$se_mid = se_mid
     
-    # 95% CI
-    crit_val = 1.96
+    # CI using normal approximation (critical value for two-sided interval)
+    crit_val = stats::qnorm(1 - level / 2)
     result$ci_low_left = result$y_left - crit_val * result$se_left
     result$ci_high_left = result$y_left + crit_val * result$se_left
     result$ci_low_right = result$y_right - crit_val * result$se_right
@@ -1116,7 +1143,15 @@ eval_se = function(V, u, degree) {
   
   if (var_pred < 0) {
     # Clamp small negative values due to numerical noise
-    if (var_pred > -1e-10) var_pred = 0 else return(NA_real_)
+    if (var_pred > -1e-10) {
+      warning("Negative variance (", format(var_pred, scientific = TRUE), 
+              ") clamped to zero due to numerical noise", call. = FALSE)
+      var_pred = 0
+    } else {
+      warning("Large negative variance (", format(var_pred, scientific = TRUE), 
+              ") indicates numerical instability, returning NA", call. = FALSE)
+      return(NA_real_)
+    }
   }
   
   return(sqrt(var_pred))
@@ -1167,7 +1202,7 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
   out$B = B
   out$degree = degree
   out$smooth = inputs$smooth
-  out$partition = inputs$partition
+  out$partition_method = inputs$partition_method
   
   # Helper to get SE of linear combination
   get_se = function(coef_indices, weights) {
@@ -1238,8 +1273,10 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
     out$y = y_vals
     if (!is.null(V_beta)) {
       out$se = se_vals
-      out$ci_low = out$y - 1.96 * out$se
-      out$ci_high = out$y + 1.96 * out$se
+      # CI using normal approximation (critical value for two-sided interval)
+      crit_val = stats::qnorm(1 - inputs$level / 2)
+      out$ci_low = out$y - crit_val * out$se
+      out$ci_high = out$y + crit_val * out$se
     }
     
   } else {
@@ -1330,7 +1367,8 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
       out$se_mid = se_mid
       out$se_right = se_right
       
-      crit_val = 1.96
+      # CI using normal approximation (critical value for two-sided interval)
+      crit_val = stats::qnorm(1 - inputs$level / 2)
       out$ci_low_left = out$y_left - crit_val * out$se_left
       out$ci_high_left = out$y_left + crit_val * out$se_left
       out$ci_low_mid = out$y_mid - crit_val * out$se_mid
@@ -1344,7 +1382,7 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
   if (degree == 0) {
     cols = c("bin", "x_left", "x_right", "x_mid", "n", "y")
     if (!is.null(V_beta)) cols = c(cols, "se", "ci_low", "ci_high")
-    cols = c(cols, "B", "degree", "smooth", "partition")
+    cols = c(cols, "B", "degree", "smooth", "partition_method")
     out = out[, cols]
   } else {
     # degree >= 1: always include y_left, y_mid, y_right
@@ -1355,7 +1393,7 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
                "ci_low_mid", "ci_high_mid",
                "ci_low_right", "ci_high_right")
     }
-    cols = c(cols, "B", "degree", "smooth", "partition")
+    cols = c(cols, "B", "degree", "smooth", "partition_method")
     out = out[, cols]
   }
   
@@ -1367,6 +1405,28 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
     formula = inputs$formula,
     breaks = inputs$breaks
   )
+}
+
+
+#' Lagrange interpolation through 3 points
+#' 
+#' @param x_seq Vector of x values to interpolate at
+#' @param x_pts 3-element vector of x control points
+#' @param y_pts 3-element vector of y control points
+#' 
+#' @return Vector of interpolated y values
+#' 
+#' @keywords internal
+lagrange_interp_3pt = function(x_seq, x_pts, y_pts) {
+  y_seq = numeric(length(x_seq))
+  for (j in seq_along(x_seq)) {
+    xj = x_seq[j]
+    l0 = ((xj - x_pts[2]) * (xj - x_pts[3])) / ((x_pts[1] - x_pts[2]) * (x_pts[1] - x_pts[3]))
+    l1 = ((xj - x_pts[1]) * (xj - x_pts[3])) / ((x_pts[2] - x_pts[1]) * (x_pts[2] - x_pts[3]))
+    l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
+    y_seq[j] = y_pts[1] * l0 + y_pts[2] * l1 + y_pts[3] * l2
+  }
+  return(y_seq)
 }
 
 
@@ -1396,6 +1456,8 @@ print.dbbin = function(x, ...) {
 #' @param type Plot type: "line" (piecewise segments), "points" (bin midpoints),
 #'   or "connected" (points connected with lines). Default is "line".
 #' @param ci Logical. Show confidence intervals? Default is FALSE.
+#' @param level Significance level for confidence intervals. Default is 0.05
+#'   (95% confidence intervals). Only used when ci = TRUE.
 #' @param backend Graphics backend: "auto" (use tinyplot if available, else base),
 #'   "tinyplot", or "base". Default is "auto".
 #' @param ... Additional arguments passed to plotting functions
@@ -1403,6 +1465,7 @@ print.dbbin = function(x, ...) {
 plot.dbbin = function(x, y = NULL, 
                       type = c("line", "points", "connected"),
                       ci = FALSE,
+                      level = 0.05,
                       backend = c("auto", "tinyplot", "base"), 
                       ...) {
   
@@ -1492,15 +1555,8 @@ plot.dbbin = function(x, y = NULL,
             x_pts = c(x$x_left[i], x$x_mid[i], x$x_right[i])
             y_pts = c(x$y_left[i], x$y_mid[i], x$y_right[i])
             
-            # Fit parabola through 3 points and evaluate
-            y_seq = numeric(length(x_seq))
-            for (j in seq_along(x_seq)) {
-              xj = x_seq[j]
-              l0 = ((xj - x_pts[2]) * (xj - x_pts[3])) / ((x_pts[1] - x_pts[2]) * (x_pts[1] - x_pts[3]))
-              l1 = ((xj - x_pts[1]) * (xj - x_pts[3])) / ((x_pts[2] - x_pts[1]) * (x_pts[2] - x_pts[3]))
-              l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
-              y_seq[j] = y_pts[1] * l0 + y_pts[2] * l1 + y_pts[3] * l2
-            }
+            # Lagrange interpolation through 3 points
+            y_seq = lagrange_interp_3pt(x_seq, x_pts, y_pts)
             
             # Draw CI band if requested
             if (ci && "ci_low_left" %in% names(x)) {
@@ -1508,17 +1564,8 @@ plot.dbbin = function(x, y = NULL,
               ci_low_pts = c(x$ci_low_left[i], x$ci_low_mid[i], x$ci_low_right[i])
               ci_high_pts = c(x$ci_high_left[i], x$ci_high_mid[i], x$ci_high_right[i])
               
-              ci_low_seq = numeric(length(x_seq))
-              ci_high_seq = numeric(length(x_seq))
-              
-              for (j in seq_along(x_seq)) {
-                xj = x_seq[j]
-                l0 = ((xj - x_pts[2]) * (xj - x_pts[3])) / ((x_pts[1] - x_pts[2]) * (x_pts[1] - x_pts[3]))
-                l1 = ((xj - x_pts[1]) * (xj - x_pts[3])) / ((x_pts[2] - x_pts[1]) * (x_pts[2] - x_pts[3]))
-                l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
-                ci_low_seq[j] = ci_low_pts[1] * l0 + ci_low_pts[2] * l1 + ci_low_pts[3] * l2
-                ci_high_seq[j] = ci_high_pts[1] * l0 + ci_high_pts[2] * l1 + ci_high_pts[3] * l2
-              }
+              ci_low_seq = lagrange_interp_3pt(x_seq, x_pts, ci_low_pts)
+              ci_high_seq = lagrange_interp_3pt(x_seq, x_pts, ci_high_pts)
               
               polygon(c(x_seq, rev(x_seq)), c(ci_low_seq, rev(ci_high_seq)), 
                       col = adjustcolor("grey", alpha.f = 0.3), border = NA)
@@ -1623,14 +1670,7 @@ plot.dbbin = function(x, y = NULL,
             y_pts = c(x$y_left[i], x$y_mid[i], x$y_right[i])
             
             # Lagrange interpolation through 3 points
-            y_seq = numeric(length(x_seq))
-            for (j in seq_along(x_seq)) {
-              xj = x_seq[j]
-              l0 = ((xj - x_pts[2]) * (xj - x_pts[3])) / ((x_pts[1] - x_pts[2]) * (x_pts[1] - x_pts[3]))
-              l1 = ((xj - x_pts[1]) * (xj - x_pts[3])) / ((x_pts[2] - x_pts[1]) * (x_pts[2] - x_pts[3]))
-              l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
-              y_seq[j] = y_pts[1] * l0 + y_pts[2] * l1 + y_pts[3] * l2
-            }
+            y_seq = lagrange_interp_3pt(x_seq, x_pts, y_pts)
             
             # Draw CI band if requested
             if (ci && "ci_low_left" %in% names(x)) {
@@ -1638,17 +1678,8 @@ plot.dbbin = function(x, y = NULL,
               ci_low_pts = c(x$ci_low_left[i], x$ci_low_mid[i], x$ci_low_right[i])
               ci_high_pts = c(x$ci_high_left[i], x$ci_high_mid[i], x$ci_high_right[i])
               
-              ci_low_seq = numeric(length(x_seq))
-              ci_high_seq = numeric(length(x_seq))
-              
-              for (j in seq_along(x_seq)) {
-                xj = x_seq[j]
-                l0 = ((xj - x_pts[2]) * (xj - x_pts[3])) / ((x_pts[1] - x_pts[2]) * (x_pts[1] - x_pts[3]))
-                l1 = ((xj - x_pts[1]) * (xj - x_pts[3])) / ((x_pts[2] - x_pts[1]) * (x_pts[2] - x_pts[3]))
-                l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
-                ci_low_seq[j] = ci_low_pts[1] * l0 + ci_low_pts[2] * l1 + ci_low_pts[3] * l2
-                ci_high_seq[j] = ci_high_pts[1] * l0 + ci_high_pts[2] * l1 + ci_high_pts[3] * l2
-              }
+              ci_low_seq = lagrange_interp_3pt(x_seq, x_pts, ci_low_pts)
+              ci_high_seq = lagrange_interp_3pt(x_seq, x_pts, ci_high_pts)
               
               polygon(c(x_seq, rev(x_seq)), c(ci_low_seq, rev(ci_high_seq)), 
                       col = adjustcolor("grey", alpha.f = 0.3), border = NA)
