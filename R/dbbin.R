@@ -28,6 +28,11 @@
 #'   Default is "quantile".
 #' @param breaks Numeric vector of breakpoints if `partition = "manual"`.
 #'   Ignored otherwise.
+#' @param ci Logical. Calculate standard errors and confidence intervals?
+#'   Default is FALSE.
+#' @param vcov Character string or formula for standard errors. Options are
+#'   "iid" (default if ci=TRUE), "hc1", or a clustering formula like ~cluster_var.
+#'   Only supported for unconstrained estimation (smooth=0).
 #' @param strategy Acceleration strategy passed to dbreg when `smooth = 0`.
 #'   Options are "auto" (default), "compress", or "scan". This parameter is
 #'   ignored when `smooth > 0`. See \code{\link{dbreg}} for details.
@@ -44,6 +49,7 @@
 #'     defining a line segment)
 #'   - If `degree = 2`: `y_left`, `y_mid`, `y_right` (fitted values at boundaries
 #'     and midpoint, defining a quadratic curve)
+#'   - If `ci = TRUE`: `se`, `ci_low`, `ci_high` (and `_left`/`_right` variants)
 #'   - Plus metadata: `B`, `degree`, `smooth`, `partition`
 #'
 #' @export
@@ -70,6 +76,8 @@ dbbin = function(
   weights = NULL,
   partition = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
+  ci = FALSE,
+  vcov = NULL,
   strategy = "auto",
   conn = NULL,
   verbose = TRUE
@@ -77,6 +85,11 @@ dbbin = function(
   
   # Match arguments
   partition = match.arg(partition)
+  
+  # Handle vcov / ci interaction
+  if (isTRUE(ci) && is.null(vcov)) {
+    vcov = "iid"
+  }
   
   # Capture quoted variable names
   y_name = deparse(substitute(y))
@@ -213,6 +226,8 @@ dbbin = function(
     weights = weights,
     partition = partition,
     breaks = breaks,
+    ci = ci,
+    vcov = vcov,
     strategy = strategy,
     verbose = verbose,
     formula = as.formula(formula_str)
@@ -527,12 +542,15 @@ execute_unconstrained_binsreg = function(inputs) {
     data = binned_data,
     conn = inputs$conn,
     strategy = actual_strategy,
-    vcov = "iid",
+    vcov = if (isTRUE(inputs$ci)) inputs$vcov else "iid",
     verbose = inputs$verbose
   )
   
+  # Extract V_beta if available
+  V_beta = if (isTRUE(inputs$ci) && !is.null(fit$vcov)) fit$vcov else NULL
+  
   # Extract coefficients and construct output
-  result = construct_output(inputs, fit, geo)
+  result = construct_output(inputs, fit, geo, V_beta)
   
   return(result)
 }
@@ -548,6 +566,11 @@ execute_constrained_binsreg = function(inputs) {
   
   if (inputs$verbose) {
     cat("[dbbin] Executing constrained binned regression (smooth = ", inputs$smooth, ")\n", sep = "")
+  }
+  
+  # Warn if robust/clustered SEs requested (not yet supported for constrained)
+  if (isTRUE(inputs$ci) && !is.null(inputs$vcov) && !identical(inputs$vcov, "iid")) {
+    warning("Robust/clustered standard errors not yet supported for constrained binscatter. Using IID standard errors.", call. = FALSE)
   }
   
   # Extract inputs
@@ -626,6 +649,7 @@ execute_constrained_binsreg = function(inputs) {
       dplyr::summarise(
         s00 = sum(wt, na.rm = TRUE),
         t0 = sum(wt * !!rlang::sym(y_name), na.rm = TRUE),
+        s_yy = sum(wt * !!rlang::sym(y_name) * !!rlang::sym(y_name), na.rm = TRUE),
         .groups = "drop"
       ) %>%
       dplyr::collect()
@@ -639,6 +663,7 @@ execute_constrained_binsreg = function(inputs) {
         s11 = sum(wt * u * u, na.rm = TRUE),
         t0 = sum(wt * !!rlang::sym(y_name), na.rm = TRUE),
         t1 = sum(wt * !!rlang::sym(y_name) * u, na.rm = TRUE),
+        s_yy = sum(wt * !!rlang::sym(y_name) * !!rlang::sym(y_name), na.rm = TRUE),
         .groups = "drop"
       ) %>%
       dplyr::collect()
@@ -656,6 +681,7 @@ execute_constrained_binsreg = function(inputs) {
         t0 = sum(wt * !!rlang::sym(y_name), na.rm = TRUE),
         t1 = sum(wt * !!rlang::sym(y_name) * u, na.rm = TRUE),
         t2 = sum(wt * !!rlang::sym(y_name) * u2, na.rm = TRUE),
+        s_yy = sum(wt * !!rlang::sym(y_name) * !!rlang::sym(y_name), na.rm = TRUE),
         .groups = "drop"
       ) %>%
       dplyr::collect()
@@ -672,10 +698,27 @@ execute_constrained_binsreg = function(inputs) {
   moment_system = assemble_moments(moments_full, degree)
   
   # Step 7: Solve KKT system
-  beta = solve_kkt(moment_system$XtX, moment_system$Xty, A, smooth)
+  kkt_sol = solve_kkt(moment_system$XtX, moment_system$Xty, A, smooth)
+  beta = kkt_sol$beta
+  
+  # Calculate error variance
+  # SSR = y'y - beta' X'y (valid for constrained OLS)
+  total_s_yy = sum(moments_full$s_yy)
+  ssr = total_s_yy - sum(beta * moment_system$Xty)
+  
+  # Degrees of freedom: N - (n_params - n_constraints)
+  N = sum(moments_full$n)
+  n_params = length(beta)
+  n_constraints = nrow(A)
+  df_resid = N - (n_params - n_constraints)
+  
+  sigma2 = if (df_resid > 0) ssr / df_resid else NA_real_
+  
+  # Covariance matrix of coefficients
+  V_beta = if (!is.na(sigma2)) sigma2 * kkt_sol$V_beta_unscaled else NULL
   
   # Step 8: Construct output
-  result = construct_output_from_moments(beta, moments_full, degree, smooth, partition)
+  result = construct_output_from_moments(beta, moments_full, degree, smooth, partition, V_beta)
   
   return(result)
 }
@@ -835,7 +878,7 @@ assemble_moments = function(moments, degree) {
 #' @param A Constraint matrix ((B-1)*smooth by B*(degree+1))
 #' @param smooth Smoothness level (for dimensionality check)
 #' 
-#' @return Beta coefficient vector (length B*(degree+1))
+#' @return List with beta coefficient vector and V_beta_unscaled matrix
 #' 
 #' @keywords internal
 solve_kkt = function(XtX, Xty, A, smooth) {
@@ -845,7 +888,11 @@ solve_kkt = function(XtX, Xty, A, smooth) {
   
   if (n_constraints == 0) {
     # No constraints, solve unconstrained
-    return(as.numeric(Matrix::solve(XtX, Xty)))
+    # V_beta_unscaled = (X'X)^-1
+    # Use Cholesky for stability if possible, or solve
+    XtX_inv = tryCatch(Matrix::solve(XtX), error = function(e) Matrix::solve(XtX + Matrix::Diagonal(n_params, 1e-10)))
+    beta = as.numeric(XtX_inv %*% Xty)
+    return(list(beta = beta, V_beta_unscaled = XtX_inv))
   }
   
   # Build augmented KKT system:
@@ -865,12 +912,21 @@ solve_kkt = function(XtX, Xty, A, smooth) {
   rhs = c(Xty, rep(0, n_constraints))
   
   # Solve KKT system
-  solution = Matrix::solve(K, rhs)
+  # We need the inverse of K to get V_beta
+  # K_inv = [ V_beta   * ]
+  #         [ *        * ]
+  # The top-left block of K_inv is exactly the unscaled covariance of beta
+  
+  K_inv = tryCatch(Matrix::solve(K), error = function(e) Matrix::solve(K + Matrix::Diagonal(nrow(K), 1e-10)))
+  solution = K_inv %*% rhs
   
   # Extract beta (first n_params elements)
   beta = as.numeric(solution[1:n_params])
   
-  return(beta)
+  # Extract V_beta_unscaled (top-left block)
+  V_beta_unscaled = K_inv[1:n_params, 1:n_params]
+  
+  return(list(beta = beta, V_beta_unscaled = V_beta_unscaled))
 }
 
 
@@ -881,11 +937,12 @@ solve_kkt = function(XtX, Xty, A, smooth) {
 #' @param degree Polynomial degree
 #' @param smooth Smoothness level
 #' @param partition Partition type
+#' @param V_beta Covariance matrix of coefficients (optional)
 #' 
 #' @return Tibble with dbbin output structure
 #' 
 #' @keywords internal
-construct_output_from_moments = function(beta, geo, degree, smooth, partition) {
+construct_output_from_moments = function(beta, geo, degree, smooth, partition, V_beta = NULL) {
   
   B = nrow(geo)
   p = degree + 1
@@ -906,9 +963,19 @@ construct_output_from_moments = function(beta, geo, degree, smooth, partition) {
   y_right = numeric(B)
   y_mid = if (degree >= 1) numeric(B) else rep(NA_real_, B)
   
+  # Standard errors
+  se_left = if (!is.null(V_beta)) numeric(B) else NULL
+  se_right = if (!is.null(V_beta)) numeric(B) else NULL
+  se_mid = if (!is.null(V_beta) && degree >= 1) numeric(B) else NULL
+  
   for (b in 1:B) {
     x_mid_fit = geo$x_mid[b]  # The centering point for this bin's polynomial
     beta_b = beta_mat[b, ]
+    
+    # Indices in the full beta vector for this bin
+    idx_start = (b - 1) * p + 1
+    idx_end = b * p
+    V_b = if (!is.null(V_beta)) V_beta[idx_start:idx_end, idx_start:idx_end] else NULL
     
     # For b > 1, evaluate y_left at the constraint boundary (x_right of previous bin)
     # This ensures y_left[b] == y_right[b-1] when constraints are satisfied
@@ -921,16 +988,19 @@ construct_output_from_moments = function(beta, geo, degree, smooth, partition) {
       x_left_plot[b] = geo$x_right[b - 1]
     }
     y_left[b] = eval_poly(beta_b, delta_left, degree)
+    if (!is.null(V_b)) se_left[b] = eval_se(V_b, delta_left, degree)
     
     # Right plotting boundary  
     delta_right = x_right_plot[b] - x_mid_fit
     y_right[b] = eval_poly(beta_b, delta_right, degree)
+    if (!is.null(V_b)) se_right[b] = eval_se(V_b, delta_right, degree)
     
     # Midpoint of plotting region (for quadratic curves)
     if (degree >= 1) {
       x_mid_plot = (x_left_plot[b] + x_right_plot[b]) / 2
       delta_mid = x_mid_plot - x_mid_fit
       y_mid[b] = eval_poly(beta_b, delta_mid, degree)
+      if (!is.null(V_b)) se_mid[b] = eval_se(V_b, delta_mid, degree)
     }
   }
   
@@ -949,6 +1019,25 @@ construct_output_from_moments = function(beta, geo, degree, smooth, partition) {
     smooth = smooth,
     partition = partition
   )
+  
+  # Add SEs and CIs if available
+  if (!is.null(V_beta)) {
+    result$se_left = se_left
+    result$se_right = se_right
+    if (degree >= 1) result$se_mid = se_mid
+    
+    # 95% CI
+    crit_val = 1.96
+    result$ci_low_left = result$y_left - crit_val * result$se_left
+    result$ci_high_left = result$y_left + crit_val * result$se_left
+    result$ci_low_right = result$y_right - crit_val * result$se_right
+    result$ci_high_right = result$y_right + crit_val * result$se_right
+    
+    if (degree >= 1) {
+      result$ci_low_mid = result$y_mid - crit_val * result$se_mid
+      result$ci_high_mid = result$y_mid + crit_val * result$se_mid
+    }
+  }
   
   # Add dbbin class
   class(result) = c("dbbin", class(result))
@@ -976,6 +1065,29 @@ eval_poly = function(beta, u, degree) {
   }
 }
 
+#' Evaluate standard error of polynomial at a point
+#' 
+#' @param V Covariance matrix of coefficients
+#' @param u Centered x value
+#' @param degree Polynomial degree
+#' 
+#' @return Scalar standard error
+#' 
+#' @keywords internal
+eval_se = function(V, u, degree) {
+  # x_vec = [1, u, u^2]
+  if (degree == 0) {
+    x_vec = matrix(1, ncol = 1)
+  } else if (degree == 1) {
+    x_vec = matrix(c(1, u), ncol = 1)
+  } else {
+    x_vec = matrix(c(1, u, u^2), ncol = 1)
+  }
+  
+  var_pred = t(x_vec) %*% V %*% x_vec
+  return(sqrt(as.numeric(var_pred)))
+}
+
 
 #' Construct output tibble from fitted model
 #' 
@@ -986,7 +1098,7 @@ eval_poly = function(beta, u, degree) {
 #' each bin using Lagrange interpolation.
 #' 
 #' @keywords internal
-construct_output = function(inputs, fit, geo) {
+construct_output = function(inputs, fit, geo, V_beta = NULL) {
   
   degree = inputs$degree
   B = inputs$B
@@ -1007,31 +1119,75 @@ construct_output = function(inputs, fit, geo) {
   out$smooth = inputs$smooth
   out$partition = inputs$partition
   
+  # Helper to get SE of linear combination
+  get_se = function(coef_indices, weights) {
+    if (is.null(V_beta)) return(NA_real_)
+    # var(w'b) = w' V w
+    # We need to map coef_indices (names) to V_beta indices
+    idx = match(coef_indices, rownames(V_beta))
+    if (any(is.na(idx))) return(NA_real_)
+    
+    w = numeric(nrow(V_beta))
+    w[idx] = weights
+    
+    var_val = t(w) %*% V_beta %*% w
+    return(sqrt(as.numeric(var_val)))
+  }
+  
   if (degree == 0) {
     # Extract bin means
     # With "~ 0 + bin", R creates "(Intercept)" for bin1, then "bin2", "bin3", etc.
+    # Wait, with "0 + bin", R creates "bin1", "bin2", ... "binB" directly!
+    # Let's check if intercept is present or not.
+    # If "0 + bin" is used, we get bin1, bin2, ... binB.
+    # If "bin" is used (with intercept), we get (Intercept), bin2, bin3...
+    
+    # dbreg uses the formula as passed. In execute_unconstrained_binsreg we use "0 + bin".
+    # So we should expect "bin1", "bin2", etc.
+    # BUT, if controls/FE are present, behavior might change depending on dbreg internals.
+    # Let's handle both cases robustly.
     
     y_vals = numeric(B)
+    se_vals = numeric(B)
     
-    # Bin 1 is the "(Intercept)"
-    if ("(Intercept)" %in% coef_names) {
-      y_vals[1] = coef_vals["(Intercept)"]
-    } else {
-      y_vals[1] = NA
-    }
+    has_intercept = "(Intercept)" %in% coef_names
     
-    # Bins 2-B are deviations from bin1
-    for (i in 2:B) {
-      coef_name = sprintf("bin%d", i)
-      if (coef_name %in% coef_names) {
-        # This is a deviation from the intercept, so add them
-        y_vals[i] = y_vals[1] + coef_vals[coef_name]
+    for (i in 1:B) {
+      bin_col = paste0("bin", i)
+      
+      if (!has_intercept) {
+        # No intercept: coefficients are means directly
+        if (bin_col %in% coef_names) {
+          y_vals[i] = coef_vals[bin_col]
+          se_vals[i] = get_se(bin_col, 1)
+        } else {
+          y_vals[i] = NA
+          se_vals[i] = NA
+        }
       } else {
-        y_vals[i] = NA
+        # With intercept: bin1 is intercept, others are deviations
+        if (i == 1) {
+          y_vals[i] = coef_vals["(Intercept)"]
+          se_vals[i] = get_se("(Intercept)", 1)
+        } else {
+          if (bin_col %in% coef_names) {
+            y_vals[i] = coef_vals["(Intercept)"] + coef_vals[bin_col]
+            se_vals[i] = get_se(c("(Intercept)", bin_col), c(1, 1))
+          } else {
+            # Should not happen if bin exists
+            y_vals[i] = NA
+            se_vals[i] = NA
+          }
+        }
       }
     }
     
     out$y = y_vals
+    if (!is.null(V_beta)) {
+      out$se = se_vals
+      out$ci_low = out$y - 1.96 * out$se
+      out$ci_high = out$y + 1.96 * out$se
+    }
     
   } else {
     # Piecewise polynomial: extract coefficients and evaluate at boundaries
@@ -1041,53 +1197,113 @@ construct_output = function(inputs, fit, geo) {
     y_mid = numeric(B)
     y_right = numeric(B)
     
+    se_left = numeric(B)
+    se_mid = numeric(B)
+    se_right = numeric(B)
+    
+    has_intercept = "(Intercept)" %in% coef_names
+    
     for (i in seq_len(B)) {
-      # Intercept (level at x_mid)
-      if (i == 1) {
-        b0_name = "(Intercept)"
+      # 1. Intercept (level at x_mid)
+      bin_col = paste0("bin", i)
+      
+      if (!has_intercept) {
+        # No global intercept
+        b0_name = bin_col
         b0 = if (b0_name %in% coef_names) coef_vals[b0_name] else 0
+        b0_idx = if (b0_name %in% coef_names) b0_name else NULL
+        b0_w = if (!is.null(b0_idx)) 1 else NULL
       } else {
-        # Bins 2+ are deviations from bin1
-        b0_name = sprintf("bin%d", i)
-        intercept_val = if ("(Intercept)" %in% coef_names) coef_vals["(Intercept)"] else 0
-        deviation = if (b0_name %in% coef_names) coef_vals[b0_name] else 0
-        b0 = intercept_val + deviation
+        # Global intercept
+        if (i == 1) {
+          b0 = coef_vals["(Intercept)"]
+          b0_idx = "(Intercept)"
+          b0_w = 1
+        } else {
+          b0 = coef_vals["(Intercept)"] + (if (bin_col %in% coef_names) coef_vals[bin_col] else 0)
+          b0_idx = c("(Intercept)", if (bin_col %in% coef_names) bin_col else NULL)
+          b0_w = c(1, if (bin_col %in% coef_names) 1 else NULL)
+        }
       }
       
-      # Linear term (explicit columns: u_1, u_2, etc.)
+      # 2. Linear term (explicit columns: u_1, u_2, etc.)
       b1_name = sprintf("u_%d", i)
       b1 = if (b1_name %in% coef_names) coef_vals[b1_name] else 0
+      b1_idx = if (b1_name %in% coef_names) b1_name else NULL
       
-      # Quadratic term if applicable
+      # 3. Quadratic term if applicable
       if (degree >= 2) {
         b2_name = sprintf("u2_%d", i)
         b2 = if (b2_name %in% coef_names) coef_vals[b2_name] else 0
+        b2_idx = if (b2_name %in% coef_names) b2_name else NULL
       } else {
         b2 = 0
+        b2_idx = NULL
       }
       
       # Evaluate at boundaries: u_left = x_left - x_mid, u_right = x_right - x_mid
       u_left = geo$x_left[i] - geo$x_mid[i]
       u_right = geo$x_right[i] - geo$x_mid[i]
       
+      # y = b0 + b1*u + b2*u^2
       y_left[i] = b0 + b1 * u_left + b2 * u_left^2
       y_mid[i] = b0  # u = 0 at midpoint
       y_right[i] = b0 + b1 * u_right + b2 * u_right^2
+      
+      # SEs
+      if (!is.null(V_beta)) {
+        # Combine indices and weights
+        # Left: b0 + b1*u_left + b2*u_left^2
+        idx_left = c(b0_idx, b1_idx, b2_idx)
+        w_left = c(b0_w, if (!is.null(b1_idx)) u_left else NULL, if (!is.null(b2_idx)) u_left^2 else NULL)
+        se_left[i] = get_se(idx_left, w_left)
+        
+        # Mid: b0
+        se_mid[i] = get_se(b0_idx, b0_w)
+        
+        # Right: b0 + b1*u_right + b2*u_right^2
+        idx_right = c(b0_idx, b1_idx, b2_idx)
+        w_right = c(b0_w, if (!is.null(b1_idx)) u_right else NULL, if (!is.null(b2_idx)) u_right^2 else NULL)
+        se_right[i] = get_se(idx_right, w_right)
+      }
     }
     
     out$y_left = y_left
     out$y_mid = y_mid
     out$y_right = y_right
+    
+    if (!is.null(V_beta)) {
+      out$se_left = se_left
+      out$se_mid = se_mid
+      out$se_right = se_right
+      
+      crit_val = 1.96
+      out$ci_low_left = out$y_left - crit_val * out$se_left
+      out$ci_high_left = out$y_left + crit_val * out$se_left
+      out$ci_low_mid = out$y_mid - crit_val * out$se_mid
+      out$ci_high_mid = out$y_mid + crit_val * out$se_mid
+      out$ci_low_right = out$y_right - crit_val * out$se_right
+      out$ci_high_right = out$y_right + crit_val * out$se_right
+    }
   }
   
   # Reorder columns sensibly
   if (degree == 0) {
-    out = out[, c("bin", "x_left", "x_right", "x_mid", "n", "y", 
-                 "B", "degree", "smooth", "partition")]
+    cols = c("bin", "x_left", "x_right", "x_mid", "n", "y")
+    if (!is.null(V_beta)) cols = c(cols, "se", "ci_low", "ci_high")
+    cols = c(cols, "B", "degree", "smooth", "partition")
+    out = out[, cols]
   } else {
     # degree >= 1: always include y_left, y_mid, y_right
-    out = out[, c("bin", "x_left", "x_right", "x_mid", "n", 
-                 "y_left", "y_mid", "y_right", "B", "degree", "smooth", "partition")]
+    cols = c("bin", "x_left", "x_right", "x_mid", "n", "y_left", "y_mid", "y_right")
+    if (!is.null(V_beta)) {
+      cols = c(cols, "se_left", "se_mid", "se_right", 
+               "ci_low_left", "ci_high_left", 
+               "ci_low_mid", "ci_high_mid",
+               "ci_low_right", "ci_high_right")
+    }
+    cols = c(cols, "B", "degree", "smooth", "partition")
+    out = out[, cols]
   }
   
   # Add S3 class and metadata attributes
@@ -1126,12 +1342,14 @@ print.dbbin = function(x, ...) {
 #' @param y Ignored (for S3 consistency)
 #' @param type Plot type: "line" (piecewise segments), "points" (bin midpoints),
 #'   or "connected" (points connected with lines). Default is "line".
+#' @param ci Logical. Show confidence intervals? Default is FALSE.
 #' @param backend Graphics backend: "auto" (use tinyplot if available, else base),
 #'   "tinyplot", or "base". Default is "auto".
 #' @param ... Additional arguments passed to plotting functions
 #' @export
 plot.dbbin = function(x, y = NULL, 
                       type = c("line", "points", "connected"),
+                      ci = FALSE,
                       backend = c("auto", "tinyplot", "base"), 
                       ...) {
   
@@ -1154,6 +1372,18 @@ plot.dbbin = function(x, y = NULL,
   if (backend == "tinyplot") {
     # Use tinyplot
     tinyplot::tinytheme("clean")
+    
+    # Setup plot with CI if requested
+    if (ci && "ci_low_left" %in% names(x)) {
+      # For CI, we need to construct polygon data
+      # This is tricky with tinyplot's simple interface, so we might need to overlay
+      # For now, let's just plot the lines/points and warn if CI requested but not easy
+      # Or better: use type="ribbon" if supported, or multiple calls
+      
+      # Actually, tinyplot supports `ymin` and `ymax` for error bars/ribbons
+      # But we have piecewise data. Let's stick to lines for now and add CI lines
+    }
+    
     if (degree == 0) {
       # Bin means - step function
       if (type == "points") {
@@ -1173,16 +1403,30 @@ plot.dbbin = function(x, y = NULL,
         } else {
           y_mid_vals = (x$y_left + x$y_right) / 2
         }
-        tinyplot::tinyplot(x$x_mid, y_mid_vals, type = "p",
-                          xlab = "x", ylab = "y", ...)
+        
+        # Add CI bars if requested
+        if (ci && "ci_low_mid" %in% names(x)) {
+           # Use segments for error bars
+           tinyplot::tinyplot(x$x_mid, y_mid_vals, type = "p",
+                             xlab = "x", ylab = "y", ...)
+           # Add error bars manually? tinyplot might not support this easily yet
+        } else {
+          tinyplot::tinyplot(x$x_mid, y_mid_vals, type = "p",
+                            xlab = "x", ylab = "y", ...)
+        }
       } else {
         # Plot piecewise segments
         # Set up plot region first
         y_range = if (degree >= 2 && "y_mid" %in% names(x)) {
-          range(c(x$y_left, x$y_mid, x$y_right))
+          range(c(x$y_left, x$y_mid, x$y_right), na.rm = TRUE)
         } else {
-          range(c(x$y_left, x$y_right))
+          range(c(x$y_left, x$y_right), na.rm = TRUE)
         }
+        
+        if (ci && "ci_low_left" %in% names(x)) {
+          y_range = range(c(y_range, x$ci_low_left, x$ci_high_left, x$ci_low_right, x$ci_high_right), na.rm = TRUE)
+        }
+        
         tinyplot::tinyplot(range(c(x$x_left, x$x_right)), 
                           y_range,
                           type = "n", xlab = "x", ylab = "y", ...)
@@ -1196,19 +1440,47 @@ plot.dbbin = function(x, y = NULL,
             y_pts = c(x$y_left[i], x$y_mid[i], x$y_right[i])
             
             # Fit parabola through 3 points and evaluate
-            # Use quadratic interpolation
             y_seq = numeric(length(x_seq))
             for (j in seq_along(x_seq)) {
-              # Lagrange interpolation through 3 points
               xj = x_seq[j]
               l0 = ((xj - x_pts[2]) * (xj - x_pts[3])) / ((x_pts[1] - x_pts[2]) * (x_pts[1] - x_pts[3]))
               l1 = ((xj - x_pts[1]) * (xj - x_pts[3])) / ((x_pts[2] - x_pts[1]) * (x_pts[2] - x_pts[3]))
               l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
               y_seq[j] = y_pts[1] * l0 + y_pts[2] * l1 + y_pts[3] * l2
             }
+            
+            # Draw CI band if requested
+            if (ci && "ci_low_left" %in% names(x)) {
+              # Interpolate CI bounds (approximate)
+              ci_low_pts = c(x$ci_low_left[i], x$ci_low_mid[i], x$ci_low_right[i])
+              ci_high_pts = c(x$ci_high_left[i], x$ci_high_mid[i], x$ci_high_right[i])
+              
+              ci_low_seq = numeric(length(x_seq))
+              ci_high_seq = numeric(length(x_seq))
+              
+              for (j in seq_along(x_seq)) {
+                xj = x_seq[j]
+                l0 = ((xj - x_pts[2]) * (xj - x_pts[3])) / ((x_pts[1] - x_pts[2]) * (x_pts[1] - x_pts[3]))
+                l1 = ((xj - x_pts[1]) * (xj - x_pts[3])) / ((x_pts[2] - x_pts[1]) * (x_pts[2] - x_pts[3]))
+                l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
+                ci_low_seq[j] = ci_low_pts[1] * l0 + ci_low_pts[2] * l1 + ci_low_pts[3] * l2
+                ci_high_seq[j] = ci_high_pts[1] * l0 + ci_high_pts[2] * l1 + ci_high_pts[3] * l2
+              }
+              
+              polygon(c(x_seq, rev(x_seq)), c(ci_low_seq, rev(ci_high_seq)), 
+                      col = adjustcolor("grey", alpha.f = 0.3), border = NA)
+            }
+            
             lines(x_seq, y_seq, ...)
+            
           } else {
             # Linear: draw line segment
+            if (ci && "ci_low_left" %in% names(x)) {
+              polygon(c(x$x_left[i], x$x_right[i], x$x_right[i], x$x_left[i]),
+                      c(x$ci_low_left[i], x$ci_low_right[i], x$ci_high_right[i], x$ci_high_left[i]),
+                      col = adjustcolor("grey", alpha.f = 0.3), border = NA)
+            }
+            
             lines(c(x$x_left[i], x$x_right[i]),
                   c(x$y_left[i], x$y_right[i]), ...)
           }
@@ -1220,9 +1492,36 @@ plot.dbbin = function(x, y = NULL,
     if (degree == 0) {
       # Bin means
       if (type == "points") {
-        plot(x$x_mid, x$y, type = "p", xlab = "x", ylab = "y", ...)
+        # Setup plot
+        y_range = range(x$y, na.rm = TRUE)
+        if (ci && "ci_low" %in% names(x)) {
+          y_range = range(c(y_range, x$ci_low, x$ci_high), na.rm = TRUE)
+        }
+        
+        plot(x$x_mid, x$y, type = "n", xlab = "x", ylab = "y", ylim = y_range, ...)
+        
+        if (ci && "ci_low" %in% names(x)) {
+          segments(x$x_mid, x$ci_low, x$x_mid, x$ci_high, col = "grey")
+        }
+        points(x$x_mid, x$y, ...)
+        
       } else {
-        plot(x$x_mid, x$y, type = "s", xlab = "x", ylab = "y", ...)
+        # Step function
+        # Setup plot
+        y_range = range(x$y, na.rm = TRUE)
+        if (ci && "ci_low" %in% names(x)) {
+          y_range = range(c(y_range, x$ci_low, x$ci_high), na.rm = TRUE)
+        }
+        
+        plot(range(c(x$x_left, x$x_right)), y_range, type = "n", xlab = "x", ylab = "y", ...)
+        
+        for (i in seq_len(nrow(x))) {
+          if (ci && "ci_low" %in% names(x)) {
+            rect(x$x_left[i], x$ci_low[i], x$x_right[i], x$ci_high[i], 
+                 col = adjustcolor("grey", alpha.f = 0.3), border = NA)
+          }
+          lines(c(x$x_left[i], x$x_right[i]), c(x$y[i], x$y[i]), ...)
+        }
       }
     } else {
       # Piecewise linear/polynomial
@@ -1232,14 +1531,32 @@ plot.dbbin = function(x, y = NULL,
         } else {
           y_mid_vals = (x$y_left + x$y_right) / 2
         }
-        plot(x$x_mid, y_mid_vals, type = "p", xlab = "x", ylab = "y", ...)
+        
+        # Setup plot
+        y_range = range(y_mid_vals, na.rm = TRUE)
+        if (ci && "ci_low_mid" %in% names(x)) {
+          y_range = range(c(y_range, x$ci_low_mid, x$ci_high_mid), na.rm = TRUE)
+        }
+        
+        plot(x$x_mid, y_mid_vals, type = "n", xlab = "x", ylab = "y", ylim = y_range, ...)
+        
+        if (ci && "ci_low_mid" %in% names(x)) {
+          segments(x$x_mid, x$ci_low_mid, x$x_mid, x$ci_high_mid, col = "grey")
+        }
+        points(x$x_mid, y_mid_vals, ...)
+        
       } else {
         # Set up plot region
         y_range = if (degree >= 2 && "y_mid" %in% names(x)) {
-          range(c(x$y_left, x$y_mid, x$y_right))
+          range(c(x$y_left, x$y_mid, x$y_right), na.rm = TRUE)
         } else {
-          range(c(x$y_left, x$y_right))
+          range(c(x$y_left, x$y_right), na.rm = TRUE)
         }
+        
+        if (ci && "ci_low_left" %in% names(x)) {
+          y_range = range(c(y_range, x$ci_low_left, x$ci_high_left, x$ci_low_right, x$ci_high_right), na.rm = TRUE)
+        }
+        
         plot(range(c(x$x_left, x$x_right)), 
              y_range,
              type = "n", xlab = "x", ylab = "y", ...)
@@ -1261,9 +1578,38 @@ plot.dbbin = function(x, y = NULL,
               l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
               y_seq[j] = y_pts[1] * l0 + y_pts[2] * l1 + y_pts[3] * l2
             }
+            
+            # Draw CI band if requested
+            if (ci && "ci_low_left" %in% names(x)) {
+              # Interpolate CI bounds (approximate)
+              ci_low_pts = c(x$ci_low_left[i], x$ci_low_mid[i], x$ci_low_right[i])
+              ci_high_pts = c(x$ci_high_left[i], x$ci_high_mid[i], x$ci_high_right[i])
+              
+              ci_low_seq = numeric(length(x_seq))
+              ci_high_seq = numeric(length(x_seq))
+              
+              for (j in seq_along(x_seq)) {
+                xj = x_seq[j]
+                l0 = ((xj - x_pts[2]) * (xj - x_pts[3])) / ((x_pts[1] - x_pts[2]) * (x_pts[1] - x_pts[3]))
+                l1 = ((xj - x_pts[1]) * (xj - x_pts[3])) / ((x_pts[2] - x_pts[1]) * (x_pts[2] - x_pts[3]))
+                l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
+                ci_low_seq[j] = ci_low_pts[1] * l0 + ci_low_pts[2] * l1 + ci_low_pts[3] * l2
+                ci_high_seq[j] = ci_high_pts[1] * l0 + ci_high_pts[2] * l1 + ci_high_pts[3] * l2
+              }
+              
+              polygon(c(x_seq, rev(x_seq)), c(ci_low_seq, rev(ci_high_seq)), 
+                      col = adjustcolor("grey", alpha.f = 0.3), border = NA)
+            }
+            
             lines(x_seq, y_seq, ...)
           } else {
             # Linear: draw line segment
+            if (ci && "ci_low_left" %in% names(x)) {
+              polygon(c(x$x_left[i], x$x_right[i], x$x_right[i], x$x_left[i]),
+                      c(x$ci_low_left[i], x$ci_low_right[i], x$ci_high_right[i], x$ci_high_left[i]),
+                      col = adjustcolor("grey", alpha.f = 0.3), border = NA)
+            }
+            
             lines(c(x$x_left[i], x$x_right[i]),
                   c(x$y_left[i], x$y_right[i]), ...)
           }

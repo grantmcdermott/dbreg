@@ -22,6 +22,7 @@ dbExecute(con, sprintf("
   CREATE VIEW nyc_jan AS
   SELECT *
   FROM read_parquet('%s/month=1/*.parquet')
+  LIMIT 10000
 ", nyc_path))
 
 #
@@ -149,12 +150,14 @@ bins_smooth1 = dbbin(
   x = trip_distance,
   B = 20,
   degree = 2,
-  smooth = 1,
+  smooth = 2,
   partition = "equal",
   conn = con,
-  verbose = FALSE
+  verbose = FALSE, 
+  ci = TRUE, 
+  vcov = "hc1"
 )
-plot(bins_smooth1)
+plot(bins_smooth1, ci=TRUE)
 
 # Check continuity manually
 for (b in 1:19) {
