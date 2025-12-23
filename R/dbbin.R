@@ -1,7 +1,7 @@
 #' Database-native binned regression
 #'
-#' @description
-#' Performs binned regression entirely in SQL, returning plot-ready data with
+#' @md
+#' @description Performs binned regression entirely in SQL, returning plot-ready data with
 #' estimated bin means or piecewise polynomial fits. Supports unconditional and
 #' conditional models (with controls and/or fixed effects).
 #'
@@ -986,11 +986,16 @@ solve_kkt = function(XtX, Xty, A, smooth) {
 
 #' Construct output from constrained solution
 #' 
+#' @md
+#' @description Internal helper that transforms coefficient estimates from constrained least
+#' squares into a structured tibble with bin-level fitted values, standard errors,
+#' and confidence intervals.
+#' 
 #' @param beta Coefficient vector (length B*(degree+1))
 #' @param geo Tibble with bin geometry
 #' @param degree Polynomial degree
 #' @param smooth Smoothness level
-#' @param partition Partition type
+#' @param partition_method Partition type
 #' @param level Significance level for CIs (default 0.05 for 95% CIs)
 #' @param V_beta Covariance matrix of coefficients (optional)
 #' 
@@ -1450,6 +1455,12 @@ print.dbbin = function(x, ...) {
 
 
 #' Plot method for dbbin objects
+#' 
+#' @md
+#' @description
+#' Visualizes binned regression results from \code{\link{dbbin}}, with support for 
+#' different plot types (line segments, points, or connected points) and optional 
+#' confidence intervals.
 #' 
 #' @param x A dbbin object
 #' @param y Ignored (for S3 consistency)

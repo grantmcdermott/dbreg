@@ -25,7 +25,7 @@ or "connected" (points connected with lines). Default is "line".}
 \item{ci}{Logical. Show confidence intervals? Default is FALSE.}
 
 \item{level}{Significance level for confidence intervals. Default is 0.05
-(95% confidence intervals). Only used when ci = TRUE.}
+(95\% confidence intervals). Only used when ci = TRUE.}
 
 \item{backend}{Graphics backend: "auto" (use tinyplot if available, else base),
 "tinyplot", or "base". Default is "auto".}
@@ -33,5 +33,7 @@ or "connected" (points connected with lines). Default is "line".}
 \item{...}{Additional arguments passed to plotting functions}
 }
 \description{
-Plot method for dbbin objects
+Visualizes binned regression results from \code{\link{dbbin}}, with support for
+different plot types (line segments, points, or connected points) and optional
+confidence intervals.
 }

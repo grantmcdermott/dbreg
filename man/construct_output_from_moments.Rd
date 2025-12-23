@@ -23,16 +23,18 @@ construct_output_from_moments(
 
 \item{smooth}{Smoothness level}
 
-\item{level}{Significance level for CIs (default 0.05 for 95% CIs)}
+\item{partition_method}{Partition type}
+
+\item{level}{Significance level for CIs (default 0.05 for 95\% CIs)}
 
 \item{V_beta}{Covariance matrix of coefficients (optional)}
-
-\item{partition}{Partition type}
 }
 \value{
 Tibble with dbbin output structure
 }
 \description{
-Construct output from constrained solution
+Internal helper that transforms coefficient estimates from constrained least
+squares into a structured tibble with bin-level fitted values, standard errors,
+and confidence intervals.
 }
 \keyword{internal}

@@ -38,15 +38,15 @@ dplyr::tbl object pointing to a database table.}
 (quadratic). Default is 1.}
 
 \item{smooth}{Smoothness at bin boundaries: 0 (discontinuous), 1 (continuous
-level), or 2 (continuous level and slope). Must satisfy `smooth <= degree`.
+level), or 2 (continuous level and slope). Must satisfy \code{smooth <= degree}.
 Default is 0. Values greater than 0 require the \code{dbplyr} package and
 use constrained least squares estimation to enforce continuity at bin boundaries.}
 
-\item{controls}{Optional formula specifying control variables, e.g. `~ z1 + z2`.
+\item{controls}{Optional formula specifying control variables, e.g. \code{~ z1 + z2}.
 Default is NULL (no controls).}
 
 \item{fe}{Optional formula specifying fixed effects using dbreg syntax, e.g.
-`~ id + time`. Default is NULL (no fixed effects).}
+\code{~ id + time}. Default is NULL (no fixed effects).}
 
 \item{weights}{Character string naming the weight column. Default is NULL
 (equal weights).}
@@ -56,7 +56,7 @@ Default is NULL (no controls).}
 right-skewed variables; requires x > 0), or "manual" (user-specified breaks).
 Default is "quantile".}
 
-\item{breaks}{Numeric vector of breakpoints if `partition_method = "manual"`.
+\item{breaks}{Numeric vector of breakpoints if \code{partition_method = "manual"}.
 Ignored otherwise.}
 
 \item{ci}{Logical. Calculate standard errors and confidence intervals?
@@ -67,11 +67,11 @@ Default is FALSE.}
 Only supported for unconstrained estimation (smooth=0).}
 
 \item{level}{Significance level for confidence intervals. Default is 0.05
-(95% confidence intervals). Only used when ci = TRUE.}
+(95\% confidence intervals). Only used when ci = TRUE.}
 
-\item{strategy}{Acceleration strategy passed to dbreg when `smooth = 0`.
+\item{strategy}{Acceleration strategy passed to dbreg when \code{smooth = 0}.
 Options are "auto" (default), "compress", or "scan". This parameter is
-ignored when `smooth > 0`. See \code{\link{dbreg}} for details.}
+ignored when \code{smooth > 0}. See \code{\link{dbreg}} for details.}
 
 \item{conn}{Database connection. If NULL (default), an ephemeral DuckDB
 connection will be created.}
@@ -80,16 +80,18 @@ connection will be created.}
 }
 \value{
 A tibble with bin-level results containing:
-  - `bin`: bin number (1 to B)
-  - `x_left`, `x_right`, `x_mid`: bin boundaries and midpoint
-  - `n`: number of observations in bin
-  - If `degree = 0`: `y` (fitted value at `x_mid`)
-  - If `degree = 1`: `y_left`, `y_right` (fitted values at bin boundaries,
-    defining a line segment)
-  - If `degree = 2`: `y_left`, `y_mid`, `y_right` (fitted values at boundaries
-    and midpoint, defining a quadratic curve)
-  - If `ci = TRUE`: `se`, `se_left`, `se_right`, `ci_low`, `ci_high` (and `_left`/`_right` variants)
-  - Plus metadata: `B`, `degree`, `smooth`, `partition_method`
+\itemize{
+\item \code{bin}: bin number (1 to B)
+\item \code{x_left}, \code{x_right}, \code{x_mid}: bin boundaries and midpoint
+\item \code{n}: number of observations in bin
+\item If \code{degree = 0}: \code{y} (fitted value at \code{x_mid})
+\item If \code{degree = 1}: \code{y_left}, \code{y_right} (fitted values at bin boundaries,
+defining a line segment)
+\item If \code{degree = 2}: \code{y_left}, \code{y_mid}, \code{y_right} (fitted values at boundaries
+and midpoint, defining a quadratic curve)
+\item If \code{ci = TRUE}: \code{se}, \code{se_left}, \code{se_right}, \code{ci_low}, \code{ci_high} (and \verb{_left}/\verb{_right} variants)
+\item Plus metadata: \code{B}, \code{degree}, \code{smooth}, \code{partition_method}
+}
 }
 \description{
 Performs binned regression entirely in SQL, returning plot-ready data with
