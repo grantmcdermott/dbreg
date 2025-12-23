@@ -23,9 +23,14 @@ dbbin(
 }
 \arguments{
 \item{fml}{A \code{\link[stats]{formula}} representing the binscatter relation.
-Use the syntax \code{y ~ x} for unconditional binning, \code{y ~ x | controls} to
-partial out controls, or \code{y ~ x | controls | fe} to include fixed effects.
-For example: \code{mpg ~ wt | hp + cyl | gear}.}
+The first variable on the RHS is the running variable; additional variables
+are controls. Fixed effects go after \code{|}. Examples:
+\itemize{
+\item \code{y ~ x}: simple binscatter
+\item \code{y ~ x + w1 + w2}: binscatter with controls
+\item \code{y ~ x | fe}: binscatter with fixed effects
+\item \code{y ~ x + w1 + w2 | fe}: binscatter with controls and fixed effects
+}}
 
 \item{data}{A data source: R dataframe, database table name (character), or
 dplyr::tbl object pointing to a database table.}
@@ -37,8 +42,9 @@ dplyr::tbl object pointing to a database table.}
 
 \item{smooth}{Smoothness at bin boundaries: 0 (discontinuous), 1 (continuous
 level), or 2 (continuous level and slope). Must satisfy \code{smooth <= degree}.
-Default is 0. Values greater than 0 require the \code{dbplyr} package and
-use constrained least squares estimation to enforce continuity at bin boundaries.}
+Default is 0. Values greater than 0 use a regression spline (truncated-power
+basis) that automatically enforces continuity constraints. Controls and fixed
+effects are supported with all smooth values.}
 
 \item{weights}{Character string naming the weight column. Default is NULL
 (equal weights).}
@@ -55,8 +61,7 @@ Ignored otherwise.}
 Default is FALSE.}
 
 \item{vcov}{Character string or formula for standard errors. Options are
-"iid" (default if ci=TRUE), "hc1", or a clustering formula like ~cluster_var.
-Only supported for unconstrained estimation (smooth=0).}
+"iid" (default if ci=TRUE), "hc1", or a clustering formula like ~cluster_var.}
 
 \item{level}{Significance level for confidence intervals. Default is 0.05
 (95\% confidence intervals). Only used when ci = TRUE.}
@@ -99,9 +104,15 @@ dbbin(mpg ~ wt, mtcars, B = 10, degree = 0)
 dbbin(mpg ~ wt, mtcars, B = 10, degree = 1)
 
 # With controls
-dbbin(mpg ~ wt | hp + cyl, mtcars, B = 10, degree = 1)
+dbbin(mpg ~ wt + hp + cyl, mtcars, B = 10, degree = 1)
+
+# With fixed effects
+dbbin(mpg ~ wt | gear, mtcars, B = 10, degree = 1)
 
 # With controls and fixed effects
-dbbin(mpg ~ wt | hp + cyl | gear, mtcars, B = 10, degree = 1)
+dbbin(mpg ~ wt + hp + cyl | gear, mtcars, B = 10, degree = 1)
+
+# Constrained (continuous) binscatter with controls
+dbbin(mpg ~ wt + hp | gear, mtcars, B = 10, degree = 1, smooth = 1)
 }
 }

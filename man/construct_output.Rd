@@ -2,11 +2,15 @@
 % Please edit documentation in R/dbbin.R
 \name{construct_output}
 \alias{construct_output}
-\title{Construct output data frame from fitted model}
+\title{Construct output from constrained solution}
 \usage{
 construct_output(inputs, fit, geo, V_beta = NULL)
 }
 \description{
+Internal helper that transforms coefficient estimates from constrained least
+squares into a structured data frame with bin-level fitted values, standard errors,
+and confidence intervals.
+
 Construct output data frame from fitted model
 }
 \details{

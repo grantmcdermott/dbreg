@@ -139,3 +139,17 @@ decimalFormat = function(x){
 
   res
 }
+
+#' Print method for dbbin objects
+#' 
+#' @param x A dbbin object
+#' @param ... Additional arguments passed to print
+#' @export
+print.dbbin = function(x, ...) {
+  cat("Database binned regression\n")
+  cat("Formula:", deparse(attr(x, "formula")), "\n")
+  cat(sprintf("Bins: %d | Degree: %d | Partition: %s\n", 
+              unique(x$B), unique(x$degree), unique(x$partition_method)))
+  cat("\n")
+  NextMethod("print")
+}
