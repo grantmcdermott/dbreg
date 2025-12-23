@@ -630,84 +630,84 @@ execute_constrained_binsreg = function(inputs) {
   
   # Step 1: Assign bins
   if (partition_method == "quantile") {
-    data_binned = data_tbl %>%
-      dplyr::filter(!is.na(!!rlang::sym(x_name)), !is.na(!!rlang::sym(y_name))) %>%
-      dplyr::mutate(bin = dplyr::ntile(!!rlang::sym(x_name), B))
+    data_binned = data_tbl |>
+      dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
+      dplyr::mutate(bin = dplyr::ntile(!!as.symbol(x_name), B))
   } else if (partition_method == "equal") {
     # Equal-width bins using SQL expressions
-    data_binned = data_tbl %>%
-      dplyr::filter(!is.na(!!rlang::sym(x_name)), !is.na(!!rlang::sym(y_name))) %>%
+    data_binned = data_tbl |>
+      dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
       dplyr::mutate(
-        bin = pmin(B, 1L + floor((!!rlang::sym(x_name) - min(!!rlang::sym(x_name), na.rm = TRUE)) / 
-                                  ((max(!!rlang::sym(x_name), na.rm = TRUE) - min(!!rlang::sym(x_name), na.rm = TRUE)) / B)))
+        bin = pmin(B, 1L + floor((!!as.symbol(x_name) - min(!!as.symbol(x_name), na.rm = TRUE)) / 
+                                  ((max(!!as.symbol(x_name), na.rm = TRUE) - min(!!as.symbol(x_name), na.rm = TRUE)) / B)))
       )
   } else {
     stop("partition_method = '", partition_method, "' not yet supported for constrained estimation")
   }
   
   # Step 2: Compute bin geometry
-  geo = data_binned %>%
-    dplyr::group_by(bin) %>%
+  geo = data_binned |>
+    dplyr::group_by(bin) |>
     dplyr::summarise(
-      x_left = min(!!rlang::sym(x_name), na.rm = TRUE),
-      x_right = max(!!rlang::sym(x_name), na.rm = TRUE),
-      x_mid = mean(!!rlang::sym(x_name), na.rm = TRUE),
+      x_left = min(!!as.symbol(x_name), na.rm = TRUE),
+      x_right = max(!!as.symbol(x_name), na.rm = TRUE),
+      x_mid = mean(!!as.symbol(x_name), na.rm = TRUE),
       n = dplyr::n(),
       .groups = "drop"
-    ) %>%
-    dplyr::collect() %>%
+    ) |>
+    dplyr::collect() |>
     dplyr::arrange(bin)  # IMPORTANT: sort by bin number!
   
   # Step 3: Join geometry and compute centered basis
-  wt_sym = if (is.null(weights)) rlang::expr(1.0) else rlang::sym(weights)
+  wt_sym = if (is.null(weights)) quote(1.0) else as.symbol(weights)
   
-  data_with_u = data_binned %>%
+  data_with_u = data_binned |>
     dplyr::left_join(
-      dplyr::copy_to(conn, geo %>% dplyr::select(bin, x_mid), 
+      dplyr::copy_to(conn, geo |> dplyr::select(bin, x_mid), 
                      name = paste0("geo_", sample.int(1e6, 1)), 
                      temporary = TRUE, overwrite = TRUE),
       by = "bin"
-    ) %>%
+    ) |>
     dplyr::mutate(
-      u = !!rlang::sym(x_name) - x_mid,
+      u = !!as.symbol(x_name) - x_mid,
       wt = !!wt_sym
     )
   
   # Add u2 if degree >= 2
   if (degree >= 2) {
-    data_with_u = data_with_u %>%
+    data_with_u = data_with_u |>
       dplyr::mutate(u2 = u * u)
   }
   
   # Step 4: Compute moments per bin
   if (degree == 0) {
-    moments = data_with_u %>%
-      dplyr::group_by(bin) %>%
+    moments = data_with_u |>
+      dplyr::group_by(bin) |>
       dplyr::summarise(
         s00 = sum(wt, na.rm = TRUE),
-        t0 = sum(wt * !!rlang::sym(y_name), na.rm = TRUE),
-        s_yy = sum(wt * !!rlang::sym(y_name) * !!rlang::sym(y_name), na.rm = TRUE),
+        t0 = sum(wt * !!as.symbol(y_name), na.rm = TRUE),
+        s_yy = sum(wt * !!as.symbol(y_name) * !!as.symbol(y_name), na.rm = TRUE),
         .groups = "drop"
-      ) %>%
+      ) |>
       dplyr::collect()
       
   } else if (degree == 1) {
-    moments = data_with_u %>%
-      dplyr::group_by(bin) %>%
+    moments = data_with_u |>
+      dplyr::group_by(bin) |>
       dplyr::summarise(
         s00 = sum(wt, na.rm = TRUE),
         s01 = sum(wt * u, na.rm = TRUE),
         s11 = sum(wt * u * u, na.rm = TRUE),
-        t0 = sum(wt * !!rlang::sym(y_name), na.rm = TRUE),
-        t1 = sum(wt * !!rlang::sym(y_name) * u, na.rm = TRUE),
-        s_yy = sum(wt * !!rlang::sym(y_name) * !!rlang::sym(y_name), na.rm = TRUE),
+        t0 = sum(wt * !!as.symbol(y_name), na.rm = TRUE),
+        t1 = sum(wt * !!as.symbol(y_name) * u, na.rm = TRUE),
+        s_yy = sum(wt * !!as.symbol(y_name) * !!as.symbol(y_name), na.rm = TRUE),
         .groups = "drop"
-      ) %>%
+      ) |>
       dplyr::collect()
       
   } else {  # degree == 2
-    moments = data_with_u %>%
-      dplyr::group_by(bin) %>%
+    moments = data_with_u |>
+      dplyr::group_by(bin) |>
       dplyr::summarise(
         s00 = sum(wt, na.rm = TRUE),
         s01 = sum(wt * u, na.rm = TRUE),
@@ -715,17 +715,17 @@ execute_constrained_binsreg = function(inputs) {
         s11 = sum(wt * u * u, na.rm = TRUE),
         s12 = sum(wt * u * u2, na.rm = TRUE),
         s22 = sum(wt * u2 * u2, na.rm = TRUE),
-        t0 = sum(wt * !!rlang::sym(y_name), na.rm = TRUE),
-        t1 = sum(wt * !!rlang::sym(y_name) * u, na.rm = TRUE),
-        t2 = sum(wt * !!rlang::sym(y_name) * u2, na.rm = TRUE),
-        s_yy = sum(wt * !!rlang::sym(y_name) * !!rlang::sym(y_name), na.rm = TRUE),
+        t0 = sum(wt * !!as.symbol(y_name), na.rm = TRUE),
+        t1 = sum(wt * !!as.symbol(y_name) * u, na.rm = TRUE),
+        t2 = sum(wt * !!as.symbol(y_name) * u2, na.rm = TRUE),
+        s_yy = sum(wt * !!as.symbol(y_name) * !!as.symbol(y_name), na.rm = TRUE),
         .groups = "drop"
-      ) %>%
+      ) |>
       dplyr::collect()
   }
   
   # Merge geometry with moments and ensure sorted by bin
-  moments_full = dplyr::left_join(geo, moments, by = "bin") %>%
+  moments_full = dplyr::left_join(geo, moments, by = "bin") |>
     dplyr::arrange(bin)
   
   # Step 5: Build constraint matrix

@@ -45,9 +45,7 @@ Imports:
   Formula,
   generics,
   glue,
-  magrittr,
   Matrix,
-  rlang,
   stats,
   tibble
 Suggests:
