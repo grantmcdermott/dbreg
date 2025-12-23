@@ -7,7 +7,7 @@
 build_constraint_matrix(geo, degree, smooth)
 }
 \arguments{
-\item{geo}{Tibble with bin geometry (bin, x_left, x_right, x_mid, n)}
+\item{geo}{Data frame with bin geometry (bin, x_left, x_right, x_mid, n)}
 
 \item{degree}{Polynomial degree (0, 1, or 2)}
 

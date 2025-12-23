@@ -2,12 +2,12 @@
 % Please edit documentation in R/dbbin.R
 \name{construct_output}
 \alias{construct_output}
-\title{Construct output tibble from fitted model}
+\title{Construct output data frame from fitted model}
 \usage{
 construct_output(inputs, fit, geo, V_beta = NULL)
 }
 \description{
-Construct output tibble from fitted model
+Construct output data frame from fitted model
 }
 \details{
 For degree >= 2 (quadratic), the function evaluates the piecewise polynomial

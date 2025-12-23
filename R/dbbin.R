@@ -42,7 +42,7 @@
 #'   connection will be created.
 #' @param verbose Logical. Print progress messages? Default is TRUE.
 #'
-#' @return A tibble with bin-level results containing:
+#' @return A data frame with bin-level results containing:
 #'   - `bin`: bin number (1 to B)
 #'   - `x_left`, `x_right`, `x_mid`: bin boundaries and midpoint
 #'   - `n`: number of observations in bin
@@ -764,7 +764,7 @@ execute_constrained_binsreg = function(inputs) {
 
 #' Build constraint matrix for continuity at bin boundaries
 #' 
-#' @param geo Tibble with bin geometry (bin, x_left, x_right, x_mid, n)
+#' @param geo Data frame with bin geometry (bin, x_left, x_right, x_mid, n)
 #' @param degree Polynomial degree (0, 1, or 2)
 #' @param smooth Smoothness level (1 = level continuity, 2 = level + slope)
 #' 
@@ -856,7 +856,7 @@ build_constraint_matrix = function(geo, degree, smooth) {
 
 #' Assemble block-diagonal moment matrices
 #' 
-#' @param moments Tibble with columns: bin, s00, s01, s11, ... (depending on degree)
+#' @param moments Data frame with columns: bin, s00, s01, s11, ... (depending on degree)
 #' @param degree Polynomial degree
 #' 
 #' @return List with XtX (block-diagonal) and Xty (stacked vector)
@@ -988,18 +988,18 @@ solve_kkt = function(XtX, Xty, A, smooth) {
 #' 
 #' @md
 #' @description Internal helper that transforms coefficient estimates from constrained least
-#' squares into a structured tibble with bin-level fitted values, standard errors,
+#' squares into a structured data frame with bin-level fitted values, standard errors,
 #' and confidence intervals.
 #' 
 #' @param beta Coefficient vector (length B*(degree+1))
-#' @param geo Tibble with bin geometry
+#' @param geo Data frame with bin geometry
 #' @param degree Polynomial degree
 #' @param smooth Smoothness level
 #' @param partition_method Partition type
 #' @param level Significance level for CIs (default 0.05 for 95% CIs)
 #' @param V_beta Covariance matrix of coefficients (optional)
 #' 
-#' @return Tibble with dbbin output structure
+#' @return Data frame with dbbin output structure
 #' 
 #' @keywords internal
 construct_output_from_moments = function(beta, geo, degree, smooth, partition_method, level = 0.05, V_beta = NULL) {
@@ -1064,8 +1064,8 @@ construct_output_from_moments = function(beta, geo, degree, smooth, partition_me
     }
   }
   
-  # Construct output tibble
-  result = tibble::tibble(
+  # Construct output data frame
+  result = data.frame(
     bin = geo$bin,
     x_left = x_left_plot,
     x_right = x_right_plot,
@@ -1163,7 +1163,7 @@ eval_se = function(V, u, degree) {
 }
 
 
-#' Construct output tibble from fitted model
+#' Construct output data frame from fitted model
 #' 
 #' @details
 #' For degree >= 2 (quadratic), the function evaluates the piecewise polynomial
@@ -1186,8 +1186,8 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
   coef_vals = fit$coeftable[, "estimate"]
   names(coef_vals) = coef_names
   
-  # Start with geometry
-  out = tibble::as_tibble(geo)
+  # Start with geometry (already a data frame from dplyr::collect())
+  out = geo
   
   # Ensure out has B rows corresponding to bins 1..B
   # If rows are missing (empty bins), we pad with NAs
@@ -1200,7 +1200,7 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
        all_bins = as.integer(seq_len(B))
     }
     
-    template = tibble::tibble(bin = all_bins)
+    template = data.frame(bin = all_bins)
     out = dplyr::left_join(template, out, by = "bin")
   }
   

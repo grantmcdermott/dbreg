@@ -17,7 +17,7 @@ construct_output_from_moments(
 \arguments{
 \item{beta}{Coefficient vector (length B*(degree+1))}
 
-\item{geo}{Tibble with bin geometry}
+\item{geo}{Data frame with bin geometry}
 
 \item{degree}{Polynomial degree}
 
@@ -30,11 +30,11 @@ construct_output_from_moments(
 \item{V_beta}{Covariance matrix of coefficients (optional)}
 }
 \value{
-Tibble with dbbin output structure
+Data frame with dbbin output structure
 }
 \description{
 Internal helper that transforms coefficient estimates from constrained least
-squares into a structured tibble with bin-level fitted values, standard errors,
+squares into a structured data frame with bin-level fitted values, standard errors,
 and confidence intervals.
 }
 \keyword{internal}

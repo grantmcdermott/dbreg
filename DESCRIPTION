@@ -46,8 +46,7 @@ Imports:
   generics,
   glue,
   Matrix,
-  stats,
-  tibble
+  stats
 Suggests:
   here,
   fixest (>= 0.13.0),

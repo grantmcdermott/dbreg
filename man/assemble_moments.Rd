@@ -7,7 +7,7 @@
 assemble_moments(moments, degree)
 }
 \arguments{
-\item{moments}{Tibble with columns: bin, s00, s01, s11, ... (depending on degree)}
+\item{moments}{Data frame with columns: bin, s00, s01, s11, ... (depending on degree)}
 
 \item{degree}{Polynomial degree}
 }

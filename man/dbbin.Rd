@@ -79,7 +79,7 @@ connection will be created.}
 \item{verbose}{Logical. Print progress messages? Default is TRUE.}
 }
 \value{
-A tibble with bin-level results containing:
+A data frame with bin-level results containing:
 \itemize{
 \item \code{bin}: bin number (1 to B)
 \item \code{x_left}, \code{x_right}, \code{x_mid}: bin boundaries and midpoint
