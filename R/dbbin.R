@@ -159,6 +159,18 @@ dbbin = function(
   if (degree > 2) {
     stop("degree > 2 not supported; use degree = 0 (bin means), 1 (piecewise linear), or 2 (piecewise quadratic)")
   }
+  
+  # Check for controls/FE with constrained estimation
+  if (smooth > 0 && (!is.null(controls) || !is.null(fe))) {
+    stop(
+      "Controls and fixed effects are not supported with constrained binscatter (smooth > 0).\n",
+      "  Either:\n",
+      "  - Set smooth = 0 to use unconstrained estimation with controls/FE, or\n",
+      "  - Remove controls/FE from the formula and enforce smoothness constraints on their own.",
+      call. = FALSE
+    )
+  }
+  
   if (partition_method == "manual" && is.null(breaks)) {
     stop("breaks must be provided when partition_method = 'manual'")
   }
