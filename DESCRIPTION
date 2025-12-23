@@ -45,15 +45,19 @@ Imports:
   Formula,
   generics,
   glue,
+  magrittr,
   Matrix,
-  stats
+  rlang,
+  stats,
+  tibble
 Suggests:
   here,
   fixest (>= 0.13.0),
   tinyplot,
   tinytest
 Enhances:
-  dbplyr
+  dbplyr,
+  dplyr
 Encoding: UTF-8
 RoxygenNote: 7.3.3
 License: MIT + file LICENSE

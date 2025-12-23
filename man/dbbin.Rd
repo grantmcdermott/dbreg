@@ -16,7 +16,6 @@ dbbin(
   weights = NULL,
   partition = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
-  engine = c("design_ols", "moments_kkt"),
   strategy = "auto",
   conn = NULL,
   verbose = TRUE
@@ -37,8 +36,8 @@ dplyr::tbl object pointing to a database table.}
 
 \item{smooth}{Smoothness at bin boundaries: 0 (discontinuous), 1 (continuous
 level), or 2 (continuous level and slope). Must satisfy `smooth <= degree`.
-Default is 0. Note: `smooth > 0` requires `engine = "moments_kkt"` (not yet
-implemented).}
+Default is 0. Values greater than 0 require the \code{dbplyr} package and
+use constrained least squares estimation to enforce continuity at bin boundaries.}
 
 \item{controls}{Optional formula specifying control variables, e.g. `~ z1 + z2`.
 Default is NULL (no controls).}
@@ -57,12 +56,9 @@ Default is "quantile".}
 \item{breaks}{Numeric vector of breakpoints if `partition = "manual"`.
 Ignored otherwise.}
 
-\item{engine}{Estimation engine: "design_ols" (formula-based, uses existing
-dbreg infrastructure) or "moments_kkt" (moment-based with smoothness
-constraints; not yet implemented). Default is "design_ols".}
-
-\item{strategy}{Acceleration strategy passed to dbreg when `engine = "design_ols"`.
-Default is "auto". See \code{\link{dbreg}} for details.}
+\item{strategy}{Acceleration strategy passed to dbreg when `smooth = 0`.
+Options are "auto" (default), "compress", or "scan". This parameter is
+ignored when `smooth > 0`. See \code{\link{dbreg}} for details.}
 
 \item{conn}{Database connection. If NULL (default), an ephemeral DuckDB
 connection will be created.}
@@ -75,8 +71,10 @@ A tibble with bin-level results containing:
   - `x_left`, `x_right`, `x_mid`: bin boundaries and midpoint
   - `n`: number of observations in bin
   - If `degree = 0`: `y` (fitted value at `x_mid`)
-  - If `degree >= 1`: `y_left`, `y_right` (fitted values at bin boundaries,
+  - If `degree = 1`: `y_left`, `y_right` (fitted values at bin boundaries,
     defining a line segment)
+  - If `degree = 2`: `y_left`, `y_mid`, `y_right` (fitted values at boundaries
+    and midpoint, defining a quadratic curve)
   - Plus metadata: `B`, `degree`, `smooth`, `partition`
 }
 \description{

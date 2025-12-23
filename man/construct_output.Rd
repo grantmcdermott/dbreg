@@ -10,17 +10,9 @@ construct_output(inputs, fit, geo)
 Construct output tibble from fitted model
 }
 \details{
-**Future enhancement:** Once predict.dbreg() is implemented, this function
-can be extended to provide dense predictions for degree >= 1, especially 
-quadratic fits. The approach would be:
-
-1. Store the dbreg fit object in the output (e.g., as an attribute)
-2. For each bin, create a sequence of x values: seq(x_left, x_right, length.out = 50)
-3. Build newdata with these x values + corresponding bin indicators
-4. Call predict(fit, newdata = newdata) to get dense y predictions
-5. Return as a list-column or separate dense output option
-
-This would enable smooth curve plotting for quadratic fits instead of just
-showing segment endpoints (y_left, y_right).
+For degree >= 2 (quadratic), the function evaluates the piecewise polynomial
+at three points per bin: left boundary, midpoint, and right boundary. This
+provides sufficient information to reconstruct the quadratic curve within
+each bin using Lagrange interpolation.
 }
 \keyword{internal}

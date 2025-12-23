@@ -11,7 +11,7 @@ nyc_path = here::here("nyc-taxi/year=2012")
 if (!dir.exists(nyc_path)) {
   exit_file("NYC taxi data not found at nyc-taxi/year=2012")
 }
-
+devtools::load_all()
 library(dbreg)
 library(DBI)
 library(duckdb)
@@ -135,6 +135,105 @@ bins_means = dbbin(
 
 pdf(NULL)
 expect_silent(plot(bins_means, backend = "auto"))
+dev.off()
+
+
+#
+## Test 5: Constrained binscatter - level continuity (smooth = 1) ----
+#
+try(dbExecute(con, "DROP VIEW IF EXISTS tmp_table_dbreg"), silent = TRUE)
+
+bins_smooth1 = dbbin(
+  "nyc_jan",
+  y = fare_amount,
+  x = trip_distance,
+  B = 20,
+  degree = 2,
+  smooth = 1,
+  partition = "equal",
+  conn = con,
+  verbose = FALSE
+)
+plot(bins_smooth1)
+
+# Check continuity manually
+for (b in 1:19) {
+  cat(sprintf("Boundary %d: y_right[%d]=%.4f, y_left[%d]=%.4f, diff=%.6f\n",
+              b, b, bins_smooth1$y_right[b], b+1, bins_smooth1$y_left[b+1],
+              bins_smooth1$y_right[b] - bins_smooth1$y_left[b+1]))
+}
+expect_equal(nrow(bins_smooth1), 10)
+expect_equal(unique(bins_smooth1$smooth), 1)
+expect_equal(unique(bins_smooth1$degree), 1)
+
+# Check that level continuity is enforced at bin boundaries
+# Right endpoint of bin b should equal left endpoint of bin b+1
+for (b in 1:(nrow(bins_smooth1) - 1)) {
+  expect_equal(
+    bins_smooth1$y_right[b], 
+    bins_smooth1$y_left[b + 1],
+    tolerance = 1e-6,
+    info = sprintf("Level discontinuity at boundary %d", b)
+  )
+}
+
+# Compare to unconstrained: should be different
+bins_smooth0 = dbbin(
+  "nyc_jan",
+  y = fare_amount,
+  x = trip_distance,
+  B = 10,
+  degree = 1,
+  smooth = 0,
+  partition = "quantile",
+  conn = con,
+  verbose = FALSE
+)
+
+# Constrained and unconstrained should give different results
+# (unless data happens to be perfectly continuous, which is unlikely)
+expect_true(
+  mean(abs(bins_smooth1$y_left - bins_smooth0$y_left)) > 0.01,
+  info = "Constrained and unconstrained fits should differ"
+)
+
+
+#
+## Test 6: Constrained binscatter - C1 continuity (smooth = 2) ----
+#
+try(dbExecute(con, "DROP VIEW IF EXISTS tmp_table_dbreg"), silent = TRUE)
+
+bins_smooth2 = dbbin(
+  "nyc_jan",
+  y = fare_amount,
+  x = trip_distance,
+  B = 8,
+  degree = 2,
+  smooth = 2,
+  partition = "quantile",
+  conn = con,
+  verbose = FALSE
+)
+
+expect_equal(nrow(bins_smooth2), 8)
+expect_equal(unique(bins_smooth2$smooth), 2)
+expect_equal(unique(bins_smooth2$degree), 2)
+
+# With smooth=2 and degree=2, we get C1 continuity
+# This is harder to test directly without computing derivatives,
+# but we can verify level continuity holds
+for (b in 1:(nrow(bins_smooth2) - 1)) {
+  expect_equal(
+    bins_smooth2$y_right[b], 
+    bins_smooth2$y_left[b + 1],
+    tolerance = 1e-6,
+    info = sprintf("Level discontinuity at boundary %d (smooth=2)", b)
+  )
+}
+
+# Plot should work with constrained estimation
+pdf(NULL)
+expect_silent(plot(bins_smooth2, backend = "auto"))
 dev.off()
 
 

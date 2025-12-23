@@ -14,8 +14,8 @@
 #'   (quadratic). Default is 1.
 #' @param smooth Smoothness at bin boundaries: 0 (discontinuous), 1 (continuous
 #'   level), or 2 (continuous level and slope). Must satisfy `smooth <= degree`.
-#'   Default is 0. Note: `smooth > 0` requires `engine = "moments_kkt"` (not yet
-#'   implemented).
+#'   Default is 0. Values greater than 0 require the \code{dbplyr} package and
+#'   use constrained least squares estimation to enforce continuity at bin boundaries.
 #' @param controls Optional formula specifying control variables, e.g. `~ z1 + z2`.
 #'   Default is NULL (no controls).
 #' @param fe Optional formula specifying fixed effects using dbreg syntax, e.g.
@@ -28,11 +28,9 @@
 #'   Default is "quantile".
 #' @param breaks Numeric vector of breakpoints if `partition = "manual"`.
 #'   Ignored otherwise.
-#' @param engine Estimation engine: "design_ols" (formula-based, uses existing
-#'   dbreg infrastructure) or "moments_kkt" (moment-based with smoothness
-#'   constraints; not yet implemented). Default is "design_ols".
-#' @param strategy Acceleration strategy passed to dbreg when `engine = "design_ols"`.
-#'   Default is "auto". See \code{\link{dbreg}} for details.
+#' @param strategy Acceleration strategy passed to dbreg when `smooth = 0`.
+#'   Options are "auto" (default), "compress", or "scan". This parameter is
+#'   ignored when `smooth > 0`. See \code{\link{dbreg}} for details.
 #' @param conn Database connection. If NULL (default), an ephemeral DuckDB
 #'   connection will be created.
 #' @param verbose Logical. Print progress messages? Default is TRUE.
@@ -42,8 +40,10 @@
 #'   - `x_left`, `x_right`, `x_mid`: bin boundaries and midpoint
 #'   - `n`: number of observations in bin
 #'   - If `degree = 0`: `y` (fitted value at `x_mid`)
-#'   - If `degree >= 1`: `y_left`, `y_right` (fitted values at bin boundaries,
+#'   - If `degree = 1`: `y_left`, `y_right` (fitted values at bin boundaries,
 #'     defining a line segment)
+#'   - If `degree = 2`: `y_left`, `y_mid`, `y_right` (fitted values at boundaries
+#'     and midpoint, defining a quadratic curve)
 #'   - Plus metadata: `B`, `degree`, `smooth`, `partition`
 #'
 #' @export
@@ -70,7 +70,6 @@ dbbin = function(
   weights = NULL,
   partition = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
-  engine = c("design_ols", "moments_kkt"),
   strategy = "auto",
   conn = NULL,
   verbose = TRUE
@@ -78,11 +77,19 @@ dbbin = function(
   
   # Match arguments
   partition = match.arg(partition)
-  engine = match.arg(engine)
   
   # Capture quoted variable names
   y_name = deparse(substitute(y))
   x_name = deparse(substitute(x))
+  
+  # Check for dplyr package (required for all binscatter operations)
+  if (!requireNamespace("dplyr", quietly = TRUE)) {
+    stop(
+      "The dbbin() function requires the dplyr package.\n",
+      "Install it with: install.packages('dplyr')",
+      call. = FALSE
+    )
+  }
   
   # Validate inputs
   if (!is.numeric(B) || B < 1) {
@@ -97,16 +104,8 @@ dbbin = function(
   if (smooth > degree) {
     stop("smooth must be <= degree")
   }
-  if (smooth > 0 && engine == "design_ols") {
-    stop("smooth > 0 requires engine = 'moments_kkt' (not yet implemented)")
-  }
-  if (degree == 2) {
-    stop(
-      "degree = 2 (quadratic) is not yet fully supported.\n",
-      "  This requires a predict.dbreg() method to evaluate the piecewise quadratic curves.\n",
-      "  See: https://github.com/grantmcdermott/dbreg/issues/XX\n",
-      "  For now, please use degree = 0 (bin means) or degree = 1 (piecewise linear)."
-    )
+  if (degree > 2) {
+    stop("degree > 2 not supported; use degree = 0 (bin means), 1 (piecewise linear), or 2 (piecewise quadratic)")
   }
   if (partition == "manual" && is.null(breaks)) {
     stop("breaks must be provided when partition = 'manual'")
@@ -119,8 +118,20 @@ dbbin = function(
       stop("breaks must be sorted in increasing order")
     }
   }
-  if (engine == "moments_kkt") {
-    stop("engine = 'moments_kkt' not yet implemented; use 'design_ols'")
+  
+  # Warn if user sets strategy when smooth > 0 (it will be ignored)
+  if (smooth > 0 && strategy != "auto") {
+    warning("'strategy' parameter is ignored when smooth > 0 (constrained estimation)", 
+            call. = FALSE)
+  }
+  
+  # Check for dbplyr when using constrained estimation
+  if (smooth > 0 && !requireNamespace("dbplyr", quietly = TRUE)) {
+    stop(
+      "Constrained binned regression (smooth > 0) requires the dbplyr package.\n",
+      "Install it with: install.packages('dbplyr')",
+      call. = FALSE
+    )
   }
   
   # Set up database connection
@@ -202,17 +213,16 @@ dbbin = function(
     weights = weights,
     partition = partition,
     breaks = breaks,
-    engine = engine,
     strategy = strategy,
     verbose = verbose,
     formula = as.formula(formula_str)
   )
   
-  # Dispatch to engine
-  if (engine == "design_ols") {
-    result = execute_bins_design_ols(inputs)
+  # Dispatch based on smooth parameter
+  if (smooth == 0) {
+    result = execute_unconstrained_binsreg(inputs)
   } else {
-    result = execute_bins_moments_kkt(inputs)
+    result = execute_constrained_binsreg(inputs)
   }
   
   return(result)
@@ -423,12 +433,17 @@ add_basis_columns = function(binned_data, geo, x_name, degree) {
 ## Design OLS Engine ----
 #
 
-#' Execute bins estimation using design matrix / OLS approach
+#' Execute unconstrained binned regression (smooth = 0)
+#' 
+#' Uses dbreg() with design matrix approach for fast unconstrained estimation.
+#' Leverages compress strategy when possible for efficiency with high-dimensional
+#' factor variables and fixed effects.
+#' 
 #' @keywords internal
-execute_bins_design_ols = function(inputs) {
+execute_unconstrained_binsreg = function(inputs) {
   
   if (inputs$verbose) {
-    cat("[dbbin] Executing design_ols strategy\n")
+    cat("[dbbin] Executing unconstrained binned regression (smooth = 0)\n")
   }
   
   # Fetch binned data into R (no temp tables created)
@@ -523,21 +538,452 @@ execute_bins_design_ols = function(inputs) {
 }
 
 
+#' Execute constrained binned regression (smooth > 0)
+#' 
+#' Uses moment-based estimation with KKT solver to enforce continuity constraints
+#' at bin boundaries. Requires dbplyr package for SQL moment computation.
+#' 
+#' @keywords internal
+execute_constrained_binsreg = function(inputs) {
+  
+  if (inputs$verbose) {
+    cat("[dbbin] Executing constrained binned regression (smooth = ", inputs$smooth, ")\n", sep = "")
+  }
+  
+  # Extract inputs
+  conn = inputs$conn
+  table_name = inputs$table_name
+  x_name = inputs$x_name
+  y_name = inputs$y_name
+  B = inputs$B
+  degree = inputs$degree
+  smooth = inputs$smooth
+  partition = inputs$partition
+  weights = inputs$weights
+  
+  # Convert table to tbl if needed
+  if (is.character(table_name)) {
+    data_tbl = dplyr::tbl(conn, table_name)
+  } else {
+    data_tbl = table_name  # Already a tbl
+  }
+  
+  # Step 1: Assign bins
+  if (partition == "quantile") {
+    data_binned = data_tbl %>%
+      dplyr::filter(!is.na(!!rlang::sym(x_name)), !is.na(!!rlang::sym(y_name))) %>%
+      dplyr::mutate(bin = dplyr::ntile(!!rlang::sym(x_name), B))
+  } else if (partition == "equal") {
+    # Equal-width bins using SQL expressions
+    data_binned = data_tbl %>%
+      dplyr::filter(!is.na(!!rlang::sym(x_name)), !is.na(!!rlang::sym(y_name))) %>%
+      dplyr::mutate(
+        bin = pmin(B, 1L + floor((!!rlang::sym(x_name) - min(!!rlang::sym(x_name), na.rm = TRUE)) / 
+                                  ((max(!!rlang::sym(x_name), na.rm = TRUE) - min(!!rlang::sym(x_name), na.rm = TRUE)) / B)))
+      )
+  } else {
+    stop("partition = '", partition, "' not yet supported for constrained estimation")
+  }
+  
+  # Step 2: Compute bin geometry
+  geo = data_binned %>%
+    dplyr::group_by(bin) %>%
+    dplyr::summarise(
+      x_left = min(!!rlang::sym(x_name), na.rm = TRUE),
+      x_right = max(!!rlang::sym(x_name), na.rm = TRUE),
+      x_mid = mean(!!rlang::sym(x_name), na.rm = TRUE),
+      n = dplyr::n(),
+      .groups = "drop"
+    ) %>%
+    dplyr::collect() %>%
+    dplyr::arrange(bin)  # IMPORTANT: sort by bin number!
+  
+  # Step 3: Join geometry and compute centered basis
+  wt_sym = if (is.null(weights)) rlang::expr(1.0) else rlang::sym(weights)
+  
+  data_with_u = data_binned %>%
+    dplyr::left_join(
+      dplyr::copy_to(conn, geo %>% dplyr::select(bin, x_mid), 
+                     name = paste0("geo_", sample.int(1e6, 1)), 
+                     temporary = TRUE, overwrite = TRUE),
+      by = "bin"
+    ) %>%
+    dplyr::mutate(
+      u = !!rlang::sym(x_name) - x_mid,
+      wt = !!wt_sym
+    )
+  
+  # Add u2 if degree >= 2
+  if (degree >= 2) {
+    data_with_u = data_with_u %>%
+      dplyr::mutate(u2 = u * u)
+  }
+  
+  # Step 4: Compute moments per bin
+  if (degree == 0) {
+    moments = data_with_u %>%
+      dplyr::group_by(bin) %>%
+      dplyr::summarise(
+        s00 = sum(wt, na.rm = TRUE),
+        t0 = sum(wt * !!rlang::sym(y_name), na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      dplyr::collect()
+      
+  } else if (degree == 1) {
+    moments = data_with_u %>%
+      dplyr::group_by(bin) %>%
+      dplyr::summarise(
+        s00 = sum(wt, na.rm = TRUE),
+        s01 = sum(wt * u, na.rm = TRUE),
+        s11 = sum(wt * u * u, na.rm = TRUE),
+        t0 = sum(wt * !!rlang::sym(y_name), na.rm = TRUE),
+        t1 = sum(wt * !!rlang::sym(y_name) * u, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      dplyr::collect()
+      
+  } else {  # degree == 2
+    moments = data_with_u %>%
+      dplyr::group_by(bin) %>%
+      dplyr::summarise(
+        s00 = sum(wt, na.rm = TRUE),
+        s01 = sum(wt * u, na.rm = TRUE),
+        s02 = sum(wt * u2, na.rm = TRUE),
+        s11 = sum(wt * u * u, na.rm = TRUE),
+        s12 = sum(wt * u * u2, na.rm = TRUE),
+        s22 = sum(wt * u2 * u2, na.rm = TRUE),
+        t0 = sum(wt * !!rlang::sym(y_name), na.rm = TRUE),
+        t1 = sum(wt * !!rlang::sym(y_name) * u, na.rm = TRUE),
+        t2 = sum(wt * !!rlang::sym(y_name) * u2, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      dplyr::collect()
+  }
+  
+  # Merge geometry with moments and ensure sorted by bin
+  moments_full = dplyr::left_join(geo, moments, by = "bin") %>%
+    dplyr::arrange(bin)
+  
+  # Step 5: Build constraint matrix
+  A = build_constraint_matrix(moments_full, degree, smooth)
+  
+  # Step 6: Assemble block-diagonal X'X and X'y
+  moment_system = assemble_moments(moments_full, degree)
+  
+  # Step 7: Solve KKT system
+  beta = solve_kkt(moment_system$XtX, moment_system$Xty, A, smooth)
+  
+  # Step 8: Construct output
+  result = construct_output_from_moments(beta, moments_full, degree, smooth, partition)
+  
+  return(result)
+}
+
+
+#' Build constraint matrix for continuity at bin boundaries
+#' 
+#' @param geo Tibble with bin geometry (bin, x_left, x_right, x_mid, n)
+#' @param degree Polynomial degree (0, 1, or 2)
+#' @param smooth Smoothness level (1 = level continuity, 2 = level + slope)
+#' 
+#' @return Constraint matrix A of dimension (B-1)*smooth by B*(degree+1)
+#' 
+#' @keywords internal
+build_constraint_matrix = function(geo, degree, smooth) {
+  
+  B = nrow(geo)
+  if (B <= 1) return(matrix(0, nrow = 0, ncol = degree + 1))
+  
+  n_constraints = (B - 1) * smooth
+  n_params = B * (degree + 1)
+  A = matrix(0, nrow = n_constraints, ncol = n_params)
+  
+  # For each interior boundary
+  for (b in 1:(B-1)) {
+    
+    # Get boundary location
+    x_boundary = geo$x_right[b]  # = geo$x_left[b+1]
+    
+    # Left polynomial: f_L(x) = beta_L0 + beta_L1*(x - x_mid_L) + beta_L2*(x - x_mid_L)^2
+    x_mid_L = geo$x_mid[b]
+    delta_L = x_boundary - x_mid_L
+    
+    # Right polynomial: f_R(x) = beta_R0 + beta_R1*(x - x_mid_R) + beta_R2*(x - x_mid_R)^2
+    x_mid_R = geo$x_mid[b+1]
+    delta_R = x_boundary - x_mid_R
+    
+    # Level continuity constraint: f_L(x_boundary) = f_R(x_boundary)
+    # f_L(x_boundary) - f_R(x_boundary) = 0
+    row_level = (b - 1) * smooth + 1
+    col_L = (b - 1) * (degree + 1) + 1
+    col_R = b * (degree + 1) + 1
+    
+    if (degree == 0) {
+      # f_L = beta_L0, f_R = beta_R0
+      A[row_level, col_L] = 1
+      A[row_level, col_R] = -1
+      
+    } else if (degree == 1) {
+      # f_L = beta_L0 + beta_L1 * delta_L
+      # f_R = beta_R0 + beta_R1 * delta_R
+      A[row_level, col_L] = 1
+      A[row_level, col_L + 1] = delta_L
+      A[row_level, col_R] = -1
+      A[row_level, col_R + 1] = -delta_R
+      
+    } else {  # degree == 2
+      # f_L = beta_L0 + beta_L1 * delta_L + beta_L2 * delta_L^2
+      # f_R = beta_R0 + beta_R1 * delta_R + beta_R2 * delta_R^2
+      A[row_level, col_L] = 1
+      A[row_level, col_L + 1] = delta_L
+      A[row_level, col_L + 2] = delta_L^2
+      A[row_level, col_R] = -1
+      A[row_level, col_R + 1] = -delta_R
+      A[row_level, col_R + 2] = -delta_R^2
+    }
+    
+    # Slope continuity constraint (if smooth == 2)
+    # f_L'(x_boundary) = f_R'(x_boundary)
+    if (smooth == 2) {
+      if (degree == 0) {
+        stop("Cannot enforce slope continuity (smooth=2) with constant fits (degree=0)")
+      }
+      
+      row_slope = (b - 1) * smooth + 2
+      
+      if (degree == 1) {
+        # f_L' = beta_L1
+        # f_R' = beta_R1
+        A[row_slope, col_L + 1] = 1
+        A[row_slope, col_R + 1] = -1
+        
+      } else {  # degree == 2
+        # f_L' = beta_L1 + 2 * beta_L2 * delta_L
+        # f_R' = beta_R1 + 2 * beta_R2 * delta_R
+        A[row_slope, col_L + 1] = 1
+        A[row_slope, col_L + 2] = 2 * delta_L
+        A[row_slope, col_R + 1] = -1
+        A[row_slope, col_R + 2] = -2 * delta_R
+      }
+    }
+  }
+  
+  return(A)
+}
+
+
+#' Assemble block-diagonal moment matrices
+#' 
+#' @param moments Tibble with columns: bin, s00, s01, s11, ... (depending on degree)
+#' @param degree Polynomial degree
+#' 
+#' @return List with XtX (block-diagonal) and Xty (stacked vector)
+#' 
+#' @keywords internal
+assemble_moments = function(moments, degree) {
+  
+  B = nrow(moments)
+  p = degree + 1
+  
+  # Build block-diagonal X'X
+  blocks = vector("list", B)
+  
+  if (degree == 0) {
+    for (b in 1:B) {
+      blocks[[b]] = matrix(moments$s00[b], 1, 1)
+    }
+    
+  } else if (degree == 1) {
+    for (b in 1:B) {
+      blocks[[b]] = matrix(c(
+        moments$s00[b], moments$s01[b],
+        moments$s01[b], moments$s11[b]
+      ), 2, 2, byrow = TRUE)
+    }
+    
+  } else {  # degree == 2
+    for (b in 1:B) {
+      blocks[[b]] = matrix(c(
+        moments$s00[b], moments$s01[b], moments$s02[b],
+        moments$s01[b], moments$s11[b], moments$s12[b],
+        moments$s02[b], moments$s12[b], moments$s22[b]
+      ), 3, 3, byrow = TRUE)
+    }
+  }
+  
+  # Use Matrix package for efficient block-diagonal storage
+  XtX = Matrix::bdiag(blocks)
+  
+  # Build X'y vector
+  if (degree == 0) {
+    Xty = moments$t0
+  } else if (degree == 1) {
+    Xty = c(rbind(moments$t0, moments$t1))
+  } else {  # degree == 2
+    Xty = c(t(cbind(moments$t0, moments$t1, moments$t2)))
+  }
+  
+  return(list(XtX = XtX, Xty = Xty))
+}
+
+
+#' Solve constrained least squares via KKT system
+#' 
+#' @param XtX Block-diagonal X'X matrix (B*(degree+1) by B*(degree+1))
+#' @param Xty Stacked X'y vector (length B*(degree+1))
+#' @param A Constraint matrix ((B-1)*smooth by B*(degree+1))
+#' @param smooth Smoothness level (for dimensionality check)
+#' 
+#' @return Beta coefficient vector (length B*(degree+1))
+#' 
+#' @keywords internal
+solve_kkt = function(XtX, Xty, A, smooth) {
+  
+  n_params = length(Xty)
+  n_constraints = nrow(A)
+  
+  if (n_constraints == 0) {
+    # No constraints, solve unconstrained
+    return(as.numeric(Matrix::solve(XtX, Xty)))
+  }
+  
+  # Build augmented KKT system:
+  # [ X'X   A' ] [ beta   ]   [ X'y ]
+  # [ A     0  ] [ lambda ] = [ 0   ]
+  
+  # Top-left: X'X
+  # Top-right: A'
+  # Bottom-left: A
+  # Bottom-right: 0
+  
+  K = rbind(
+    cbind(XtX, Matrix::t(A)),
+    cbind(A, Matrix::Matrix(0, n_constraints, n_constraints))
+  )
+  
+  rhs = c(Xty, rep(0, n_constraints))
+  
+  # Solve KKT system
+  solution = Matrix::solve(K, rhs)
+  
+  # Extract beta (first n_params elements)
+  beta = as.numeric(solution[1:n_params])
+  
+  return(beta)
+}
+
+
+#' Construct output from constrained solution
+#' 
+#' @param beta Coefficient vector (length B*(degree+1))
+#' @param geo Tibble with bin geometry
+#' @param degree Polynomial degree
+#' @param smooth Smoothness level
+#' @param partition Partition type
+#' 
+#' @return Tibble with dbbin output structure
+#' 
+#' @keywords internal
+construct_output_from_moments = function(beta, geo, degree, smooth, partition) {
+  
+  B = nrow(geo)
+  p = degree + 1
+  
+  # Reshape beta to B x p matrix
+  beta_mat = matrix(beta, nrow = B, ncol = p, byrow = TRUE)
+  
+  # For plotting, use the observed x_left/x_right from the data
+  # The constraints are enforced at geo$x_right[b], and we evaluate 
+  # both y_right[b] and y_left[b+1] at that same point to ensure continuity
+  # in the output values.
+  
+  x_left_plot = geo$x_left
+  x_right_plot = geo$x_right
+  
+  # Evaluate polynomials at plotting boundaries
+  y_left = numeric(B)
+  y_right = numeric(B)
+  y_mid = if (degree >= 1) numeric(B) else rep(NA_real_, B)
+  
+  for (b in 1:B) {
+    x_mid_fit = geo$x_mid[b]  # The centering point for this bin's polynomial
+    beta_b = beta_mat[b, ]
+    
+    # For b > 1, evaluate y_left at the constraint boundary (x_right of previous bin)
+    # This ensures y_left[b] == y_right[b-1] when constraints are satisfied
+    if (b == 1) {
+      delta_left = x_left_plot[b] - x_mid_fit
+    } else {
+      # Evaluate at constraint boundary for continuity check
+      delta_left = geo$x_right[b - 1] - x_mid_fit
+      # Also update x_left for this bin to match constraint point
+      x_left_plot[b] = geo$x_right[b - 1]
+    }
+    y_left[b] = eval_poly(beta_b, delta_left, degree)
+    
+    # Right plotting boundary  
+    delta_right = x_right_plot[b] - x_mid_fit
+    y_right[b] = eval_poly(beta_b, delta_right, degree)
+    
+    # Midpoint of plotting region (for quadratic curves)
+    if (degree >= 1) {
+      x_mid_plot = (x_left_plot[b] + x_right_plot[b]) / 2
+      delta_mid = x_mid_plot - x_mid_fit
+      y_mid[b] = eval_poly(beta_b, delta_mid, degree)
+    }
+  }
+  
+  # Construct output tibble
+  result = tibble::tibble(
+    bin = geo$bin,
+    x_left = x_left_plot,
+    x_right = x_right_plot,
+    x_mid = (x_left_plot + x_right_plot) / 2,  # Geometric midpoint for plotting
+    n = as.integer(geo$n),
+    y_left = y_left,
+    y_mid = y_mid,
+    y_right = y_right,
+    B = B,
+    degree = degree,
+    smooth = smooth,
+    partition = partition
+  )
+  
+  # Add dbbin class
+  class(result) = c("dbbin", class(result))
+  
+  return(result)
+}
+
+
+#' Evaluate polynomial at a point
+#' 
+#' @param beta Coefficient vector (length degree+1)
+#' @param u Centered x value
+#' @param degree Polynomial degree
+#' 
+#' @return Scalar polynomial value
+#' 
+#' @keywords internal
+eval_poly = function(beta, u, degree) {
+  if (degree == 0) {
+    return(beta[1])
+  } else if (degree == 1) {
+    return(beta[1] + beta[2] * u)
+  } else {  # degree == 2
+    return(beta[1] + beta[2] * u + beta[3] * u^2)
+  }
+}
+
+
 #' Construct output tibble from fitted model
 #' 
 #' @details
-#' **Future enhancement:** Once predict.dbreg() is implemented, this function
-#' can be extended to provide dense predictions for degree >= 1, especially 
-#' quadratic fits. The approach would be:
-#' 
-#' 1. Store the dbreg fit object in the output (e.g., as an attribute)
-#' 2. For each bin, create a sequence of x values: seq(x_left, x_right, length.out = 50)
-#' 3. Build newdata with these x values + corresponding bin indicators
-#' 4. Call predict(fit, newdata = newdata) to get dense y predictions
-#' 5. Return as a list-column or separate dense output option
-#' 
-#' This would enable smooth curve plotting for quadratic fits instead of just
-#' showing segment endpoints (y_left, y_right).
+#' For degree >= 2 (quadratic), the function evaluates the piecewise polynomial
+#' at three points per bin: left boundary, midpoint, and right boundary. This
+#' provides sufficient information to reconstruct the quadratic curve within
+#' each bin using Lagrange interpolation.
 #' 
 #' @keywords internal
 construct_output = function(inputs, fit, geo) {
@@ -592,6 +1038,7 @@ construct_output = function(inputs, fit, geo) {
     # With explicit u_i columns, coefficients are named: "u_1", "u_2", etc.
     
     y_left = numeric(B)
+    y_mid = numeric(B)
     y_right = numeric(B)
     
     for (i in seq_len(B)) {
@@ -624,10 +1071,12 @@ construct_output = function(inputs, fit, geo) {
       u_right = geo$x_right[i] - geo$x_mid[i]
       
       y_left[i] = b0 + b1 * u_left + b2 * u_left^2
+      y_mid[i] = b0  # u = 0 at midpoint
       y_right[i] = b0 + b1 * u_right + b2 * u_right^2
     }
     
     out$y_left = y_left
+    out$y_mid = y_mid
     out$y_right = y_right
   }
   
@@ -636,8 +1085,9 @@ construct_output = function(inputs, fit, geo) {
     out = out[, c("bin", "x_left", "x_right", "x_mid", "n", "y", 
                  "B", "degree", "smooth", "partition")]
   } else {
+    # degree >= 1: always include y_left, y_mid, y_right
     out = out[, c("bin", "x_left", "x_right", "x_mid", "n", 
-                 "y_left", "y_right", "B", "degree", "smooth", "partition")]
+                 "y_left", "y_mid", "y_right", "B", "degree", "smooth", "partition")]
   }
   
   # Add S3 class and metadata attributes
@@ -703,7 +1153,7 @@ plot.dbbin = function(x, y = NULL,
   
   if (backend == "tinyplot") {
     # Use tinyplot
-    tinytheme("clean")
+    tinyplot::tinytheme("clean")
     if (degree == 0) {
       # Bin means - step function
       if (type == "points") {
@@ -718,20 +1168,50 @@ plot.dbbin = function(x, y = NULL,
       # Piecewise linear/polynomial
       if (type == "points") {
         # Just show bin midpoints
-        y_mid = (x$y_left + x$y_right) / 2
-        tinyplot::tinyplot(x$x_mid, y_mid, type = "p",
+        if (degree >= 2 && "y_mid" %in% names(x)) {
+          y_mid_vals = x$y_mid
+        } else {
+          y_mid_vals = (x$y_left + x$y_right) / 2
+        }
+        tinyplot::tinyplot(x$x_mid, y_mid_vals, type = "p",
                           xlab = "x", ylab = "y", ...)
       } else {
-        # Plot piecewise segments - draw manually to keep single color
+        # Plot piecewise segments
         # Set up plot region first
+        y_range = if (degree >= 2 && "y_mid" %in% names(x)) {
+          range(c(x$y_left, x$y_mid, x$y_right))
+        } else {
+          range(c(x$y_left, x$y_right))
+        }
         tinyplot::tinyplot(range(c(x$x_left, x$x_right)), 
-                          range(c(x$y_left, x$y_right)),
+                          y_range,
                           type = "n", xlab = "x", ylab = "y", ...)
         
-        # Draw line segments
+        # Draw curves/segments for each bin
         for (i in seq_len(nrow(x))) {
-          lines(c(x$x_left[i], x$x_right[i]),
-                c(x$y_left[i], x$y_right[i]), ...)
+          if (degree >= 2 && "y_mid" %in% names(x)) {
+            # Quadratic: draw smooth curve through 3 points
+            x_seq = seq(x$x_left[i], x$x_right[i], length.out = 50)
+            x_pts = c(x$x_left[i], x$x_mid[i], x$x_right[i])
+            y_pts = c(x$y_left[i], x$y_mid[i], x$y_right[i])
+            
+            # Fit parabola through 3 points and evaluate
+            # Use quadratic interpolation
+            y_seq = numeric(length(x_seq))
+            for (j in seq_along(x_seq)) {
+              # Lagrange interpolation through 3 points
+              xj = x_seq[j]
+              l0 = ((xj - x_pts[2]) * (xj - x_pts[3])) / ((x_pts[1] - x_pts[2]) * (x_pts[1] - x_pts[3]))
+              l1 = ((xj - x_pts[1]) * (xj - x_pts[3])) / ((x_pts[2] - x_pts[1]) * (x_pts[2] - x_pts[3]))
+              l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
+              y_seq[j] = y_pts[1] * l0 + y_pts[2] * l1 + y_pts[3] * l2
+            }
+            lines(x_seq, y_seq, ...)
+          } else {
+            # Linear: draw line segment
+            lines(c(x$x_left[i], x$x_right[i]),
+                  c(x$y_left[i], x$y_right[i]), ...)
+          }
         }
       }
     }
@@ -747,18 +1227,46 @@ plot.dbbin = function(x, y = NULL,
     } else {
       # Piecewise linear/polynomial
       if (type == "points") {
-        y_mid = (x$y_left + x$y_right) / 2
-        plot(x$x_mid, y_mid, type = "p", xlab = "x", ylab = "y", ...)
+        if (degree >= 2 && "y_mid" %in% names(x)) {
+          y_mid_vals = x$y_mid
+        } else {
+          y_mid_vals = (x$y_left + x$y_right) / 2
+        }
+        plot(x$x_mid, y_mid_vals, type = "p", xlab = "x", ylab = "y", ...)
       } else {
         # Set up plot region
+        y_range = if (degree >= 2 && "y_mid" %in% names(x)) {
+          range(c(x$y_left, x$y_mid, x$y_right))
+        } else {
+          range(c(x$y_left, x$y_right))
+        }
         plot(range(c(x$x_left, x$x_right)), 
-             range(c(x$y_left, x$y_right)),
+             y_range,
              type = "n", xlab = "x", ylab = "y", ...)
         
-        # Draw line segments
+        # Draw curves/segments for each bin
         for (i in seq_len(nrow(x))) {
-          lines(c(x$x_left[i], x$x_right[i]),
-                c(x$y_left[i], x$y_right[i]), ...)
+          if (degree >= 2 && "y_mid" %in% names(x)) {
+            # Quadratic: draw smooth curve through 3 points
+            x_seq = seq(x$x_left[i], x$x_right[i], length.out = 50)
+            x_pts = c(x$x_left[i], x$x_mid[i], x$x_right[i])
+            y_pts = c(x$y_left[i], x$y_mid[i], x$y_right[i])
+            
+            # Lagrange interpolation through 3 points
+            y_seq = numeric(length(x_seq))
+            for (j in seq_along(x_seq)) {
+              xj = x_seq[j]
+              l0 = ((xj - x_pts[2]) * (xj - x_pts[3])) / ((x_pts[1] - x_pts[2]) * (x_pts[1] - x_pts[3]))
+              l1 = ((xj - x_pts[1]) * (xj - x_pts[3])) / ((x_pts[2] - x_pts[1]) * (x_pts[2] - x_pts[3]))
+              l2 = ((xj - x_pts[1]) * (xj - x_pts[2])) / ((x_pts[3] - x_pts[1]) * (x_pts[3] - x_pts[2]))
+              y_seq[j] = y_pts[1] * l0 + y_pts[2] * l1 + y_pts[3] * l2
+            }
+            lines(x_seq, y_seq, ...)
+          } else {
+            # Linear: draw line segment
+            lines(c(x$x_left[i], x$x_right[i]),
+                  c(x$y_left[i], x$y_right[i]), ...)
+          }
         }
       }
     }
