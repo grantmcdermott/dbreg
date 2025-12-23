@@ -6,9 +6,12 @@
 #' conditional models (with controls and/or fixed effects).
 #'
 #' @param fml A \code{\link[stats]{formula}} representing the binscatter relation.
-#'   Use the syntax `y ~ x` for unconditional binning, `y ~ x | controls` to
-#'   partial out controls, or `y ~ x | controls | fe` to include fixed effects.
-#'   For example: `mpg ~ wt | hp + cyl | gear`.
+#'   The first variable on the RHS is the running variable; additional variables
+#'   are controls. Fixed effects go after `|`. Examples:
+#'   - `y ~ x`: simple binscatter
+#'   - `y ~ x + w1 + w2`: binscatter with controls
+#'   - `y ~ x | fe`: binscatter with fixed effects
+#'   - `y ~ x + w1 + w2 | fe`: binscatter with controls and fixed effects
 #' @param data A data source: R dataframe, database table name (character), or
 #'   dplyr::tbl object pointing to a database table.
 #' @param B Integer number of bins. Default is 20.
@@ -16,8 +19,9 @@
 #'   (quadratic). Default is 1.
 #' @param smooth Smoothness at bin boundaries: 0 (discontinuous), 1 (continuous
 #'   level), or 2 (continuous level and slope). Must satisfy `smooth <= degree`.
-#'   Default is 0. Values greater than 0 require the \code{dbplyr} package and
-#'   use constrained least squares estimation to enforce continuity at bin boundaries.
+#'   Default is 0. Values greater than 0 use a regression spline (truncated-power
+#'   basis) that automatically enforces continuity constraints. Controls and fixed
+#'   effects are supported with all smooth values.
 #' @param weights Character string naming the weight column. Default is NULL
 #'   (equal weights).
 #' @param partition_method Bin partitioning method: "quantile" (equal-count bins),
@@ -30,7 +34,6 @@
 #'   Default is FALSE.
 #' @param vcov Character string or formula for standard errors. Options are
 #'   "iid" (default if ci=TRUE), "hc1", or a clustering formula like ~cluster_var.
-#'   Only supported for unconstrained estimation (smooth=0).
 #' @param level Significance level for confidence intervals. Default is 0.05
 #'   (95% confidence intervals). Only used when ci = TRUE.
 #' @param strategy Acceleration strategy passed to dbreg when `smooth = 0`.
@@ -62,10 +65,16 @@
 #' dbbin(mpg ~ wt, mtcars, B = 10, degree = 1)
 #'
 #' # With controls
-#' dbbin(mpg ~ wt | hp + cyl, mtcars, B = 10, degree = 1)
+#' dbbin(mpg ~ wt + hp + cyl, mtcars, B = 10, degree = 1)
+#'
+#' # With fixed effects
+#' dbbin(mpg ~ wt | gear, mtcars, B = 10, degree = 1)
 #'
 #' # With controls and fixed effects
-#' dbbin(mpg ~ wt | hp + cyl | gear, mtcars, B = 10, degree = 1)
+#' dbbin(mpg ~ wt + hp + cyl | gear, mtcars, B = 10, degree = 1)
+#'
+#' # Constrained (continuous) binscatter with controls
+#' dbbin(mpg ~ wt + hp | gear, mtcars, B = 10, degree = 1, smooth = 1)
 #' }
 dbbin = function(
   fml,
@@ -114,22 +123,19 @@ dbbin = function(
     stop("Exactly one outcome variable required on LHS of formula")
   }
   
-  # Extract x variable (first RHS component)
-  x_name = all.vars(formula(fml, lhs = 0, rhs = 1))
-  if (length(x_name) != 1) {
-    stop("Exactly one binning variable required on first RHS of formula (e.g., y ~ x)")
+  # Extract RHS part 1: x variable (first) and controls (rest)
+  # Formula: y ~ x + controls | fe
+  rhs1_vars = all.vars(formula(fml, lhs = 0, rhs = 1))
+  if (length(rhs1_vars) < 1) {
+    stop("At least one variable (the running variable) required on RHS of formula")
   }
   
-  # Extract controls (second RHS component, if present)
-  controls = if (length(fml)[2] > 1) {
+  x_name = rhs1_vars[1]  # First variable is the running variable
+  controls = if (length(rhs1_vars) > 1) rhs1_vars[-1] else NULL
+  
+  # Extract fixed effects (second RHS component after |, if present)
+  fe = if (length(fml)[2] > 1) {
     all.vars(formula(fml, lhs = 0, rhs = 2))
-  } else {
-    NULL
-  }
-  
-  # Extract fixed effects (third RHS component, if present)
-  fe = if (length(fml)[2] > 2) {
-    all.vars(formula(fml, lhs = 0, rhs = 3))
   } else {
     NULL
   }
@@ -158,17 +164,6 @@ dbbin = function(
   }
   if (degree > 2) {
     stop("degree > 2 not supported; use degree = 0 (bin means), 1 (piecewise linear), or 2 (piecewise quadratic)")
-  }
-  
-  # Check for controls/FE with constrained estimation
-  if (smooth > 0 && (!is.null(controls) || !is.null(fe))) {
-    stop(
-      "Controls and fixed effects are not supported with constrained binscatter (smooth > 0).\n",
-      "  Either:\n",
-      "  - Set smooth = 0 to use unconstrained estimation with controls/FE, or\n",
-      "  - Remove controls/FE from the formula and enforce smoothness constraints on their own.",
-      call. = FALSE
-    )
   }
   
   if (partition_method == "manual" && is.null(breaks)) {
@@ -643,16 +638,12 @@ execute_unconstrained_binsreg = function(inputs) {
 execute_constrained_binsreg = function(inputs) {
   
   if (inputs$verbose) {
-    cat("[dbbin] Executing constrained binned regression (smooth = ", inputs$smooth, ")\n", sep = "")
-  }
-  
-  # Warn if robust/clustered SEs requested (not yet supported for constrained)
-  if (isTRUE(inputs$ci) && !is.null(inputs$vcov) && !identical(inputs$vcov, "iid")) {
-    warning("Robust/clustered standard errors not yet supported for constrained binscatter. Using IID standard errors.", call. = FALSE)
+    cat("[dbbin] Executing constrained binscatter via regression splines (smooth = ", 
+        inputs$smooth, ")\n", sep = "")
   }
   
   # Extract inputs
-  conn = inputs$conn
+conn = inputs$conn
   table_name = inputs$table_name
   x_name = inputs$x_name
   y_name = inputs$y_name
@@ -661,21 +652,23 @@ execute_constrained_binsreg = function(inputs) {
   smooth = inputs$smooth
   partition_method = inputs$partition_method
   weights = inputs$weights
+  controls = inputs$controls
+  fe = inputs$fe
+  vcov_type = if (isTRUE(inputs$ci)) inputs$vcov else "iid"
   
   # Convert table to tbl if needed
   if (is.character(table_name)) {
     data_tbl = dplyr::tbl(conn, table_name)
   } else {
-    data_tbl = table_name  # Already a tbl
+    data_tbl = table_name
   }
   
-  # Step 1: Assign bins
+  # Step 1: Assign bins and compute geometry
   if (partition_method == "quantile") {
     data_binned = data_tbl |>
       dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
       dplyr::mutate(bin = dplyr::ntile(!!as.symbol(x_name), B))
   } else if (partition_method == "equal") {
-    # Equal-width bins using SQL expressions
     data_binned = data_tbl |>
       dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
       dplyr::mutate(
@@ -683,10 +676,10 @@ execute_constrained_binsreg = function(inputs) {
                                   ((max(!!as.symbol(x_name), na.rm = TRUE) - min(!!as.symbol(x_name), na.rm = TRUE)) / B)))
       )
   } else {
-    stop("partition_method = '", partition_method, "' not yet supported for constrained estimation")
+    stop("partition_method = '", partition_method, "' not supported")
   }
   
-  # Step 2: Compute bin geometry
+  # Compute bin geometry (boundaries and counts)
   geo = data_binned |>
     dplyr::group_by(bin) |>
     dplyr::summarise(
@@ -697,109 +690,235 @@ execute_constrained_binsreg = function(inputs) {
       .groups = "drop"
     ) |>
     dplyr::collect() |>
-    dplyr::arrange(bin)  # IMPORTANT: sort by bin number!
-  
-  # Step 3: Join geometry and compute centered basis
-  wt_sym = if (is.null(weights)) quote(1.0) else as.symbol(weights)
-  
-  data_with_u = data_binned |>
-    dplyr::left_join(
-      dplyr::copy_to(conn, geo |> dplyr::select(bin, x_mid), 
-                     name = paste0("geo_", sample.int(1e6, 1)), 
-                     temporary = TRUE, overwrite = TRUE),
-      by = "bin"
-    ) |>
-    dplyr::mutate(
-      u = !!as.symbol(x_name) - x_mid,
-      wt = !!wt_sym
-    )
-  
-  # Add u2 if degree >= 2
-  if (degree >= 2) {
-    data_with_u = data_with_u |>
-      dplyr::mutate(u2 = u * u)
-  }
-  
-  # Step 4: Compute moments per bin
-  if (degree == 0) {
-    moments = data_with_u |>
-      dplyr::group_by(bin) |>
-      dplyr::summarise(
-        s00 = sum(wt, na.rm = TRUE),
-        t0 = sum(wt * !!as.symbol(y_name), na.rm = TRUE),
-        s_yy = sum(wt * !!as.symbol(y_name) * !!as.symbol(y_name), na.rm = TRUE),
-        .groups = "drop"
-      ) |>
-      dplyr::collect()
-      
-  } else if (degree == 1) {
-    moments = data_with_u |>
-      dplyr::group_by(bin) |>
-      dplyr::summarise(
-        s00 = sum(wt, na.rm = TRUE),
-        s01 = sum(wt * u, na.rm = TRUE),
-        s11 = sum(wt * u * u, na.rm = TRUE),
-        t0 = sum(wt * !!as.symbol(y_name), na.rm = TRUE),
-        t1 = sum(wt * !!as.symbol(y_name) * u, na.rm = TRUE),
-        s_yy = sum(wt * !!as.symbol(y_name) * !!as.symbol(y_name), na.rm = TRUE),
-        .groups = "drop"
-      ) |>
-      dplyr::collect()
-      
-  } else {  # degree == 2
-    moments = data_with_u |>
-      dplyr::group_by(bin) |>
-      dplyr::summarise(
-        s00 = sum(wt, na.rm = TRUE),
-        s01 = sum(wt * u, na.rm = TRUE),
-        s02 = sum(wt * u2, na.rm = TRUE),
-        s11 = sum(wt * u * u, na.rm = TRUE),
-        s12 = sum(wt * u * u2, na.rm = TRUE),
-        s22 = sum(wt * u2 * u2, na.rm = TRUE),
-        t0 = sum(wt * !!as.symbol(y_name), na.rm = TRUE),
-        t1 = sum(wt * !!as.symbol(y_name) * u, na.rm = TRUE),
-        t2 = sum(wt * !!as.symbol(y_name) * u2, na.rm = TRUE),
-        s_yy = sum(wt * !!as.symbol(y_name) * !!as.symbol(y_name), na.rm = TRUE),
-        .groups = "drop"
-      ) |>
-      dplyr::collect()
-  }
-  
-  # Merge geometry with moments and ensure sorted by bin
-  moments_full = dplyr::left_join(geo, moments, by = "bin") |>
     dplyr::arrange(bin)
   
-  # Step 5: Build constraint matrix
-  A = build_constraint_matrix(moments_full, degree, smooth)
+  # Step 2: Extract interior knots from bin boundaries
+  # Knots are at x_right[1], x_right[2], ..., x_right[B-1]
+  knots = geo$x_right[1:(B-1)]
   
-  # Step 6: Assemble block-diagonal X'X and X'y
-  moment_system = assemble_moments(moments_full, degree)
+  if (inputs$verbose) {
+    cat("[dbbin] Using ", length(knots), " interior knots for spline basis\n", sep = "")
+  }
   
-  # Step 7: Solve KKT system
-  kkt_sol = solve_kkt(moment_system$XtX, moment_system$Xty, A, smooth)
-  beta = kkt_sol$beta
+  # Step 3: Build spline basis columns in the data
+  # Collect data first since we need to add computed columns
+  data_df = data_binned |> dplyr::collect()
+  x_vals = data_df[[x_name]]
   
-  # Calculate error variance
-  # SSR = y'y - beta' X'y (valid for constrained OLS)
-  total_s_yy = sum(moments_full$s_yy)
-  ssr = total_s_yy - sum(beta * moment_system$Xty)
+  # Build basis: b_{p,s}(x) = [1, x, ..., x^p] ⊕ {(x - κ_j)₊^r : r = s, ..., p}
+  basis_cols = list()
+  basis_names = character()
   
-  # Degrees of freedom: N - (n_params - n_constraints)
-  N = sum(moments_full$n)
-  n_params = length(beta)
-  n_constraints = nrow(A)
-  df_resid = N - (n_params - n_constraints)
+  # Global polynomial part (excluding intercept, which dbreg handles)
+  if (degree >= 1) {
+    basis_cols[["x_spline"]] = x_vals
+    basis_names = c(basis_names, "x_spline")
+  }
+  if (degree >= 2) {
+    basis_cols[["x2_spline"]] = x_vals^2
+    basis_names = c(basis_names, "x2_spline")
+  }
   
-  sigma2 = if (df_resid > 0) ssr / df_resid else NA_real_
+  # Truncated power terms at each knot: (x - κ_j)₊^r for r = smooth, ..., degree
+  for (j in seq_along(knots)) {
+    kappa = knots[j]
+    for (r in smooth:degree) {
+      col_name = sprintf("knot%d_pow%d", j, r)
+      # (x - κ)₊^r = max(0, x - κ)^r
+      basis_cols[[col_name]] = pmax(0, x_vals - kappa)^r
+      basis_names = c(basis_names, col_name)
+    }
+  }
   
-  # Covariance matrix of coefficients
-  V_beta = if (!is.na(sigma2)) sigma2 * kkt_sol$V_beta_unscaled else NULL
+  # Add basis columns to data frame
+  for (nm in names(basis_cols)) {
+    data_df[[nm]] = basis_cols[[nm]]
+  }
   
-  # Step 8: Construct output
-  result = construct_output_from_moments(beta, moments_full, degree, smooth, partition_method, 
-                                          level = inputs$level, V_beta = V_beta)
+  # Step 4: Build formula for dbreg
+  # y ~ basis_terms [+ controls] [| fe]
+  rhs_terms = basis_names
+  if (!is.null(controls) && length(controls) > 0) {
+    rhs_terms = c(rhs_terms, controls)
+  }
+  rhs = paste(rhs_terms, collapse = " + ")
+  
+  if (!is.null(fe) && length(fe) > 0) {
+    fe_part = paste(fe, collapse = " + ")
+    fml_str = sprintf("%s ~ %s | %s", y_name, rhs, fe_part)
+  } else {
+    fml_str = sprintf("%s ~ %s", y_name, rhs)
+  }
+  fml = stats::as.formula(fml_str)
+  
+  if (inputs$verbose) {
+    cat("[dbbin] Fitting regression spline: ", fml_str, "\n", sep = "")
+  }
+  
+  # Step 5: Run regression via dbreg
+  # Note: weights not yet supported by dbreg, warn if specified
+  if (!is.null(weights)) {
+    warning("Weights not yet supported for constrained binscatter; ignoring weights argument", call. = FALSE)
+  }
+  
+  fit = dbreg(
+    fml = fml,
+    data = data_df,
+    conn = conn,
+    vcov = vcov_type,
+    verbose = FALSE
+  )
+  
+  # Step 6: Evaluate fitted spline at bin endpoints
+  result = evaluate_spline_at_bins(fit, geo, knots, degree, smooth, basis_names, inputs)
   
   return(result)
+}
+
+
+#' Extract interior knots from bin geometry
+#' 
+#' @param geo Data frame with bin geometry (must have x_right column)
+#' @return Numeric vector of K = B-1 interior knots
+#' @keywords internal
+extract_knots = function(geo) {
+  B = nrow(geo)
+  if (B <= 1) return(numeric(0))
+  geo$x_right[1:(B-1)]
+}
+
+
+#' Evaluate fitted spline at bin boundaries
+#' 
+#' @param fit dbreg fit object
+#' @param geo Bin geometry data frame
+#' @param knots Numeric vector of knot locations
+#' @param degree Polynomial degree
+#' @param smooth Smoothness level
+#' @param basis_names Character vector of basis column names
+#' @param inputs Original inputs list (for metadata)
+#' 
+#' @return Data frame with bin-level fitted values
+#' @keywords internal
+evaluate_spline_at_bins = function(fit, geo, knots, degree, smooth, basis_names, inputs) {
+  
+  B = nrow(geo)
+  
+  # Extract coefficients
+  coef_tbl = fit$coeftable
+  coefs = stats::setNames(coef_tbl[, "estimate"], rownames(coef_tbl))
+  
+  # Get intercept
+  intercept = if ("(Intercept)" %in% names(coefs)) coefs["(Intercept)"] else 0
+  
+  # Get variance-covariance matrix if CI requested
+  V = if (isTRUE(inputs$ci)) stats::vcov(fit) else NULL
+  
+  # Function to build basis vector at a given x value
+  build_basis_vector = function(x_val) {
+    bvec = numeric(length(basis_names))
+    names(bvec) = basis_names
+    
+    # Global polynomial part
+    if (degree >= 1 && "x_spline" %in% basis_names) {
+      bvec["x_spline"] = x_val
+    }
+    if (degree >= 2 && "x2_spline" %in% basis_names) {
+      bvec["x2_spline"] = x_val^2
+    }
+    
+    # Knot features
+    for (j in seq_along(knots)) {
+      for (r in smooth:degree) {
+        col_name = sprintf("knot%d_pow%d", j, r)
+        if (col_name %in% basis_names) {
+          bvec[col_name] = pmax(0, x_val - knots[j])^r
+        }
+      }
+    }
+    bvec
+  }
+  
+  # Function to evaluate spline: ŷ(x) = intercept + b(x)' β
+  eval_spline = function(x_val) {
+    bvec = build_basis_vector(x_val)
+    beta_basis = coefs[basis_names]
+    # Handle any missing coefficients (shouldn't happen, but be safe)
+    beta_basis[is.na(beta_basis)] = 0
+    intercept + sum(bvec * beta_basis)
+  }
+  
+  # Function to compute SE: sqrt(b(x)' V b(x))
+  eval_se = function(x_val) {
+    if (is.null(V)) return(NA_real_)
+    
+    # Build full basis vector including intercept
+    bvec_full = c(1, build_basis_vector(x_val))
+    names(bvec_full)[1] = "(Intercept)"
+    
+    # Match to V dimensions
+    v_names = rownames(V)
+    bvec_matched = rep(0, length(v_names))
+    names(bvec_matched) = v_names
+    
+    for (nm in names(bvec_full)) {
+      if (nm %in% v_names) {
+        bvec_matched[nm] = bvec_full[nm]
+      }
+    }
+    
+    var_pred = as.numeric(t(bvec_matched) %*% V %*% bvec_matched)
+    if (var_pred < 0) {
+      if (var_pred > -1e-10) var_pred = 0 else return(NA_real_)
+    }
+    sqrt(var_pred)
+  }
+  
+  # Evaluate at bin endpoints
+  if (degree == 0) {
+    # For degree 0, evaluate at midpoints
+    geo$y = sapply(geo$x_mid, eval_spline)
+    if (!is.null(V)) {
+      geo$se = sapply(geo$x_mid, eval_se)
+      crit = stats::qnorm(1 - inputs$level / 2)
+      geo$ci_low = geo$y - crit * geo$se
+      geo$ci_high = geo$y + crit * geo$se
+    }
+  } else {
+    # For degree >= 1, evaluate at left, mid, right
+    geo$y_left = sapply(geo$x_left, eval_spline)
+    geo$y_mid = sapply(geo$x_mid, eval_spline)
+    geo$y_right = sapply(geo$x_right, eval_spline)
+    
+    if (!is.null(V)) {
+      geo$se_left = sapply(geo$x_left, eval_se)
+      geo$se_mid = sapply(geo$x_mid, eval_se)
+      geo$se_right = sapply(geo$x_right, eval_se)
+      
+      crit = stats::qnorm(1 - inputs$level / 2)
+      geo$ci_low_left = geo$y_left - crit * geo$se_left
+      geo$ci_high_left = geo$y_left + crit * geo$se_left
+      geo$ci_low_mid = geo$y_mid - crit * geo$se_mid
+      geo$ci_high_mid = geo$y_mid + crit * geo$se_mid
+      geo$ci_low_right = geo$y_right - crit * geo$se_right
+      geo$ci_high_right = geo$y_right + crit * geo$se_right
+    }
+  }
+  
+  # Add metadata
+  geo$B = B
+  geo$degree = degree
+  geo$smooth = smooth
+  geo$partition_method = inputs$partition_method
+  
+  # Add dbbin class and attributes
+  structure(
+    geo,
+    class = c("dbbin", class(geo)),
+    fit = fit,
+    formula = inputs$formula,
+    knots = knots
+  )
 }
 
 
