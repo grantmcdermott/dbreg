@@ -470,14 +470,39 @@ execute_unconstrained_binsreg = function(inputs) {
   # Compute bin geometry
   geo = compute_bin_geometry(binned_data, inputs$x_name)
   
+  # Filter out bins with insufficient observations for the requested degree
+  # degree 0 needs >= 1 obs
+  # degree 1 needs >= 2 obs
+  # degree 2 needs >= 3 obs
+  min_obs = inputs$degree + 1
+  insufficient_bins = geo$bin[geo$n < min_obs]
+  
+  if (length(insufficient_bins) > 0) {
+    if (inputs$verbose) {
+      cat(sprintf("[dbbin] Dropping %d bins with insufficient observations (n < %d)\n", 
+                  length(insufficient_bins), min_obs))
+    }
+    binned_data = binned_data[!binned_data$bin %in% insufficient_bins, ]
+    # Re-factor bin to drop unused levels
+    binned_data$bin = droplevels(binned_data$bin)
+    
+    # Re-compute geometry for remaining bins (though geometry shouldn't change for remaining bins)
+    geo = geo[!geo$bin %in% insufficient_bins, ]
+  }
+  
   # Add basis columns if needed
   if (inputs$degree > 0) {
     binned_data = add_basis_columns(binned_data, geo, inputs$x_name, inputs$degree)
     
+    # Identify present bins
+    present_bins = sort(as.integer(as.character(unique(binned_data$bin))))
+
     # Create explicit interaction columns for each bin
     # This prevents compress strategy from pooling interactions
-    for (bin_val in levels(binned_data$bin)) {
-      bin_num = as.integer(bin_val)
+    # Only create columns for PRESENT bins to avoid singularity
+    for (bin_num in present_bins) {
+      bin_val = as.character(bin_num)
+      
       # Create bin-specific u columns: u_1, u_2, etc.
       col_name = paste0("u_", bin_num)
       binned_data[[col_name]] = ifelse(binned_data$bin == bin_val, binned_data$u, 0)
@@ -500,14 +525,17 @@ execute_unconstrained_binsreg = function(inputs) {
     fml_rhs = "0 + bin"
     
   } else if (degree == 1) {
-    # Piecewise linear: y ~ 0 + bin + u_1 + u_2 + ... + u_B
-    u_terms = paste0("u_", seq_len(inputs$B), collapse = " + ")
+    # Piecewise linear: y ~ 0 + bin + u_1 + ...
+    # Only include u_i for present bins
+    present_bins = sort(as.integer(as.character(unique(binned_data$bin))))
+    u_terms = paste0("u_", present_bins, collapse = " + ")
     fml_rhs = paste("0 + bin", u_terms, sep = " + ")
     
   } else {
     # Piecewise quadratic
-    u_terms = paste0("u_", seq_len(inputs$B), collapse = " + ")
-    u2_terms = paste0("u2_", seq_len(inputs$B), collapse = " + ")
+    present_bins = sort(as.integer(as.character(unique(binned_data$bin))))
+    u_terms = paste0("u_", present_bins, collapse = " + ")
+    u2_terms = paste0("u2_", present_bins, collapse = " + ")
     fml_rhs = paste("0 + bin", u_terms, u2_terms, sep = " + ")
   }
   
@@ -1084,8 +1112,14 @@ eval_se = function(V, u, degree) {
     x_vec = matrix(c(1, u, u^2), ncol = 1)
   }
   
-  var_pred = t(x_vec) %*% V %*% x_vec
-  return(sqrt(as.numeric(var_pred)))
+  var_pred = as.numeric(t(x_vec) %*% V %*% x_vec)
+  
+  if (var_pred < 0) {
+    # Clamp small negative values due to numerical noise
+    if (var_pred > -1e-10) var_pred = 0 else return(NA_real_)
+  }
+  
+  return(sqrt(var_pred))
 }
 
 
@@ -1114,6 +1148,22 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
   
   # Start with geometry
   out = tibble::as_tibble(geo)
+  
+  # Ensure out has B rows corresponding to bins 1..B
+  # If rows are missing (empty bins), we pad with NAs
+  if (nrow(out) < B) {
+    # Create complete bin column matching the type of geo$bin
+    if (is.factor(out$bin)) {
+       # Assuming levels are correct 1..B or similar
+       all_bins = factor(seq_len(B), levels = levels(out$bin))
+    } else {
+       all_bins = as.integer(seq_len(B))
+    }
+    
+    template = tibble::tibble(bin = all_bins)
+    out = dplyr::left_join(template, out, by = "bin")
+  }
+  
   out$B = B
   out$degree = degree
   out$smooth = inputs$smooth
@@ -1130,8 +1180,11 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
     w = numeric(nrow(V_beta))
     w[idx] = weights
     
-    var_val = t(w) %*% V_beta %*% w
-    return(sqrt(as.numeric(var_val)))
+    var_val = as.numeric(t(w) %*% V_beta %*% w)
+    if (var_val < 0) {
+      if (var_val > -1e-10) var_val = 0 else return(NA_real_)
+    }
+    return(sqrt(var_val))
   }
   
   if (degree == 0) {
@@ -1242,8 +1295,8 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
       }
       
       # Evaluate at boundaries: u_left = x_left - x_mid, u_right = x_right - x_mid
-      u_left = geo$x_left[i] - geo$x_mid[i]
-      u_right = geo$x_right[i] - geo$x_mid[i]
+      u_left = out$x_left[i] - out$x_mid[i]
+      u_right = out$x_right[i] - out$x_mid[i]
       
       # y = b0 + b1*u + b2*u^2
       y_left[i] = b0 + b1 * u_left + b2 * u_left^2

@@ -11,7 +11,6 @@ nyc_path = here::here("nyc-taxi/year=2012")
 if (!dir.exists(nyc_path)) {
   exit_file("NYC taxi data not found at nyc-taxi/year=2012")
 }
-devtools::load_all()
 library(dbreg)
 library(DBI)
 library(duckdb)
@@ -22,7 +21,6 @@ dbExecute(con, sprintf("
   CREATE VIEW nyc_jan AS
   SELECT *
   FROM read_parquet('%s/month=1/*.parquet')
-  LIMIT 10000
 ", nyc_path))
 
 #
@@ -150,24 +148,11 @@ bins_smooth1 = dbbin(
   x = trip_distance,
   B = 20,
   degree = 2,
-  smooth = 2,
+  smooth = 1,
   partition = "equal",
   conn = con,
-  verbose = FALSE, 
-  ci = TRUE, 
-  vcov = "hc1"
+  verbose = FALSE
 )
-plot(bins_smooth1, ci=TRUE)
-
-# Check continuity manually
-for (b in 1:19) {
-  cat(sprintf("Boundary %d: y_right[%d]=%.4f, y_left[%d]=%.4f, diff=%.6f\n",
-              b, b, bins_smooth1$y_right[b], b+1, bins_smooth1$y_left[b+1],
-              bins_smooth1$y_right[b] - bins_smooth1$y_left[b+1]))
-}
-expect_equal(nrow(bins_smooth1), 10)
-expect_equal(unique(bins_smooth1$smooth), 1)
-expect_equal(unique(bins_smooth1$degree), 1)
 
 # Check that level continuity is enforced at bin boundaries
 # Right endpoint of bin b should equal left endpoint of bin b+1
