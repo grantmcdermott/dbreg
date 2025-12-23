@@ -669,12 +669,17 @@ conn = inputs$conn
       dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
       dplyr::mutate(bin = dplyr::ntile(!!as.symbol(x_name), B))
   } else if (partition_method == "equal") {
+    # Note: Using if_else below instead of pmin for SQL Server compatibility (no LEAST function)
     data_binned = data_tbl |>
       dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
       dplyr::mutate(
-        bin = pmin(B, 1L + floor((!!as.symbol(x_name) - min(!!as.symbol(x_name), na.rm = TRUE)) / 
-                                  ((max(!!as.symbol(x_name), na.rm = TRUE) - min(!!as.symbol(x_name), na.rm = TRUE)) / B)))
-      )
+        raw_bin = 1L + floor((!!as.symbol(x_name) - min(!!as.symbol(x_name), na.rm = TRUE)) / 
+                             ((max(!!as.symbol(x_name), na.rm = TRUE) - min(!!as.symbol(x_name), na.rm = TRUE)) / B))
+      ) |>
+      dplyr::mutate(
+        bin = dplyr::if_else(raw_bin > !!B, !!B, raw_bin)
+      ) |>
+      dplyr::select(-raw_bin)
   } else {
     stop("partition_method = '", partition_method, "' not supported")
   }
