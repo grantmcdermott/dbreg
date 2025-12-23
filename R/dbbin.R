@@ -700,22 +700,18 @@ conn = inputs$conn
     cat("[dbbin] Using ", length(knots), " interior knots for spline basis\n", sep = "")
   }
   
-  # Step 3: Build spline basis columns in the data
-  # Collect data first since we need to add computed columns
-  data_df = data_binned |> dplyr::collect()
-  x_vals = data_df[[x_name]]
-  
-  # Build basis: b_{p,s}(x) = [1, x, ..., x^p] ⊕ {(x - κ_j)₊^r : r = s, ..., p}
-  basis_cols = list()
+  # Step 3: Build spline basis columns IN SQL (avoid collecting to R!)
+  # Use dplyr::mutate to add columns in the database
+  x_sym = as.symbol(x_name)
   basis_names = character()
   
   # Global polynomial part (excluding intercept, which dbreg handles)
   if (degree >= 1) {
-    basis_cols[["x_spline"]] = x_vals
+    data_binned = data_binned |> dplyr::mutate(x_spline = !!x_sym)
     basis_names = c(basis_names, "x_spline")
   }
   if (degree >= 2) {
-    basis_cols[["x2_spline"]] = x_vals^2
+    data_binned = data_binned |> dplyr::mutate(x2_spline = (!!x_sym) * (!!x_sym))
     basis_names = c(basis_names, "x2_spline")
   }
   
@@ -724,15 +720,22 @@ conn = inputs$conn
     kappa = knots[j]
     for (r in smooth:degree) {
       col_name = sprintf("knot%d_pow%d", j, r)
-      # (x - κ)₊^r = max(0, x - κ)^r
-      basis_cols[[col_name]] = pmax(0, x_vals - kappa)^r
+      
+      if (r == 1) {
+        # (x - κ)₊ = CASE WHEN x > κ THEN x - κ ELSE 0 END
+        data_binned = data_binned |>
+          dplyr::mutate(
+            !!col_name := dplyr::if_else(!!x_sym > !!kappa, !!x_sym - !!kappa, 0)
+          )
+      } else if (r == 2) {
+        # (x - κ)₊² = CASE WHEN x > κ THEN (x - κ)² ELSE 0 END
+        data_binned = data_binned |>
+          dplyr::mutate(
+            !!col_name := dplyr::if_else(!!x_sym > !!kappa, (!!x_sym - !!kappa) * (!!x_sym - !!kappa), 0)
+          )
+      }
       basis_names = c(basis_names, col_name)
     }
-  }
-  
-  # Add basis columns to data frame
-  for (nm in names(basis_cols)) {
-    data_df[[nm]] = basis_cols[[nm]]
   }
   
   # Step 4: Build formula for dbreg
@@ -752,10 +755,11 @@ conn = inputs$conn
   fml = stats::as.formula(fml_str)
   
   if (inputs$verbose) {
-    cat("[dbbin] Fitting regression spline: ", fml_str, "\n", sep = "")
+    cat("[dbbin] Fitting regression spline \n")
   }
   
   # Step 5: Run regression via dbreg
+  # Pass the tbl as `table` argument (not `data`) - dbreg accepts tbl_lazy
   # Note: weights not yet supported by dbreg, warn if specified
   if (!is.null(weights)) {
     warning("Weights not yet supported for constrained binscatter; ignoring weights argument", call. = FALSE)
@@ -763,7 +767,7 @@ conn = inputs$conn
   
   fit = dbreg(
     fml = fml,
-    data = data_df,
+    table = data_binned,  # Pass tbl_lazy via table argument
     conn = conn,
     vcov = vcov_type,
     verbose = FALSE
