@@ -1479,6 +1479,32 @@ plot.dbbin = function(x, y = NULL,
   
   degree = unique(x$degree)
   
+  # If CI is requested, recalculate CIs from stored SEs using the requested level
+  if (ci) {
+    crit_val = stats::qnorm(1 - level / 2)
+    
+    if (degree == 0) {
+      # Recalculate from SE
+      if ("se" %in% names(x)) {
+        x$ci_low = x$y - crit_val * x$se
+        x$ci_high = x$y + crit_val * x$se
+      }
+    } else {
+      # Recalculate from SEs for left/mid/right
+      if ("se_left" %in% names(x)) {
+        x$ci_low_left = x$y_left - crit_val * x$se_left
+        x$ci_high_left = x$y_left + crit_val * x$se_left
+        x$ci_low_right = x$y_right - crit_val * x$se_right
+        x$ci_high_right = x$y_right + crit_val * x$se_right
+        
+        if ("se_mid" %in% names(x)) {
+          x$ci_low_mid = x$y_mid - crit_val * x$se_mid
+          x$ci_high_mid = x$y_mid + crit_val * x$se_mid
+        }
+      }
+    }
+  }
+  
   # Check if tinyplot is requested but not available
   if (backend == "tinyplot" && !requireNamespace("tinyplot", quietly = TRUE)) {
     message("tinyplot not available, falling back to base graphics")
@@ -1488,17 +1514,6 @@ plot.dbbin = function(x, y = NULL,
   if (backend == "tinyplot") {
     # Use tinyplot
     tinyplot::tinytheme("clean")
-    
-    # Setup plot with CI if requested
-    if (ci && "ci_low_left" %in% names(x)) {
-      # For CI, we need to construct polygon data
-      # This is tricky with tinyplot's simple interface, so we might need to overlay
-      # For now, let's just plot the lines/points and warn if CI requested but not easy
-      # Or better: use type="ribbon" if supported, or multiple calls
-      
-      # Actually, tinyplot supports `ymin` and `ymax` for error bars/ribbons
-      # But we have piecewise data. Let's stick to lines for now and add CI lines
-    }
     
     if (degree == 0) {
       # Bin means - step function

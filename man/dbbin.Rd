@@ -16,7 +16,7 @@ dbbin(
   weights = NULL,
   partition_method = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
-  ci = FALSE,
+  ci = TRUE,
   vcov = NULL,
   level = 0.05,
   strategy = "auto",
