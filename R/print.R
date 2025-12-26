@@ -147,9 +147,18 @@ decimalFormat = function(x){
 #' @export
 print.dbbin = function(x, ...) {
   cat("Database binned regression\n")
-  cat("Formula:", deparse(attr(x, "formula")), "\n")
-  cat(sprintf("Bins: %d | Degree: %d | Partition: %s\n", 
-              unique(x$B), unique(x$degree), unique(x$partition_method)))
+  cat("Formula:", deparse(x$formula), "\n")
+  cat(sprintf("Bins: %d | Degree: %d | Smooth: %d | Partition: %s\n", 
+              x$B, x$degree, x$smooth, x$partition_method))
+  cat(sprintf("Variables: x = %s, y = %s\n", x$x_var, x$y_var))
   cat("\n")
-  NextMethod("print")
+  cat("$data:\n")
+  print(head(x$data, 10), ...)
+  if (nrow(x$data) > 10) {
+    cat(sprintf("... %d more rows\n", nrow(x$data) - 10))
+  }
+  cat("\n$bins:\n")
+  print(x$bins, ...)
+  invisible(x)
 }
+

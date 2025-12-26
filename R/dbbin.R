@@ -991,111 +991,58 @@ evaluate_spline_at_bins = function(fit, geo, knots, degree, smooth, basis_names,
     bvec
   }
   
-  # Function to evaluate spline: ŷ(x) = intercept + b(x)' β
-  eval_spline = function(x_val) {
+  # Evaluation function: ŷ(x) = intercept + b(x)' β
+  # Note: bin argument is ignored for splines (global fit)
+  eval_fn = function(x_val, bin) {
     bvec = build_basis_vector(x_val)
     beta_basis = coefs[basis_names]
-    # Handle any missing coefficients (shouldn't happen, but be safe)
     beta_basis[is.na(beta_basis)] = 0
     intercept + sum(bvec * beta_basis)
   }
   
-  # Function to compute SE: sqrt(b(x)' V b(x))
-  eval_se = function(x_val) {
-    if (is.null(V)) return(NA_real_)
-    
-    # Build full basis vector including intercept
-    bvec_full = c(1, build_basis_vector(x_val))
-    names(bvec_full)[1] = "(Intercept)"
-    
-    # Match to V dimensions
-    v_names = rownames(V)
-    bvec_matched = rep(0, length(v_names))
-    names(bvec_matched) = v_names
-    
-    for (nm in names(bvec_full)) {
-      if (nm %in% v_names) {
-        bvec_matched[nm] = bvec_full[nm]
-      }
-    }
-    
-    var_pred = as.numeric(t(bvec_matched) %*% V %*% bvec_matched)
-    if (var_pred < 0) {
-      if (var_pred > -1e-10) var_pred = 0 else return(NA_real_)
-    }
-    sqrt(var_pred)
-  }
-  
-  # Evaluate at bin endpoints
-  if (degree == 0) {
-    # For degree 0, evaluate at midpoints
-    geo$y = sapply(geo$x_mid, eval_spline)
-    if (!is.null(V)) {
-      geo$se = sapply(geo$x_mid, eval_se)
-      crit = stats::qnorm(1 - inputs$level / 2)
-      geo$ci_low = geo$y - crit * geo$se
-      geo$ci_high = geo$y + crit * geo$se
-    }
-  } else {
-    # For degree >= 1, evaluate at left, mid, right
-    geo$y_left = sapply(geo$x_left, eval_spline)
-    geo$y_mid = sapply(geo$x_mid, eval_spline)
-    geo$y_right = sapply(geo$x_right, eval_spline)
-    
-    if (!is.null(V)) {
-      geo$se_left = sapply(geo$x_left, eval_se)
-      geo$se_mid = sapply(geo$x_mid, eval_se)
-      geo$se_right = sapply(geo$x_right, eval_se)
+  # SE function: sqrt(b(x)' V b(x))
+  se_fn = if (!is.null(V)) {
+    function(x_val, bin) {
+      # Build full basis vector including intercept
+      bvec_full = c(1, build_basis_vector(x_val))
+      names(bvec_full)[1] = "(Intercept)"
       
-      crit = stats::qnorm(1 - inputs$level / 2)
-      geo$ci_low_left = geo$y_left - crit * geo$se_left
-      geo$ci_high_left = geo$y_left + crit * geo$se_left
-      geo$ci_low_mid = geo$y_mid - crit * geo$se_mid
-      geo$ci_high_mid = geo$y_mid + crit * geo$se_mid
-      geo$ci_low_right = geo$y_right - crit * geo$se_right
-      geo$ci_high_right = geo$y_right + crit * geo$se_right
+      # Match to V dimensions
+      v_names = rownames(V)
+      bvec_matched = rep(0, length(v_names))
+      names(bvec_matched) = v_names
+      
+      for (nm in names(bvec_full)) {
+        if (nm %in% v_names) {
+          bvec_matched[nm] = bvec_full[nm]
+        }
+      }
+      
+      var_pred = as.numeric(t(bvec_matched) %*% V %*% bvec_matched)
+      if (var_pred < 0) {
+        if (var_pred > -1e-10) var_pred = 0 else return(NA_real_)
+      }
+      sqrt(var_pred)
     }
-  }
+  } else NULL
   
-  # Add metadata
-  geo$B = B
-  geo$degree = degree
-  geo$smooth = smooth
-  geo$partition_method = inputs$partition_method
-  
-  # Add dbbin class and attributes
-  structure(
-    geo,
-    class = c("dbbin", class(geo)),
-    fit = fit,
-    formula = inputs$formula,
-    knots = knots
-  )
+  # Use the unified output builder
+  build_dbbin_output(inputs, fit, geo, eval_fn, se_fn, knots = knots)
 }
 
 
-#' Construct output from constrained solution
+#' Construct output from unconstrained binned regression
 #' 
-#' @md
-#' @description Internal helper that transforms coefficient estimates from constrained least
-#' squares into a structured data frame with bin-level fitted values, standard errors,
-#' and confidence intervals.
-#' 
-#' Construct output data frame from fitted model
-#' 
-#' @details
-#' For degree >= 2 (quadratic), the function evaluates the piecewise polynomial
-#' at three points per bin: left boundary, midpoint, and right boundary. This
-#' provides sufficient information to reconstruct the quadratic curve within
-#' each bin using Lagrange interpolation.
+#' @description Internal helper that transforms coefficient estimates from unconstrained
+#' binned regression into the standard dbbin output list format.
 #' 
 #' @keywords internal
 construct_output = function(inputs, fit, geo, V_beta = NULL) {
   
   degree = inputs$degree
-  B = inputs$B
+  B = nrow(geo)
   
-  # Extract coefficients from coeftable (coef() returns NULL in dbreg)
+  # Extract coefficients from coeftable
   if (is.null(fit$coeftable)) {
     stop("No coefficients found in fit object")
   }
@@ -1104,34 +1051,11 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
   coef_vals = fit$coeftable[, "estimate"]
   names(coef_vals) = coef_names
   
-  # Start with geometry (already a data frame from dplyr::collect())
-  out = geo
+  has_intercept = "(Intercept)" %in% coef_names
   
-  # Ensure out has B rows corresponding to bins 1..B
-  # If rows are missing (empty bins), we pad with NAs
-  if (nrow(out) < B) {
-    # Create complete bin column matching the type of geo$bin
-    if (is.factor(out$bin)) {
-       # Assuming levels are correct 1..B or similar
-       all_bins = factor(seq_len(B), levels = levels(out$bin))
-    } else {
-       all_bins = as.integer(seq_len(B))
-    }
-    
-    template = data.frame(bin = all_bins)
-    out = dplyr::left_join(template, out, by = "bin")
-  }
-  
-  out$B = B
-  out$degree = degree
-  out$smooth = inputs$smooth
-  out$partition_method = inputs$partition_method
-  
-  # Helper to get SE of linear combination
+  # Helper to get SE of linear combination: sqrt(w' V w)
   get_se = function(coef_indices, weights) {
     if (is.null(V_beta)) return(NA_real_)
-    # var(w'b) = w' V w
-    # We need to map coef_indices (names) to V_beta indices
     idx = match(coef_indices, rownames(V_beta))
     if (any(is.na(idx))) return(NA_real_)
     
@@ -1145,189 +1069,119 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
     return(sqrt(var_val))
   }
   
+  # Build evaluation function based on degree
   if (degree == 0) {
-    # Extract bin means
-    # With "~ 0 + bin", R creates "(Intercept)" for bin1, then "bin2", "bin3", etc.
-    # Wait, with "0 + bin", R creates "bin1", "bin2", ... "binB" directly!
-    # Let's check if intercept is present or not.
-    # If "0 + bin" is used, we get bin1, bin2, ... binB.
-    # If "bin" is used (with intercept), we get (Intercept), bin2, bin3...
-    
-    # dbreg uses the formula as passed. In execute_unconstrained_binsreg we use "0 + bin".
-    # So we should expect "bin1", "bin2", etc.
-    # BUT, if controls/FE are present, behavior might change depending on dbreg internals.
-    # Let's handle both cases robustly.
-    
-    y_vals = numeric(B)
-    se_vals = numeric(B)
-    
-    has_intercept = "(Intercept)" %in% coef_names
-    
-    for (i in 1:B) {
-      bin_col = paste0("bin", i)
-      
+    # Degree 0: bin means (constant within bin)
+    eval_fn = function(x_val, bin) {
+      bin_col = paste0("bin", bin)
       if (!has_intercept) {
-        # No intercept: coefficients are means directly
-        if (bin_col %in% coef_names) {
-          y_vals[i] = coef_vals[bin_col]
-          se_vals[i] = get_se(bin_col, 1)
-        } else {
-          y_vals[i] = NA
-          se_vals[i] = NA
-        }
+        if (bin_col %in% coef_names) coef_vals[bin_col] else NA_real_
       } else {
-        # With intercept: bin1 is intercept, others are deviations
-        if (i == 1) {
-          y_vals[i] = coef_vals["(Intercept)"]
-          se_vals[i] = get_se("(Intercept)", 1)
+        if (bin == 1) {
+          coef_vals["(Intercept)"]
         } else {
-          if (bin_col %in% coef_names) {
-            y_vals[i] = coef_vals["(Intercept)"] + coef_vals[bin_col]
-            se_vals[i] = get_se(c("(Intercept)", bin_col), c(1, 1))
+          coef_vals["(Intercept)"] + (if (bin_col %in% coef_names) coef_vals[bin_col] else 0)
+        }
+      }
+    }
+    
+    se_fn = if (!is.null(V_beta)) {
+      function(x_val, bin) {
+        bin_col = paste0("bin", bin)
+        if (!has_intercept) {
+          if (bin_col %in% coef_names) get_se(bin_col, 1) else NA_real_
+        } else {
+          if (bin == 1) {
+            get_se("(Intercept)", 1)
           } else {
-            # Should not happen if bin exists
-            y_vals[i] = NA
-            se_vals[i] = NA
+            if (bin_col %in% coef_names) {
+              get_se(c("(Intercept)", bin_col), c(1, 1))
+            } else {
+              get_se("(Intercept)", 1)
+            }
           }
         }
       }
-    }
-    
-    out$y = y_vals
-    if (!is.null(V_beta)) {
-      out$se = se_vals
-      # CI using normal approximation (critical value for two-sided interval)
-      crit_val = stats::qnorm(1 - inputs$level / 2)
-      out$ci_low = out$y - crit_val * out$se
-      out$ci_high = out$y + crit_val * out$se
-    }
+    } else NULL
     
   } else {
-    # Piecewise polynomial: extract coefficients and evaluate at boundaries
-    # With explicit u_i columns, coefficients are named: "u_1", "u_2", etc.
-    
-    y_left = numeric(B)
-    y_mid = numeric(B)
-    y_right = numeric(B)
-    
-    se_left = numeric(B)
-    se_mid = numeric(B)
-    se_right = numeric(B)
-    
-    has_intercept = "(Intercept)" %in% coef_names
-    
-    for (i in seq_len(B)) {
-      # 1. Intercept (level at x_mid)
-      bin_col = paste0("bin", i)
+    # Degree >= 1: piecewise polynomial y = b0 + b1*u + b2*u^2 where u = x - x_mid
+    eval_fn = function(x_val, bin) {
+      bin_col = paste0("bin", bin)
+      bin_idx = which(geo$bin == bin)
+      if (length(bin_idx) == 0) return(NA_real_)
+      x_mid = geo$x_mid[bin_idx]
+      u = x_val - x_mid
       
+      # Get intercept (b0)
       if (!has_intercept) {
-        # No global intercept
-        b0_name = bin_col
-        b0 = if (b0_name %in% coef_names) coef_vals[b0_name] else 0
-        b0_idx = if (b0_name %in% coef_names) b0_name else NULL
-        b0_w = if (!is.null(b0_idx)) 1 else NULL
+        b0 = if (bin_col %in% coef_names) coef_vals[bin_col] else 0
       } else {
-        # Global intercept
-        if (i == 1) {
+        if (bin == 1) {
           b0 = coef_vals["(Intercept)"]
-          b0_idx = "(Intercept)"
-          b0_w = 1
         } else {
           b0 = coef_vals["(Intercept)"] + (if (bin_col %in% coef_names) coef_vals[bin_col] else 0)
-          b0_idx = c("(Intercept)", if (bin_col %in% coef_names) bin_col else NULL)
-          b0_w = c(1, if (bin_col %in% coef_names) 1 else NULL)
         }
       }
       
-      # 2. Linear term (explicit columns: u_1, u_2, etc.)
-      b1_name = sprintf("u_%d", i)
+      # Linear term
+      b1_name = sprintf("u_%d", bin)
       b1 = if (b1_name %in% coef_names) coef_vals[b1_name] else 0
-      b1_idx = if (b1_name %in% coef_names) b1_name else NULL
       
-      # 3. Quadratic term if applicable
+      # Quadratic term
       if (degree >= 2) {
-        b2_name = sprintf("u2_%d", i)
+        b2_name = sprintf("u2_%d", bin)
         b2 = if (b2_name %in% coef_names) coef_vals[b2_name] else 0
-        b2_idx = if (b2_name %in% coef_names) b2_name else NULL
       } else {
         b2 = 0
-        b2_idx = NULL
       }
       
-      # Evaluate at boundaries: u_left = x_left - x_mid, u_right = x_right - x_mid
-      u_left = out$x_left[i] - out$x_mid[i]
-      u_right = out$x_right[i] - out$x_mid[i]
-      
-      # y = b0 + b1*u + b2*u^2
-      y_left[i] = b0 + b1 * u_left + b2 * u_left^2
-      y_mid[i] = b0  # u = 0 at midpoint
-      y_right[i] = b0 + b1 * u_right + b2 * u_right^2
-      
-      # SEs
-      if (!is.null(V_beta)) {
-        # Combine indices and weights
-        # Left: b0 + b1*u_left + b2*u_left^2
-        idx_left = c(b0_idx, b1_idx, b2_idx)
-        w_left = c(b0_w, if (!is.null(b1_idx)) u_left else NULL, if (!is.null(b2_idx)) u_left^2 else NULL)
-        se_left[i] = get_se(idx_left, w_left)
+      b0 + b1 * u + b2 * u^2
+    }
+    
+    se_fn = if (!is.null(V_beta)) {
+      function(x_val, bin) {
+        bin_col = paste0("bin", bin)
+        bin_idx = which(geo$bin == bin)
+        if (length(bin_idx) == 0) return(NA_real_)
+        x_mid = geo$x_mid[bin_idx]
+        u = x_val - x_mid
         
-        # Mid: b0
-        se_mid[i] = get_se(b0_idx, b0_w)
+        # Build coefficient indices and weights
+        if (!has_intercept) {
+          b0_idx = if (bin_col %in% coef_names) bin_col else NULL
+          b0_w = if (!is.null(b0_idx)) 1 else NULL
+        } else {
+          if (bin == 1) {
+            b0_idx = "(Intercept)"
+            b0_w = 1
+          } else {
+            b0_idx = c("(Intercept)", if (bin_col %in% coef_names) bin_col else NULL)
+            b0_w = c(1, if (bin_col %in% coef_names) 1 else NULL)
+          }
+        }
         
-        # Right: b0 + b1*u_right + b2*u_right^2
-        idx_right = c(b0_idx, b1_idx, b2_idx)
-        w_right = c(b0_w, if (!is.null(b1_idx)) u_right else NULL, if (!is.null(b2_idx)) u_right^2 else NULL)
-        se_right[i] = get_se(idx_right, w_right)
+        b1_name = sprintf("u_%d", bin)
+        b1_idx = if (b1_name %in% coef_names) b1_name else NULL
+        
+        if (degree >= 2) {
+          b2_name = sprintf("u2_%d", bin)
+          b2_idx = if (b2_name %in% coef_names) b2_name else NULL
+        } else {
+          b2_idx = NULL
+        }
+        
+        idx = c(b0_idx, b1_idx, b2_idx)
+        w = c(b0_w, if (!is.null(b1_idx)) u else NULL, if (!is.null(b2_idx)) u^2 else NULL)
+        
+        if (length(idx) == 0) return(NA_real_)
+        get_se(idx, w)
       }
-    }
-    
-    out$y_left = y_left
-    out$y_mid = y_mid
-    out$y_right = y_right
-    
-    if (!is.null(V_beta)) {
-      out$se_left = se_left
-      out$se_mid = se_mid
-      out$se_right = se_right
-      
-      # CI using normal approximation (critical value for two-sided interval)
-      crit_val = stats::qnorm(1 - inputs$level / 2)
-      out$ci_low_left = out$y_left - crit_val * out$se_left
-      out$ci_high_left = out$y_left + crit_val * out$se_left
-      out$ci_low_mid = out$y_mid - crit_val * out$se_mid
-      out$ci_high_mid = out$y_mid + crit_val * out$se_mid
-      out$ci_low_right = out$y_right - crit_val * out$se_right
-      out$ci_high_right = out$y_right + crit_val * out$se_right
-    }
+    } else NULL
   }
   
-  # Reorder columns sensibly
-  if (degree == 0) {
-    cols = c("bin", "x_left", "x_right", "x_mid", "n", "y")
-    if (!is.null(V_beta)) cols = c(cols, "se", "ci_low", "ci_high")
-    cols = c(cols, "B", "degree", "smooth", "partition_method")
-    out = out[, cols]
-  } else {
-    # degree >= 1: always include y_left, y_mid, y_right
-    cols = c("bin", "x_left", "x_right", "x_mid", "n", "y_left", "y_mid", "y_right")
-    if (!is.null(V_beta)) {
-      cols = c(cols, "se_left", "se_mid", "se_right", 
-               "ci_low_left", "ci_high_left", 
-               "ci_low_mid", "ci_high_mid",
-               "ci_low_right", "ci_high_right")
-    }
-    cols = c(cols, "B", "degree", "smooth", "partition_method")
-    out = out[, cols]
-  }
-  
-  # Add S3 class and metadata attributes
-  structure(
-    out,
-    class = c("dbbin", "tbl_df", "tbl", "data.frame"),
-    fit = fit,
-    formula = inputs$formula,
-    breaks = inputs$breaks
-  )
+  # Use the new unified output builder
+  build_dbbin_output(inputs, fit, geo, eval_fn, se_fn)
 }
 
 
@@ -1350,4 +1204,109 @@ lagrange_interp_3pt = function(x_seq, x_pts, y_pts) {
     y_seq[j] = y_pts[1] * l0 + y_pts[2] * l1 + y_pts[3] * l2
   }
   return(y_seq)
+}
+
+
+#' Build dbbin output list
+#' 
+#' @description Creates the standard dbbin output structure: a list containing
+#' the fitted model, long-format prediction data, and bin geometry.
+#' 
+#' @param inputs List of input parameters from dbbin()
+#' @param fit The dbreg model object
+#' @param geo Data frame with bin geometry (x_left, x_right, x_mid, n)
+#' @param eval_fn Function that takes x values and returns fitted y values
+#' @param se_fn Function that takes x values and returns standard errors (or NULL)
+#' @param knots Optional vector of knots (for constrained estimation)
+#' 
+#' @return A list with class "dbbin" containing:
+#'   - model: the dbreg fit object
+#'   - data: long-format data.frame with columns bin, x, y_hat, se, ci_low, ci_high
+#'   - bins: data.frame with bin geometry (bin, x_left, x_right, x_mid, n)
+#'   - x_var: name of the x variable
+#'   - y_var: name of the y variable
+#'   - formula: the formula used
+#'   - degree: polynomial degree
+#'   - smooth: smoothness constraint
+#'   - B: number of bins
+#'   - partition_method: binning method used
+#' 
+#' @keywords internal
+build_dbbin_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots = NULL) {
+  
+
+  n_eval = 10L  # Fixed: 10 evaluation points per bin
+  B = nrow(geo)
+  level = inputs$level
+  crit_val = stats::qnorm(1 - level / 2)
+  
+ # Build long-format data: 10 points per bin
+  data_list = vector("list", B)
+  
+  for (i in seq_len(B)) {
+    # Generate evaluation points across the bin
+    x_seq = seq(geo$x_left[i], geo$x_right[i], length.out = n_eval)
+    
+    # Evaluate fitted values and SEs
+    y_hat = sapply(x_seq, eval_fn, bin = geo$bin[i])
+    
+    if (!is.null(se_fn)) {
+      se = sapply(x_seq, se_fn, bin = geo$bin[i])
+      ci_low = y_hat - crit_val * se
+      ci_high = y_hat + crit_val * se
+    } else {
+      se = rep(NA_real_, n_eval)
+      ci_low = rep(NA_real_, n_eval)
+      ci_high = rep(NA_real_, n_eval)
+    }
+    
+    data_list[[i]] = data.frame(
+      bin = geo$bin[i],
+      x = x_seq,
+      y_hat = y_hat,
+      se = se,
+      ci_low = ci_low,
+      ci_high = ci_high
+    )
+  }
+  
+  data_df = do.call(rbind, data_list)
+  rownames(data_df) = NULL
+  
+  # Build bins data.frame
+  bins_df = data.frame(
+    bin = geo$bin,
+    x_left = geo$x_left,
+    x_right = geo$x_right,
+    x_mid = geo$x_mid,
+    n = geo$n
+  )
+  rownames(bins_df) = NULL
+  
+  # Build output list
+  result = list(
+    model = fit,
+    data = data_df,
+    bins = bins_df,
+    x_var = inputs$x_name,
+    y_var = inputs$y_name,
+    formula = inputs$formula,
+    degree = inputs$degree,
+    smooth = inputs$smooth,
+    B = B,
+    partition_method = inputs$partition_method
+  )
+  
+  # Add knots if provided (constrained estimation)
+  if (!is.null(knots)) {
+    result$knots = knots
+  }
+  
+  # Add breaks if provided
+  if (!is.null(inputs$breaks)) {
+    result$breaks = inputs$breaks
+  }
+  
+  class(result) = "dbbin"
+  return(result)
 }
