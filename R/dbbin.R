@@ -30,6 +30,11 @@
 #'   Default is "quantile".
 #' @param breaks Numeric vector of breakpoints if `partition_method = "manual"`.
 #'   Ignored otherwise.
+#' @param sample_frac Numeric between 0 and 1, or NULL (default). Controls
+#'   sampling for bin boundary computation on large datasets. If NULL, sampling
+#'   is automatic: 10% for datasets exceeding 1 million rows, 100% otherwise.
+#'   Set explicitly to override (e.g., 1 to always use all data, 0.05 for 5%).
+#'   Sampling only affects bin boundary computation; the regression uses all data.
 #' @param ci Logical. Calculate standard errors and confidence intervals?
 #'   Default is FALSE.
 #' @param vcov Character string or formula for standard errors. Options are
@@ -58,23 +63,22 @@
 #' @export
 #' @examples
 #' \dontrun{
-#' # Simple bin means
-#' dbbin(mpg ~ wt, mtcars, B = 10, degree = 0)
+#' ChickWeight = as.data.frame(ChickWeight)
+#' 
+#' # Simple bin means (weight vs time for chicks)
+#' dbbin(weight ~ Time, ChickWeight, B = 10, degree = 0)
 #'
 #' # Piecewise linear fit
-#' dbbin(mpg ~ wt, mtcars, B = 10, degree = 1)
+#' dbbin(weight ~ Time, ChickWeight, B = 10, degree = 1)
 #'
-#' # With controls
-#' dbbin(mpg ~ wt + hp + cyl, mtcars, B = 10, degree = 1)
+#' # With fixed effects (diet type)
+#' dbbin(weight ~ Time | Diet, ChickWeight, B = 10, degree = 1)
 #'
-#' # With fixed effects
-#' dbbin(mpg ~ wt | gear, mtcars, B = 10, degree = 1)
+#' # Constrained (continuous) binscatter
+#' dbbin(weight ~ Time, ChickWeight, B = 10, degree = 1, smooth = 1)
 #'
-#' # With controls and fixed effects
-#' dbbin(mpg ~ wt + hp + cyl | gear, mtcars, B = 10, degree = 1)
-#'
-#' # Constrained (continuous) binscatter with controls
-#' dbbin(mpg ~ wt + hp | gear, mtcars, B = 10, degree = 1, smooth = 1)
+#' # Constrained with fixed effects
+#' dbbin(weight ~ Time | Diet, ChickWeight, B = 10, degree = 2, smooth = 2)
 #' }
 dbbin = function(
   fml,
@@ -85,6 +89,7 @@ dbbin = function(
   weights = NULL,
   partition_method = c("quantile", "equal", "log_equal", "manual"),
   breaks = NULL,
+  sample_frac = NULL,
   ci = TRUE,
   vcov = NULL,
   level = 0.05,
@@ -95,6 +100,13 @@ dbbin = function(
   
   # Match arguments
   partition_method = match.arg(partition_method)
+  
+  # Validate sample_frac (NULL is allowed for auto behavior)
+  if (!is.null(sample_frac)) {
+    if (!is.numeric(sample_frac) || length(sample_frac) != 1 || sample_frac <= 0 || sample_frac > 1) {
+      stop("sample_frac must be NULL or a numeric value between 0 and 1")
+    }
+  }
   
   # Validate level
   if (!is.numeric(level) || length(level) != 1 || level <= 0 || level >= 1) {
@@ -256,6 +268,88 @@ dbbin = function(
     sprintf("%s ~ %s | %s", y_name, x_name, paste(fe, collapse = " + "))
   } else {
     sprintf("%s ~ %s", y_name, x_name)
+  }
+  
+  # -------------------------------------------------------------------------
+  # SAMPLING: Compute breaks from sample if dataset is large
+  # -------------------------------------------------------------------------
+  # Auto behavior (sample_frac = NULL): 
+  #   - If >1M rows: sample 10% for bin boundary computation
+  #   - Otherwise: use all data
+  # If user provides explicit sample_frac, use that regardless of row count.
+  # This avoids expensive NTILE() or min/max scans on very large datasets.
+  
+  sampled = FALSE
+  if (partition_method != "manual") {
+    # Get row count
+    data_tbl = if (is.character(table_name)) {
+      dplyr::tbl(conn, table_name)
+    } else {
+      table_name
+    }
+    
+    n_rows = data_tbl |>
+      dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
+      dplyr::count() |>
+      dplyr::pull(n)
+    
+    # Determine effective sample_frac
+    if (is.null(sample_frac)) {
+      # Auto: 10% if >1M rows, 100% otherwise
+      effective_sample_frac = if (n_rows > 1e6) 0.1 else 1
+    } else {
+      # User override
+      effective_sample_frac = sample_frac
+    }
+    
+    # Sample if fraction < 1
+    if (effective_sample_frac < 1) {
+      if (verbose) {
+        message(sprintf("Dataset has %.1fM rows, computing breaks from %.0f%% sample...", 
+                       n_rows / 1e6, effective_sample_frac * 100))
+      }
+      
+      # Sample data for break computation
+      # Note: slice_sample translates to ORDER BY RANDOM() LIMIT n in most backends
+      sample_size = max(10000L, ceiling(n_rows * effective_sample_frac))  # at least 10k rows
+      
+      sampled_data = data_tbl |>
+        dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
+        dplyr::slice_sample(n = sample_size) |>
+        dplyr::select(!!as.symbol(x_name)) |>
+        dplyr::collect()
+      
+      x_sample = sampled_data[[x_name]]
+      
+      # Compute breaks based on partition method
+      if (partition_method == "quantile") {
+        # Quantile breaks for equal-count bins
+        probs = seq(0, 1, length.out = B + 1)
+        breaks = quantile(x_sample, probs = probs, na.rm = TRUE, names = FALSE)
+      } else if (partition_method == "equal") {
+        # Equal-width breaks
+        x_min = min(x_sample, na.rm = TRUE)
+        x_max = max(x_sample, na.rm = TRUE)
+        breaks = seq(x_min, x_max, length.out = B + 1)
+      } else if (partition_method == "log_equal") {
+        # Equal-width breaks in log space
+        x_pos = x_sample[x_sample > 0]
+        if (length(x_pos) == 0) {
+          stop("log_equal partition requires positive x values")
+        }
+        log_min = log(min(x_pos, na.rm = TRUE))
+        log_max = log(max(x_pos, na.rm = TRUE))
+        breaks = exp(seq(log_min, log_max, length.out = B + 1))
+      }
+      
+      # Switch to manual partitioning with computed breaks
+      partition_method = "manual"
+      sampled = TRUE
+      
+      if (verbose) {
+        message(sprintf("Computed %d breaks from sample, using manual partitioning.", length(breaks)))
+      }
+    }
   }
   
   # Bundle inputs
@@ -680,6 +774,55 @@ conn = inputs$conn
         bin = dplyr::if_else(raw_bin > !!B, !!B, raw_bin)
       ) |>
       dplyr::select(-raw_bin)
+  } else if (partition_method == "manual") {
+    # Manual breaks: assign bin based on user-specified breakpoints
+    breaks = inputs$breaks
+    n_bins = length(breaks) - 1
+    
+    # Start with filtered data
+    data_binned = data_tbl |>
+      dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
+      dplyr::filter(!!as.symbol(x_name) >= !!breaks[1], !!as.symbol(x_name) <= !!breaks[length(breaks)])
+    
+    # Build CASE WHEN expression for bin assignment
+    # bin = CASE WHEN x < breaks[2] THEN 1 WHEN x < breaks[3] THEN 2 ... ELSE n_bins END
+    x_sym = as.symbol(x_name)
+    case_expr = NULL
+    for (i in 1:n_bins) {
+      if (i == n_bins) {
+        # Last bin: x >= breaks[n_bins] (includes right boundary)
+        case_expr = if (is.null(case_expr)) {
+          rlang::expr(dplyr::if_else(!!x_sym >= !!breaks[i], !!as.integer(i), NA_integer_))
+        } else {
+          rlang::expr(dplyr::if_else(!!x_sym >= !!breaks[i], !!as.integer(i), !!case_expr))
+        }
+      } else {
+        # Other bins: breaks[i] <= x < breaks[i+1]
+        case_expr = if (is.null(case_expr)) {
+          rlang::expr(dplyr::if_else(!!x_sym < !!breaks[i + 1], !!as.integer(i), NA_integer_))
+        } else {
+          rlang::expr(dplyr::if_else(!!x_sym < !!breaks[i + 1], !!as.integer(i), !!case_expr))
+        }
+      }
+    }
+    # Build from last to first, so reverse the logic
+    # Actually simpler: nested if_else from bin 1 to n
+    data_binned = data_tbl |>
+      dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
+      dplyr::filter(!!as.symbol(x_name) >= !!breaks[1], !!as.symbol(x_name) <= !!breaks[length(breaks)])
+    
+    # Use case_when for cleaner logic
+    case_list = vector("list", n_bins)
+    for (i in 1:(n_bins - 1)) {
+      case_list[[i]] = rlang::expr(!!x_sym < !!breaks[i + 1] ~ !!as.integer(i))
+    }
+    case_list[[n_bins]] = rlang::expr(TRUE ~ !!as.integer(n_bins))
+    
+    data_binned = data_binned |>
+      dplyr::mutate(bin = dplyr::case_when(!!!case_list))
+    
+    # Update B to match number of bins from breaks
+    B = n_bins
   } else {
     stop("partition_method = '", partition_method, "' not supported")
   }
