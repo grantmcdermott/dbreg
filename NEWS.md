@@ -17,6 +17,10 @@ Breaking changes
   instead of TWFE). For these ambiguous cases, users will now be prompted to
   explicitly choose `"compress"` (with higher limits) or `"mundlak"` (different
   model and thus potentially different coefficients). (#24)
+- The default `verbose` behaviour is changed to `FALSE`. Users can revert to
+  the old behaviour for a single call (i.e., `dbreg(..., verbose = TRUE)`), or
+  set it globally (i.e., `options(dbreb.verbose = TRUE)`). (#33)
+
 
 New features
 
