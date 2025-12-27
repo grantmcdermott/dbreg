@@ -267,6 +267,8 @@ dbreg = function(
   drop_missings = TRUE,
   verbose = getOption("dbreg.verbose", FALSE)
 ) {
+
+  verbose = isTRUE(verbose)
   ssc = match.arg(ssc)
   # Parse vcov: can be string or formula (for clustering)
   # Check formula first before any string operations
