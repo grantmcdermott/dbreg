@@ -86,10 +86,12 @@
 #'   unless you are absolutely sure that your data have no missings and you wish
 #'   to skip some internal checks. (Even then, it probably isn't worth it.)
 #' @param verbose Logical. Print auto strategy and progress messages to the
-#'   console? Defaults to `TRUE`.
+#'   console? Defaults to `FALSE`. This can be overridden for a single call
+#'   by supplying `verbose = TRUE`, or set globally via
+#'   `options(dbreg.verbose = TRUE)`.
 #'
 #' @return A list of class "dbreg" containing various slots, including a table
-#' of coefficients (which the associated print method will display).
+#' of coefficients (which the associated `print` method will display).
 #'
 #' @section Acceleration Strategies:
 #'
@@ -263,8 +265,10 @@ dbreg = function(
   query_only = FALSE,
   data_only = FALSE,
   drop_missings = TRUE,
-  verbose = TRUE
+  verbose = getOption("dbreg.verbose", FALSE)
 ) {
+
+  verbose = isTRUE(verbose)
   ssc = match.arg(ssc)
   # Parse vcov: can be string or formula (for clustering)
   # Check formula first before any string operations

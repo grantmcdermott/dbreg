@@ -19,7 +19,7 @@ dbreg(
   query_only = FALSE,
   data_only = FALSE,
   drop_missings = TRUE,
-  verbose = TRUE
+  verbose = getOption("dbreg.verbose", FALSE)
 )
 }
 \arguments{
@@ -116,11 +116,13 @@ unless you are absolutely sure that your data have no missings and you wish
 to skip some internal checks. (Even then, it probably isn't worth it.)}
 
 \item{verbose}{Logical. Print auto strategy and progress messages to the
-console? Defaults to \code{TRUE}.}
+console? Defaults to \code{FALSE}. This can be overridden for a single call
+by supplying \code{verbose = TRUE}, or set globally via
+\code{options(dbreg.verbose = TRUE)}.}
 }
 \value{
 A list of class "dbreg" containing various slots, including a table
-of coefficients (which the associated print method will display).
+of coefficients (which the associated \code{print} method will display).
 }
 \description{
 Leverages the power of databases to run regressions on very large datasets,

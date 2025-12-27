@@ -28,8 +28,7 @@ sim_panel = local({
 
 sim_dbreg = dbreg(
   y ~ x1 + x2 | firm + year,
-  data = sim_panel,
-  verbose = FALSE
+  data = sim_panel
 )
 
 # Check auto selected demean
@@ -69,8 +68,7 @@ sim_panel$x2_mean_year = ave(sim_panel$x2, sim_panel$year, FUN = mean)
 sim_mundlak = dbreg(
   y ~ x1 + x2 | firm + year,
   data = sim_panel,
-  strategy = "mundlak",
-  verbose = FALSE
+  strategy = "mundlak"
 )
 
 sim_mundlak_manual = feols(
@@ -98,8 +96,7 @@ expect_equal(
 sim_moments = dbreg(
   y ~ x1 + x2,
   data = sim_panel,
-  strategy = "moments",
-  verbose = FALSE
+  strategy = "moments"
 )
 
 sim_ols = feols(
@@ -134,8 +131,7 @@ sim_feols_full = feols(
 sim_compress = dbreg(
   y ~ x1 + x2 | firm + year,
   data = sim_panel,
-  strategy = "compress",
-  verbose = FALSE
+  strategy = "compress"
 )
 
 # Compress: point predictions match fixest

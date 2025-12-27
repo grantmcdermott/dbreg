@@ -24,8 +24,7 @@ nyc_compress = dbreg(
   tip_amount ~ fare_amount + passenger_count | month + vendor_name,
   path = nyc_parquet,
   vcov = "hc1",
-  strategy = "compress",
-  verbose = FALSE
+  strategy = "compress"
 )
 
 # benchmarking against known results from fixest (run on a large ec2 instance)
@@ -41,8 +40,7 @@ nyc_compress_cl = dbreg(
   tip_amount ~ fare_amount + passenger_count | month + vendor_name,
   path = nyc_parquet,
   vcov = ~month,
-  strategy = "compress",
-  verbose = FALSE
+  strategy = "compress"
 )
 
 # Known values from fixest::feols with clustered SEs
@@ -74,8 +72,7 @@ nyc_subset = dbreg(
   conn = con,
   table = "nyc_subset",
   vcov = ~dofw,
-  strategy = "compress",
-  verbose = FALSE
+  strategy = "compress"
 )
 
 DBI::dbDisconnect(con)

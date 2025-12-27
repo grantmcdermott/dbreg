@@ -22,8 +22,8 @@ alternative database backends, depending on their computing needs and setup.
 The **dbreg** R package is inspired by, and has similar aims to, the
 [duckreg](https://github.com/py-econometrics/duckreg) Python package.
 This implementation offers some idiomatic, R-focused features like a formula
-interface and "pretty" print methods. But the two packages should otherwise
-be very similar.
+interface and "pretty" print methods. But our long-term goal is that these two
+packages should be aligned in terms of core feature parity.
 
 ## Install
 
@@ -51,12 +51,6 @@ library(fixest) # for data and comparison
 data("trade", package = "fixest")
 
 dbreg(Euros ~ dist_km | Destination + Origin, data = trade, vcov = 'hc1')
-#> [dbreg] Auto strategy:
-#>         - data has 38,325 rows with 2 FE (210 unique groups)
-#>         - compression ratio (0.01) satisfies threshold (0.6)
-#>         - decision: compress
-#> [dbreg] Executing compress strategy SQL
-#> 
 #> Compressed OLS estimation, Dep. Var.: Euros 
 #> Observations.: 38,325 (original) | 210 (compressed) 
 #> Standard-errors: Heteroskedasticity-robust
@@ -105,13 +99,16 @@ compression computation in an ephemeral DuckDB connection. This requires that
 the data are small enough to fit into RAM... but please note that "small enough"
 is a relative concept. Thanks to DuckDB's incredible efficiency, your RAM should
 be able to handle very large datasets that would otherwise crash your R session,
-and require only a fraction of the computation time.
+and require only a fraction of the computation time. Note that we also invoke
+the (optional) `verbose  = TRUE` argument to print additional information about
+the estimation strategy.
 
 ```r
 dbreg(
    tip_amount ~ fare_amount + passenger_count | month + vendor_name,
    path = "read_parquet('nyc-taxi/**/*.parquet')", ## path to hive-partitioned dataset
-   vcov = "hc1"
+   vcov = "hc1",
+   verbose = TRUE ## optional (print info about the estimation strategy)
 )
 #> [dbreg] Auto strategy:
 #>         - data has 178,544,324 rows with 2 FE (24 unique groups)
@@ -148,9 +145,6 @@ dbreg(
    vcov     = ~month,    # clustered SEs
    strategy = "compress" # skip auto strategy overhead
 )
-#> [dbreg] Using strategy: compress
-#> [dbreg] Executing compress strategy SQL
-#>
 #> Compressed OLS estimation, Dep. Var.: tip_amount 
 #> Observations.: 178,544,324 (original) | 70,782 (compressed)
 #> Standard Errors: Clustered (12 clusters)
@@ -196,9 +190,6 @@ dbreg(
    vcov = ~month,
    strategy = "compress"
 )
-#> [dbreg] Using strategy: compress
-#> [dbreg] Executing compress strategy SQL
-#> 
 #> Compressed OLS estimation, Dep. Var.: tip_amount 
 #> Observations.: 178,544,324 (original) | 70,782 (compressed) 
 #> Standard Errors: Clustered (12 clusters)
@@ -252,9 +243,11 @@ several other acceleration strategies: `"moments"`, `"demean"`, and `"mundlak"`.
 Depending on your data and regression requirements, one of these other
 strategies may better suit your problem. The good news is that (the default)
 `strategy = "auto"` option uses some intelligent heuristics to determine which
-strategy is (probably) optimal for each case. The **Acceleration Strategies**
-section of the `?dbreg` helpfile contains a lot detail about the different
-options and tradeoffs involved, so please do consult the documentation.
+strategy is (probably) optimal for each case. You can set the `verbose = TRUE`
+argument to get real-time feedback about the decision criteria being used.  
+Moreover, the **Acceleration Strategies** section of the `?dbreg` helpfile
+contains a lot detail about the different options and tradeoffs involved, so
+please do consult the documentation.
 
 ## Limitations
 
