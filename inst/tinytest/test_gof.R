@@ -8,8 +8,7 @@ data("trade", package = "fixest")
 mod_db = dbreg(
   Euros ~ dist_km | Destination + Origin,
   data = trade,
-  vcov = 'hc1',
-  verbose = FALSE
+  vcov = 'hc1'
 )
 
 mod_fe = feols(
@@ -45,8 +44,7 @@ expect_equal(as.numeric(gof_vals["rmse"]), as.numeric(fe_stats$rmse), tolerance 
 # Test fes argument
 mod_nofes = dbreg(
   Temp ~ Wind | Month,
-  data = airquality,
-  verbose = FALSE
+  data = airquality
 )
 
 ci_nofes = confint(mod_nofes, fes = FALSE)
