@@ -140,25 +140,45 @@ decimalFormat = function(x){
   res
 }
 
-#' Print method for dbbin objects
+#' Print method for dbbin objects (binsreg-compatible format)
 #' 
 #' @param x A dbbin object
 #' @param ... Additional arguments passed to print
 #' @export
 print.dbbin = function(x, ...) {
-  cat("Database binned regression\n")
-  cat("Formula:", deparse(x$formula), "\n")
-  cat(sprintf("Bins: %d | Degree: %d | Smooth: %d | Partition: %s\n", 
-              x$B, x$degree, x$smooth, x$partition_method))
-  cat(sprintf("Variables: x = %s, y = %s\n", x$x_var, x$y_var))
-  cat("\n")
-  cat("$data:\n")
-  print(head(x$data, 10), ...)
-  if (nrow(x$data) > 10) {
-    cat(sprintf("... %d more rows\n", nrow(x$data) - 10))
+  opt = x$opt
+  
+  # Header
+  cat("Database binned regression (binsreg-compatible)\n")
+  cat("Formula:", deparse(opt$formula), "\n")
+  
+  # Options line like binsreg
+  dots_str = if (!is.null(opt$dots)) paste0("c(", opt$dots[1], ",", opt$dots[2], ")") else "NULL"
+  line_str = if (!is.null(opt$line)) paste0("c(", opt$line[1], ",", opt$line[2], ")") else "NULL"
+  cat(sprintf("dots = %s | line = %s | nbins = %d | binspos = '%s'\n", 
+              dots_str, line_str, opt$nbins, opt$binspos))
+  cat(sprintf("N = %s | level = %d%%\n", 
+              prettyNum(opt$N, big.mark = ","), opt$level))
+  
+  # Show data.dots
+  if (!is.null(x$data.dots)) {
+    cat("\n$data.dots:\n")
+    print(x$data.dots, ...)
   }
-  cat("\n$bins:\n")
-  print(x$bins, ...)
+  
+  # Show data.line preview if present
+  if (!is.null(x$data.line)) {
+    cat("\n$data.line:\n")
+    print(head(x$data.line, 10), ...)
+    if (nrow(x$data.line) > 10) {
+      cat(sprintf("... %d more rows\n", nrow(x$data.line) - 10))
+    }
+  }
+  
+  # Show bins
+  cat("\n$data.bin:\n")
+  print(x$data.bin, ...)
+  
   invisible(x)
 }
 

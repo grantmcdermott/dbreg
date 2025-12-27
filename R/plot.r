@@ -1,55 +1,82 @@
 
-#' Plot method for dbbin objects
+#' Plot method for dbbin objects (binsreg-style)
 #' 
 #' @md
 #' @description
-#' Visualizes binned regression results from \code{\link{dbbin}} using tinyplot
-#' with confidence ribbon support.
+#' Visualizes binned regression results from \code{\link{dbbin}} using tinyplot.
+#' Plots dots at bin means with optional confidence intervals, and optionally
+#' overlays a smooth line if computed.
 #' 
 #' @param x A dbbin object
 #' @param y Ignored (for S3 consistency)
-#' @param ci Logical. Show confidence intervals as ribbon? Default is TRUE.
+#' @param ci Logical. Show confidence intervals for dots? Default is TRUE.
+#' @param line Logical. Show the line overlay if available? Default is TRUE.
 #' @param ... Additional arguments passed to tinyplot
 #' @export
-plot.dbbin = function(x, y = NULL, ci = TRUE, ...) {
+plot.dbbin = function(x, y = NULL, ci = TRUE, line = TRUE, ...) {
   
   # Check for tinyplot
-
   if (!requireNamespace("tinyplot", quietly = TRUE)) {
     stop("The plot.dbbin method requires the tinyplot package.\n",
          "Install it with: install.packages('tinyplot')",
          call. = FALSE)
   }
   
-  # Extract data and metadata
-  data = x$data
-  x_var = x$x_var
-  y_var = x$y_var
+  # Extract metadata
+  opt = x$opt
+  x_var = opt$x_var
+  y_var = opt$y_var
   
   # Set clean theme
   tinyplot::tinytheme("clean")
   
- # Build ymin/ymax for ribbon if CI requested and available
-  if (ci && all(c("ci_low", "ci_high") %in% names(data))) {
+  # Start with dots (the main binscatter points)
+  if (!is.null(x$data.dots)) {
+    dots = x$data.dots
+    
+    # If CI requested and available, use errorbar
+    if (ci && all(c("ci.l", "ci.r") %in% names(dots)) && !all(is.na(dots$ci.l))) {
+      tinyplot::tinyplot(
+        fit ~ x,
+        data = dots,
+        type = "p",
+        ymin = dots$ci.l,
+        ymax = dots$ci.r,
+        pch = 19,
+        xlab = x_var,
+        ylab = y_var,
+        ...
+      )
+    } else {
+      tinyplot::tinyplot(
+        fit ~ x,
+        data = dots,
+        type = "p",
+        pch = 19,
+        xlab = x_var,
+        ylab = y_var,
+        ...
+      )
+    }
+    
+    # Overlay line if available and requested
+    if (line && !is.null(x$data.line)) {
+      line_data = x$data.line
+      graphics::lines(line_data$x, line_data$fit, col = "steelblue", lwd = 2)
+    }
+  } else if (!is.null(x$data.line)) {
+    # No dots, just show line
+    line_data = x$data.line
     tinyplot::tinyplot(
-      y_hat ~ x,
-      data = data,
-      type = "ribbon",
-      ymin = data$ci_low,
-      ymax = data$ci_high,
-      xlab = x_var,
-      ylab = y_var,
-      ...
-    )
-  } else {
-    tinyplot::tinyplot(
-      y_hat ~ x,
-      data = data,
+      fit ~ x,
+      data = line_data,
       type = "l",
       xlab = x_var,
       ylab = y_var,
       ...
     )
+  } else {
+    warning("No data to plot (neither data.dots nor data.line available)")
   }
   
   invisible(x)
