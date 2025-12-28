@@ -230,6 +230,15 @@ dbbin = function(
     vcov = "HC1"
   }
   
+  # Extract cluster variable if vcov is a formula
+  cluster_var = NULL
+  if (inherits(vcov, "formula")) {
+    cluster_var = all.vars(vcov)
+    if (length(cluster_var) != 1) {
+      stop("vcov formula must specify exactly one clustering variable (e.g., ~cluster_id)")
+    }
+  }
+  
   # Parse formula using Formula package (same pattern as dbreg)
   if (!requireNamespace("Formula", quietly = TRUE)) {
     stop(
@@ -269,13 +278,13 @@ dbbin = function(
     stop("nbins must be a positive integer")
   }
   
-  # Warn if user sets strategy when smooth > 0 (it will be ignored)
+  # Warn if user sets strategy when `s` (smoothness) > 0 (it will be ignored)
   if (smooth > 0 && strategy != "auto") {
-    warning("'strategy' parameter is ignored when smooth > 0 (constrained estimation)", 
+    warning("'strategy' parameter is ignored when `s` (smoothness) > 0 (constrained estimation)", 
             call. = FALSE)
   }
   
-  # Set up database connection
+  # Set up database connection if needed
   conn_managed = FALSE
   if (is.null(conn)) {
     if (!requireNamespace("duckdb", quietly = TRUE)) {
@@ -437,6 +446,7 @@ dbbin = function(
     smooth = smooth,
     controls = controls,
     fe = fe,
+    cluster_var = cluster_var,
     partition_method = partition_method,
     breaks = breaks,
     ci = ci,
@@ -623,6 +633,7 @@ create_binned_data = function(inputs) {
   partition_method = inputs$partition_method
   controls = inputs$controls
   fe = inputs$fe
+  cluster_var = inputs$cluster_var
   
   # Build column list
   cols = c(y_name, x_name)
@@ -631,6 +642,9 @@ create_binned_data = function(inputs) {
   }
   if (!is.null(fe)) {
     cols = c(cols, fe)
+  }
+  if (!is.null(cluster_var)) {
+    cols = c(cols, cluster_var)
   }
   
   # Weight expression (no weights support for now)
