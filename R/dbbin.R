@@ -28,8 +28,6 @@
 #' @param binspos Bin positioning method: "qs" (quantile-spaced, equal-count bins,
 #'   the default), "es" (evenly-spaced, equal-width bins), or a numeric vector of
 #'   knot positions for manual specification.
-#' @param weights Character string naming the weight column. Default is NULL
-#'   (equal weights).
 #' @param sample_frac Numeric between 0 and 1, or NULL (default). Controls
 #'   sampling for bin boundary computation on large datasets. If NULL, sampling
 #'   is automatic: 10% for datasets exceeding 1 million rows, 100% otherwise.
@@ -43,7 +41,7 @@
 #' @param level Confidence level as a percentage (e.g., 95 for 95% CI). Default is 95.
 #' @param strategy Acceleration strategy passed to dbreg when smoothness is 0.
 #'   Options are "auto" (default), "compress", or "scan". This parameter is
-#'   ignored when smoothness > 0. See \code{\link{dbreg}} for details.
+#'   ignored when `s` (smoothness parameter in `dots` or `lines`) > 0. See \code{\link{dbreg}} for details.
 #' @param conn Database connection. If NULL (default), an ephemeral DuckDB
 #'   connection will be created.
 #' @param verbose Logical. Print progress messages? Default is TRUE.
@@ -63,7 +61,7 @@
 #' @details
 #' ## Relationship to binsreg
 #'
-#' This function aims to provide an API compatible with the \pkg{binsreg} package.
+#' This function aims to provide an API similar to the \pkg{binsreg} package.
 #' Key parameter mappings:
 #' \itemize{
 #'   \item `dots=c(0,0)`: Canonical binscatter (bin means), equivalent to binsreg default
@@ -76,6 +74,16 @@
 #'
 #' Unlike binsreg, dbbin executes entirely in SQL, making it suitable for large
 #' databases that cannot fit in memory.
+#'
+#' ## Note on quantile bin boundaries
+#'
+#' When using quantile-spaced bins (`binspos="qs"`), dbbin uses SQL's `NTILE()`
+#' window function, while binsreg uses R's `quantile()` with
+#' `type=2`. These algorithms have slightly different tie-breaking behavior,
+#' which can cause small differences in bin assignments at boundaries. In
+#' practice, differences are typically <1% and become negligible with larger
+#' datasets. To match binsreg exactly, compute quantile breaks on a subset 
+#' of data in R and pass them via the `binspos` argument as a numeric vector.
 #'
 #' @references
 #' Cattaneo, M. D., R. K. Crump, M. H. Farrell, and Y. Feng (2024).
@@ -109,7 +117,6 @@ dbbin = function(
   linegrid = 20,
   nbins = 20,
   binspos = "qs",
-  weights = NULL,
   sample_frac = NULL,
   ci = TRUE,
   vcov = NULL,
@@ -430,7 +437,6 @@ dbbin = function(
     smooth = smooth,
     controls = controls,
     fe = fe,
-    weights = weights,
     partition_method = partition_method,
     breaks = breaks,
     ci = ci,
@@ -615,13 +621,11 @@ create_binned_data = function(inputs) {
   y_name = inputs$y_name
   B = inputs$B
   partition_method = inputs$partition_method
-  weights = inputs$weights
   controls = inputs$controls
   fe = inputs$fe
   
   # Build column list
   cols = c(y_name, x_name)
-  if (!is.null(weights)) cols = c(cols, weights)
   if (!is.null(controls)) {
     cols = c(cols, controls)
   }
@@ -629,8 +633,8 @@ create_binned_data = function(inputs) {
     cols = c(cols, fe)
   }
   
-  # Weight column handling
-  wt_expr = if (is.null(weights)) "1.0" else weights
+  # Weight expression (no weights support for now)
+  wt_expr = "1.0"
   
   # Detect backend for SQL compatibility
   # SQL Server doesn't support LEAST() or LN(), so we adapt
@@ -651,30 +655,7 @@ create_binned_data = function(inputs) {
   ln_fn = if (is_sql_server) "LOG" else "LN"
   
   # Bin assignment expression
-  # 
-
-  # NOTE ON QUANTILE BINNING DIFFERENCES WITH BINSREG:
-  # -------------------------------------------------------------------------
-  # binsreg uses R's quantile() with type=2 (SAS definition) to compute bin
-
-  # boundaries, then assigns observations using findInterval() with left.open=TRUE.
-  # See: binsreg/R/binsreg_functions.R line 14-17 (genKnot.qs function)
-  #      binsreg/R/binsglm.R line 1249-1251 (xcat assignment with findInterval)
-  # 
-  # dbbin uses SQL's NTILE() window function for efficiency with large databases.
-  # NTILE() has slightly different tie-breaking behavior and uses a different
-  # quantile algorithm than R's type=2.
-  # 
-  # In practice, this causes small differences in bin assignments at boundaries,
-  # leading to slightly different bin means (evaluation points). The differences
-  # are typically <1% and become negligible with larger datasets. The fitted
-  # values within each bin are computed correctly given the bin assignments.
-  # 
-  # To match binsreg exactly, one would need to:
-  # 1. Pull x values to R, compute type=2 quantile breaks
-  # 2. Pass breaks as manual breakpoints
-  # This trades off database efficiency for exact replication.
-  # -------------------------------------------------------------------------
+  # Note: NTILE() differs slightly from binsreg's quantile(type=2). See ?dbbin details.
   
   if (partition_method == "quantile") {
     bin_expr = sprintf("ntile(%d) OVER (ORDER BY %s)", B, x_name)
@@ -988,7 +969,6 @@ execute_constrained_binsreg = function(inputs) {
   degree = inputs$degree
   smooth = inputs$smooth
   partition_method = inputs$partition_method
-  weights = inputs$weights
   controls = inputs$controls
   fe = inputs$fe
   vcov_type = if (isTRUE(inputs$ci)) inputs$vcov else "iid"
@@ -1156,11 +1136,6 @@ execute_constrained_binsreg = function(inputs) {
   
   # Step 5: Run regression via dbreg
   # Pass the table name as `table` argument
-  # Note: weights not yet supported by dbreg, warn if specified
-  if (!is.null(weights)) {
-    warning("Weights not yet supported for constrained binscatter; ignoring weights argument", call. = FALSE)
-  }
-  
   fit = dbreg(
     fml = fml,
     table = spline_table,  # Pass table name

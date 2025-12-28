@@ -12,7 +12,6 @@ dbbin(
   linegrid = 20,
   nbins = 20,
   binspos = "qs",
-  weights = NULL,
   sample_frac = NULL,
   ci = TRUE,
   vcov = NULL,
@@ -54,9 +53,6 @@ with continuity constraints. The smoothness \code{s} must satisfy \code{s <= p}.
 the default), "es" (evenly-spaced, equal-width bins), or a numeric vector of
 knot positions for manual specification.}
 
-\item{weights}{Character string naming the weight column. Default is NULL
-(equal weights).}
-
 \item{sample_frac}{Numeric between 0 and 1, or NULL (default). Controls
 sampling for bin boundary computation on large datasets. If NULL, sampling
 is automatic: 10\% for datasets exceeding 1 million rows, 100\% otherwise.
@@ -74,7 +70,7 @@ clustering formula like ~cluster_var.}
 
 \item{strategy}{Acceleration strategy passed to dbreg when smoothness is 0.
 Options are "auto" (default), "compress", or "scan". This parameter is
-ignored when smoothness > 0. See \code{\link{dbreg}} for details.}
+ignored when \code{s} (smoothness parameter in \code{dots} or \code{lines}) > 0. See \code{\link{dbreg}} for details.}
 
 \item{conn}{Database connection. If NULL (default), an ephemeral DuckDB
 connection will be created.}
@@ -103,7 +99,7 @@ Supports unconditional and conditional models (with controls and/or fixed effect
 \details{
 \subsection{Relationship to binsreg}{
 
-This function aims to provide an API compatible with the \pkg{binsreg} package.
+This function aims to provide an API similar to the \pkg{binsreg} package.
 Key parameter mappings:
 \itemize{
 \item \code{dots=c(0,0)}: Canonical binscatter (bin means), equivalent to binsreg default
@@ -116,6 +112,17 @@ Key parameter mappings:
 
 Unlike binsreg, dbbin executes entirely in SQL, making it suitable for large
 databases that cannot fit in memory.
+}
+
+\subsection{Note on quantile bin boundaries}{
+
+When using quantile-spaced bins (\code{binspos="qs"}), dbbin uses SQL's \code{NTILE()}
+window function, while binsreg uses R's \code{quantile()} with
+\code{type=2}. These algorithms have slightly different tie-breaking behavior,
+which can cause small differences in bin assignments at boundaries. In
+practice, differences are typically <1\% and become negligible with larger
+datasets. To match binsreg exactly, compute quantile breaks on a subset
+of data in R and pass them via the \code{binspos} argument as a numeric vector.
 }
 }
 \examples{
