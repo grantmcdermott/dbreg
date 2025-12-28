@@ -102,6 +102,43 @@
 #' # With fixed effects (diet type)
 #' dbbin(weight ~ Time | Diet, ChickWeight, nbins = 10, dots = c(1, 0))
 #' }
+
+# =============================================================================
+# Internal SQL helpers for backend-agnostic operations
+# =============================================================================
+
+#' Get backend-specific random ordering expression
+#' @param backend Backend name from detect_backend()
+#' @return SQL expression for random ordering
+#' @keywords internal
+dbbin_sql_random <- function(backend) {
+  switch(backend,
+    "duckdb" = "RANDOM()",
+    "sqlserver" = "NEWID()",
+    "postgres" = "RANDOM()",
+    "sqlite" = "RANDOM()",
+    "mysql" = "RAND()",
+    "RANDOM()"  # default fallback
+  )
+}
+
+#' Get backend-specific count expression
+#' @param backend Backend name from detect_backend()
+#' @return SQL expression for counting rows
+#' @keywords internal
+dbbin_sql_count <- function(backend) {
+  if (backend == "sqlserver") "COUNT_BIG(*)" else "COUNT(*)"
+}
+
+#' Get NTILE window function expression
+#' @param x_name Column name to partition by
+#' @param n_bins Number of bins
+#' @return SQL NTILE expression
+#' @keywords internal
+dbbin_sql_ntile <- function(x_name, n_bins) {
+ glue("NTILE({n_bins}) OVER (ORDER BY {x_name})")
+}
+
 dbbin = function(
   fml,
   data,
@@ -258,15 +295,6 @@ dbbin = function(
     NULL
   }
   
-  # Check for dplyr package (required for all binscatter operations)
-  if (!requireNamespace("dplyr", quietly = TRUE)) {
-    stop(
-      "The dbbin() function requires the dplyr package.\n",
-      "Install it with: install.packages('dplyr')",
-      call. = FALSE
-    )
-  }
-  
   # Validate derived parameters
   if (!is.numeric(B) || B < 1) {
     stop("nbins must be a positive integer")
@@ -276,15 +304,6 @@ dbbin = function(
   if (smooth > 0 && strategy != "auto") {
     warning("'strategy' parameter is ignored when smooth > 0 (constrained estimation)", 
             call. = FALSE)
-  }
-  
-  # Check for dbplyr when using constrained estimation
-  if (smooth > 0 && !requireNamespace("dbplyr", quietly = TRUE)) {
-    stop(
-      "Constrained binned regression (smooth > 0) requires the dbplyr package.\n",
-      "Install it with: install.packages('dbplyr')",
-      call. = FALSE
-    )
   }
   
   # Set up database connection
@@ -315,10 +334,11 @@ dbbin = function(
     # dplyr tbl object - extract table name or use subquery
     table_name = dbplyr::remote_name(data)
     if (is.null(table_name)) {
-      # Create temp table from subquery
+      # Create temp table from subquery using raw SQL
       table_name = sprintf("__db_bins_%s_input", 
                           gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-      dplyr::compute(data, name = table_name, temporary = TRUE)
+      subquery_sql = dbplyr::sql_render(data)
+      DBI::dbExecute(conn, glue("CREATE TEMPORARY TABLE {table_name} AS {subquery_sql}"))
       temp_tables = c(temp_tables, table_name)
     }
   } else if (is.data.frame(data)) {
@@ -361,19 +381,20 @@ dbbin = function(
   # If user provides explicit sample_frac, use that regardless of row count.
   # This avoids expensive NTILE() or min/max scans on very large datasets.
   
+  # Get backend for SQL dialect
+  backend_info = detect_backend(conn)
+  backend = backend_info$name
+  
   sampled = FALSE
   if (partition_method != "manual") {
-    # Get row count
-    data_tbl = if (is.character(table_name)) {
-      dplyr::tbl(conn, table_name)
-    } else {
-      table_name
-    }
-    
-    n_rows = data_tbl |>
-      dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
-      dplyr::count() |>
-      dplyr::pull(n)
+    # Get row count using direct SQL
+    count_expr = dbbin_sql_count(backend)
+    count_sql = glue("
+      SELECT {count_expr} AS n 
+      FROM {table_name} 
+      WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
+    ")
+    n_rows = DBI::dbGetQuery(conn, count_sql)$n
     
     # Determine effective sample_frac
     if (is.null(sample_frac)) {
@@ -391,16 +412,18 @@ dbbin = function(
                        n_rows / 1e6, effective_sample_frac * 100))
       }
       
-      # Sample data for break computation
-      # Note: slice_sample translates to ORDER BY RANDOM() LIMIT n in most backends
+      # Sample data for break computation using direct SQL
       sample_size = max(10000L, ceiling(n_rows * effective_sample_frac))  # at least 10k rows
+      random_expr = dbbin_sql_random(backend)
       
-      sampled_data = data_tbl |>
-        dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
-        dplyr::slice_sample(n = sample_size) |>
-        dplyr::select(!!as.symbol(x_name)) |>
-        dplyr::collect()
-      
+      sample_sql = glue("
+        SELECT {x_name}
+        FROM {table_name}
+        WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
+        ORDER BY {random_expr}
+        LIMIT {sample_size}
+      ")
+      sampled_data = DBI::dbGetQuery(conn, sample_sql)
       x_sample = sampled_data[[x_name]]
       
       # Compute breaks based on partition method
@@ -947,8 +970,8 @@ execute_unconstrained_binsreg = function(inputs) {
 
 #' Execute constrained binned regression (smooth > 0)
 #' 
-#' Uses moment-based estimation with KKT solver to enforce continuity constraints
-#' at bin boundaries. Requires dbplyr package for SQL moment computation.
+#' Uses regression splines with truncated power basis to enforce continuity 
+#' constraints at bin boundaries.
 #' 
 #' @keywords internal
 execute_constrained_binsreg = function(inputs) {
@@ -959,7 +982,7 @@ execute_constrained_binsreg = function(inputs) {
   }
   
   # Extract inputs
-conn = inputs$conn
+  conn = inputs$conn
   table_name = inputs$table_name
   x_name = inputs$x_name
   y_name = inputs$y_name
@@ -972,76 +995,68 @@ conn = inputs$conn
   fe = inputs$fe
   vcov_type = if (isTRUE(inputs$ci)) inputs$vcov else "iid"
   
-  # Convert table to tbl if needed
-  if (is.character(table_name)) {
-    data_tbl = dplyr::tbl(conn, table_name)
-  } else {
-    data_tbl = table_name
-  }
+  # Get backend info
+  backend_info = detect_backend(conn)
+  backend = backend_info$name
+  count_expr = dbbin_sql_count(backend)
   
-  # Step 1: Assign bins and compute geometry
+  # Create temp table name for binned data
+  binned_table = sprintf("__dbbin_%s_binned", 
+                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+  
+  # Step 1: Create binned data table with bin assignments
   if (partition_method == "quantile") {
-    data_binned = data_tbl |>
-      dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
-      dplyr::mutate(bin = dplyr::ntile(!!as.symbol(x_name), B))
+    # NTILE-based quantile binning
+    ntile_expr = dbbin_sql_ntile(x_name, B)
+    bin_sql = glue("
+      CREATE TEMPORARY TABLE {binned_table} AS
+      SELECT *, {ntile_expr} AS bin
+      FROM {table_name}
+      WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
+    ")
+    DBI::dbExecute(conn, bin_sql)
+    
   } else if (partition_method == "equal") {
-    # Note: Using if_else below instead of pmin for SQL Server compatibility (no LEAST function)
-    data_binned = data_tbl |>
-      dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
-      dplyr::mutate(
-        raw_bin = 1L + floor((!!as.symbol(x_name) - min(!!as.symbol(x_name), na.rm = TRUE)) / 
-                             ((max(!!as.symbol(x_name), na.rm = TRUE) - min(!!as.symbol(x_name), na.rm = TRUE)) / B))
-      ) |>
-      dplyr::mutate(
-        bin = dplyr::if_else(raw_bin > !!B, !!B, raw_bin)
-      ) |>
-      dplyr::select(-raw_bin)
+    # Equal-width binning using window functions for min/max
+    bin_sql = glue("
+      CREATE TEMPORARY TABLE {binned_table} AS
+      SELECT t2.*,
+             CASE WHEN raw_bin > {B} THEN {B} ELSE CAST(raw_bin AS INTEGER) END AS bin
+      FROM (
+        SELECT *,
+               1 + FLOOR(({x_name} - min_x) / NULLIF((max_x - min_x) / {B}, 0)) AS raw_bin
+        FROM (
+          SELECT *,
+                 MIN({x_name}) OVER () AS min_x,
+                 MAX({x_name}) OVER () AS max_x
+          FROM {table_name}
+          WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
+        ) t1
+      ) t2
+    ")
+    DBI::dbExecute(conn, bin_sql)
+    
   } else if (partition_method == "manual") {
     # Manual breaks: assign bin based on user-specified breakpoints
     breaks = inputs$breaks
     n_bins = length(breaks) - 1
     
-    # Start with filtered data
-    data_binned = data_tbl |>
-      dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
-      dplyr::filter(!!as.symbol(x_name) >= !!breaks[1], !!as.symbol(x_name) <= !!breaks[length(breaks)])
-    
     # Build CASE WHEN expression for bin assignment
-    # bin = CASE WHEN x < breaks[2] THEN 1 WHEN x < breaks[3] THEN 2 ... ELSE n_bins END
-    x_sym = as.symbol(x_name)
-    case_expr = NULL
-    for (i in 1:n_bins) {
-      if (i == n_bins) {
-        # Last bin: x >= breaks[n_bins] (includes right boundary)
-        case_expr = if (is.null(case_expr)) {
-          rlang::expr(dplyr::if_else(!!x_sym >= !!breaks[i], !!as.integer(i), NA_integer_))
-        } else {
-          rlang::expr(dplyr::if_else(!!x_sym >= !!breaks[i], !!as.integer(i), !!case_expr))
-        }
-      } else {
-        # Other bins: breaks[i] <= x < breaks[i+1]
-        case_expr = if (is.null(case_expr)) {
-          rlang::expr(dplyr::if_else(!!x_sym < !!breaks[i + 1], !!as.integer(i), NA_integer_))
-        } else {
-          rlang::expr(dplyr::if_else(!!x_sym < !!breaks[i + 1], !!as.integer(i), !!case_expr))
-        }
-      }
-    }
-    # Build from last to first, so reverse the logic
-    # Actually simpler: nested if_else from bin 1 to n
-    data_binned = data_tbl |>
-      dplyr::filter(!is.na(!!as.symbol(x_name)), !is.na(!!as.symbol(y_name))) |>
-      dplyr::filter(!!as.symbol(x_name) >= !!breaks[1], !!as.symbol(x_name) <= !!breaks[length(breaks)])
-    
-    # Use case_when for cleaner logic
-    case_list = vector("list", n_bins)
+    case_parts = character()
     for (i in 1:(n_bins - 1)) {
-      case_list[[i]] = rlang::expr(!!x_sym < !!breaks[i + 1] ~ !!as.integer(i))
+      case_parts = c(case_parts, glue("WHEN {x_name} < {breaks[i + 1]} THEN {i}"))
     }
-    case_list[[n_bins]] = rlang::expr(TRUE ~ !!as.integer(n_bins))
+    case_parts = c(case_parts, glue("ELSE {n_bins}"))
+    case_expr = paste("CASE", paste(case_parts, collapse = " "), "END")
     
-    data_binned = data_binned |>
-      dplyr::mutate(bin = dplyr::case_when(!!!case_list))
+    bin_sql = glue("
+      CREATE TEMPORARY TABLE {binned_table} AS
+      SELECT *, {case_expr} AS bin
+      FROM {table_name}
+      WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
+        AND {x_name} >= {breaks[1]} AND {x_name} <= {breaks[length(breaks)]}
+    ")
+    DBI::dbExecute(conn, bin_sql)
     
     # Update B to match number of bins from breaks
     B = n_bins
@@ -1049,19 +1064,22 @@ conn = inputs$conn
     stop("partition_method = '", partition_method, "' not supported")
   }
   
-  # Compute bin geometry (boundaries and counts)
-  geo = data_binned |>
-    dplyr::group_by(bin) |>
-    dplyr::summarise(
-      x_left = min(!!as.symbol(x_name), na.rm = TRUE),
-      x_right = max(!!as.symbol(x_name), na.rm = TRUE),
-      x_mid = (min(!!as.symbol(x_name), na.rm = TRUE) + max(!!as.symbol(x_name), na.rm = TRUE)) / 2,
-      x_mean = mean(!!as.symbol(x_name), na.rm = TRUE),
-      n = dplyr::n(),
-      .groups = "drop"
-    ) |>
-    dplyr::collect() |>
-    dplyr::arrange(bin)
+  # Ensure cleanup of temp table
+  on.exit(try(DBI::dbRemoveTable(conn, binned_table, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
+  
+  # Compute bin geometry (boundaries and counts) using direct SQL
+  geo_sql = glue("
+    SELECT bin,
+           MIN({x_name}) AS x_left,
+           MAX({x_name}) AS x_right,
+           (MIN({x_name}) + MAX({x_name})) / 2.0 AS x_mid,
+           AVG({x_name}) AS x_mean,
+           {count_expr} AS n
+    FROM {binned_table}
+    GROUP BY bin
+    ORDER BY bin
+  ")
+  geo = DBI::dbGetQuery(conn, geo_sql)
   
   # Step 2: Extract interior knots from bin boundaries
   # Knots are at x_right[1], x_right[2], ..., x_right[B-1]
@@ -1071,19 +1089,19 @@ conn = inputs$conn
     cat("[dbbin] Using ", length(knots), " interior knots for spline basis\n", sep = "")
   }
   
-  # Step 3: Build spline basis columns IN SQL (avoid collecting to R!)
-  # Use dplyr::mutate to add columns in the database
-  x_sym = as.symbol(x_name)
+  # Step 3: Build spline basis columns using SQL
+  # We need to add columns to the binned table for the spline basis
   basis_names = character()
+  basis_exprs = character()
   
   # Global polynomial part (excluding intercept, which dbreg handles)
   if (degree >= 1) {
-    data_binned = data_binned |> dplyr::mutate(x_spline = !!x_sym)
     basis_names = c(basis_names, "x_spline")
+    basis_exprs = c(basis_exprs, glue("{x_name} AS x_spline"))
   }
   if (degree >= 2) {
-    data_binned = data_binned |> dplyr::mutate(x2_spline = (!!x_sym) * (!!x_sym))
     basis_names = c(basis_names, "x2_spline")
+    basis_exprs = c(basis_exprs, glue("({x_name} * {x_name}) AS x2_spline"))
   }
   
   # Truncated power terms at each knot: (x - κ_j)₊^r for r = smooth, ..., degree
@@ -1094,20 +1112,29 @@ conn = inputs$conn
       
       if (r == 1) {
         # (x - κ)₊ = CASE WHEN x > κ THEN x - κ ELSE 0 END
-        data_binned = data_binned |>
-          dplyr::mutate(
-            !!col_name := dplyr::if_else(!!x_sym > !!kappa, !!x_sym - !!kappa, 0)
-          )
+        expr = glue("CASE WHEN {x_name} > {kappa} THEN {x_name} - {kappa} ELSE 0 END AS {col_name}")
       } else if (r == 2) {
         # (x - κ)₊² = CASE WHEN x > κ THEN (x - κ)² ELSE 0 END
-        data_binned = data_binned |>
-          dplyr::mutate(
-            !!col_name := dplyr::if_else(!!x_sym > !!kappa, (!!x_sym - !!kappa) * (!!x_sym - !!kappa), 0)
-          )
+        expr = glue("CASE WHEN {x_name} > {kappa} THEN ({x_name} - {kappa}) * ({x_name} - {kappa}) ELSE 0 END AS {col_name}")
       }
       basis_names = c(basis_names, col_name)
+      basis_exprs = c(basis_exprs, expr)
     }
   }
+  
+  # Create new table with basis columns (replace binned table)
+  spline_table = sprintf("__dbbin_%s_spline", 
+                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+  
+  basis_cols_sql = paste(basis_exprs, collapse = ",\n           ")
+  spline_sql = glue("
+    CREATE TEMPORARY TABLE {spline_table} AS
+    SELECT *,
+           {basis_cols_sql}
+    FROM {binned_table}
+  ")
+  DBI::dbExecute(conn, spline_sql)
+  on.exit(try(DBI::dbRemoveTable(conn, spline_table, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
   
   # Step 4: Build formula for dbreg
   # y ~ basis_terms [+ controls] [| fe]
@@ -1130,7 +1157,7 @@ conn = inputs$conn
   }
   
   # Step 5: Run regression via dbreg
-  # Pass the tbl as `table` argument (not `data`) - dbreg accepts tbl_lazy
+  # Pass the table name as `table` argument
   # Note: weights not yet supported by dbreg, warn if specified
   if (!is.null(weights)) {
     warning("Weights not yet supported for constrained binscatter; ignoring weights argument", call. = FALSE)
@@ -1138,7 +1165,7 @@ conn = inputs$conn
   
   fit = dbreg(
     fml = fml,
-    table = data_binned,  # Pass tbl_lazy via table argument
+    table = spline_table,  # Pass table name
     conn = conn,
     vcov = vcov_type,
     verbose = FALSE

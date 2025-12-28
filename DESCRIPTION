@@ -53,8 +53,7 @@ Suggests:
   tinyplot,
   tinytest
 Enhances:
-  dbplyr,
-  dplyr
+  dbplyr
 Encoding: UTF-8
 RoxygenNote: 7.3.3
 License: MIT + file LICENSE
