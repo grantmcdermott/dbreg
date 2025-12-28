@@ -7,7 +7,7 @@
 execute_constrained_binsreg(inputs)
 }
 \description{
-Uses moment-based estimation with KKT solver to enforce continuity constraints
-at bin boundaries. Requires dbplyr package for SQL moment computation.
+Uses regression splines with truncated power basis to enforce continuity 
+constraints at bin boundaries.
 }
 \keyword{internal}

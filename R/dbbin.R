@@ -14,7 +14,7 @@
 #'   - `y ~ x | fe`: binscatter with fixed effects
 #'   - `y ~ x + w1 + w2 | fe`: binscatter with controls and fixed effects
 #' @param data A data source: R dataframe, database table name (character), or
-#'   dplyr::tbl object pointing to a database table.
+#'   a lazy table object (e.g., from `dplyr::tbl()`) pointing to a database table.
 #' @param dots A vector `c(p, s)` specifying the polynomial degree `p` and smoothness
 #'   `s` for the dots (point estimates at bin means). Default is `c(0, 0)` for
 #'   canonical binscatter (bin means). Set to `NULL` or `FALSE` to suppress dots.
@@ -75,7 +75,6 @@
 #' }
 #'
 #' Unlike binsreg, dbbin executes entirely in SQL, making it suitable for large
-
 #' databases that cannot fit in memory.
 #'
 #' @references
@@ -102,43 +101,6 @@
 #' # With fixed effects (diet type)
 #' dbbin(weight ~ Time | Diet, ChickWeight, nbins = 10, dots = c(1, 0))
 #' }
-
-# =============================================================================
-# Internal SQL helpers for backend-agnostic operations
-# =============================================================================
-
-#' Get backend-specific random ordering expression
-#' @param backend Backend name from detect_backend()
-#' @return SQL expression for random ordering
-#' @keywords internal
-dbbin_sql_random <- function(backend) {
-  switch(backend,
-    "duckdb" = "RANDOM()",
-    "sqlserver" = "NEWID()",
-    "postgres" = "RANDOM()",
-    "sqlite" = "RANDOM()",
-    "mysql" = "RAND()",
-    "RANDOM()"  # default fallback
-  )
-}
-
-#' Get backend-specific count expression
-#' @param backend Backend name from detect_backend()
-#' @return SQL expression for counting rows
-#' @keywords internal
-dbbin_sql_count <- function(backend) {
-  if (backend == "sqlserver") "COUNT_BIG(*)" else "COUNT(*)"
-}
-
-#' Get NTILE window function expression
-#' @param x_name Column name to partition by
-#' @param n_bins Number of bins
-#' @return SQL NTILE expression
-#' @keywords internal
-dbbin_sql_ntile <- function(x_name, n_bins) {
- glue("NTILE({n_bins}) OVER (ORDER BY {x_name})")
-}
-
 dbbin = function(
   fml,
   data,
@@ -348,7 +310,7 @@ dbbin = function(
     DBI::dbWriteTable(conn, table_name, data, temporary = TRUE)
     temp_tables = c(temp_tables, table_name)
   } else {
-    stop("data must be a dataframe, table name, or dplyr::tbl object")
+    stop("data must be a dataframe, table name, or lazy table (e.g., from dplyr::tbl())")
   }
   
   # Cleanup temp tables
@@ -511,6 +473,42 @@ dbbin = function(
   }
   
   return(result)
+}
+
+# =============================================================================
+# Internal SQL helpers for backend-agnostic operations
+# =============================================================================
+
+#' Get backend-specific random ordering expression
+#' @param backend Backend name from detect_backend()
+#' @return SQL expression for random ordering
+#' @keywords internal
+dbbin_sql_random <- function(backend) {
+  switch(backend,
+    "duckdb" = "RANDOM()",
+    "sqlserver" = "NEWID()",
+    "postgres" = "RANDOM()",
+    "sqlite" = "RANDOM()",
+    "mysql" = "RAND()",
+    "RANDOM()"  # default fallback
+  )
+}
+
+#' Get backend-specific count expression
+#' @param backend Backend name from detect_backend()
+#' @return SQL expression for counting rows
+#' @keywords internal
+dbbin_sql_count <- function(backend) {
+  if (backend == "sqlserver") "COUNT_BIG(*)" else "COUNT(*)"
+}
+
+#' Get NTILE window function expression
+#' @param x_name Column name to partition by
+#' @param n_bins Number of bins
+#' @return SQL NTILE expression
+#' @keywords internal
+dbbin_sql_ntile <- function(x_name, n_bins) {
+  glue("NTILE({n_bins}) OVER (ORDER BY {x_name})")
 }
 
 

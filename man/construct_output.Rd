@@ -2,21 +2,12 @@
 % Please edit documentation in R/dbbin.R
 \name{construct_output}
 \alias{construct_output}
-\title{Construct output from constrained solution}
+\title{Construct output from unconstrained binned regression}
 \usage{
 construct_output(inputs, fit, geo, V_beta = NULL)
 }
 \description{
-Internal helper that transforms coefficient estimates from constrained least
-squares into a structured data frame with bin-level fitted values, standard errors,
-and confidence intervals.
-
-Construct output data frame from fitted model
-}
-\details{
-For degree >= 2 (quadratic), the function evaluates the piecewise polynomial
-at three points per bin: left boundary, midpoint, and right boundary. This
-provides sufficient information to reconstruct the quadratic curve within
-each bin using Lagrange interpolation.
+Internal helper that transforms coefficient estimates from unconstrained
+binned regression into the standard dbbin output list format.
 }
 \keyword{internal}

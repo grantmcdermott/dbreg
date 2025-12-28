@@ -2,20 +2,21 @@
 % Please edit documentation in R/dbbin.R
 \name{dbbin}
 \alias{dbbin}
-\title{Database-native binned regression}
+\title{Database-native binned regression (binsreg-compatible API)}
 \usage{
 dbbin(
   fml,
   data,
-  B = 20,
-  degree = 1,
-  smooth = 0,
+  dots = c(0, 0),
+  line = NULL,
+  linegrid = 20,
+  nbins = 20,
+  binspos = "qs",
   weights = NULL,
-  partition_method = c("quantile", "equal", "log_equal", "manual"),
-  breaks = NULL,
+  sample_frac = NULL,
   ci = TRUE,
   vcov = NULL,
-  level = 0.05,
+  level = 95,
   strategy = "auto",
   conn = NULL,
   verbose = TRUE
@@ -33,42 +34,47 @@ are controls. Fixed effects go after \code{|}. Examples:
 }}
 
 \item{data}{A data source: R dataframe, database table name (character), or
-dplyr::tbl object pointing to a database table.}
+a lazy table object (e.g., from \code{dplyr::tbl()}) pointing to a database table.}
 
-\item{B}{Integer number of bins. Default is 20.}
+\item{dots}{A vector \code{c(p, s)} specifying the polynomial degree \code{p} and smoothness
+\code{s} for the dots (point estimates at bin means). Default is \code{c(0, 0)} for
+canonical binscatter (bin means). Set to \code{NULL} or \code{FALSE} to suppress dots.
+The smoothness \code{s} must satisfy \code{s <= p}.}
 
-\item{degree}{Polynomial degree within bins: 0 (means), 1 (linear), or 2
-(quadratic). Default is 1.}
+\item{line}{A vector \code{c(p, s)} specifying the polynomial degree \code{p} and smoothness
+\code{s} for the line (evaluated on a grid within bins). Default is \code{NULL} (no line).
+Set to \code{TRUE} for \code{c(0, 0)} or a vector like \code{c(1, 1)} for piecewise linear
+with continuity constraints. The smoothness \code{s} must satisfy \code{s <= p}.}
 
-\item{smooth}{Smoothness at bin boundaries: 0 (discontinuous), 1 (continuous
-level), or 2 (continuous level and slope). Must satisfy \code{smooth <= degree}.
-Default is 0. Values greater than 0 use a regression spline (truncated-power
-basis) that automatically enforces continuity constraints. Controls and fixed
-effects are supported with all smooth values.}
+\item{linegrid}{Number of evaluation points per bin for the line. Default is 20.}
+
+\item{nbins}{Integer number of bins. Default is 20.}
+
+\item{binspos}{Bin positioning method: "qs" (quantile-spaced, equal-count bins,
+the default), "es" (evenly-spaced, equal-width bins), or a numeric vector of
+knot positions for manual specification.}
 
 \item{weights}{Character string naming the weight column. Default is NULL
 (equal weights).}
 
-\item{partition_method}{Bin partitioning method: "quantile" (equal-count bins),
-"equal" (equal-width bins), "log_equal" (equal-width in log-space, for
-right-skewed variables; requires x > 0), or "manual" (user-specified breaks).
-Default is "quantile".}
+\item{sample_frac}{Numeric between 0 and 1, or NULL (default). Controls
+sampling for bin boundary computation on large datasets. If NULL, sampling
+is automatic: 10\% for datasets exceeding 1 million rows, 100\% otherwise.
+Set explicitly to override (e.g., 1 to always use all data, 0.05 for 5\%).
+Sampling only affects bin boundary computation; the regression uses all data.}
 
-\item{breaks}{Numeric vector of breakpoints if \code{partition_method = "manual"}.
-Ignored otherwise.}
-
-\item{ci}{Logical. Calculate standard errors and confidence intervals?
-Default is FALSE.}
+\item{ci}{Logical. Calculate standard errors and confidence intervals for dots?
+Default is TRUE.}
 
 \item{vcov}{Character string or formula for standard errors. Options are
-"iid" (default if ci=TRUE), "hc1", or a clustering formula like ~cluster_var.}
+"HC1" (default, heteroskedasticity-robust, matches binsreg), "iid", or a
+clustering formula like ~cluster_var.}
 
-\item{level}{Significance level for confidence intervals. Default is 0.05
-(95\% confidence intervals). Only used when ci = TRUE.}
+\item{level}{Confidence level as a percentage (e.g., 95 for 95\% CI). Default is 95.}
 
-\item{strategy}{Acceleration strategy passed to dbreg when \code{smooth = 0}.
+\item{strategy}{Acceleration strategy passed to dbreg when smoothness is 0.
 Options are "auto" (default), "compress", or "scan". This parameter is
-ignored when \code{smooth > 0}. See \code{\link{dbreg}} for details.}
+ignored when smoothness > 0. See \code{\link{dbreg}} for details.}
 
 \item{conn}{Database connection. If NULL (default), an ephemeral DuckDB
 connection will be created.}
@@ -76,43 +82,63 @@ connection will be created.}
 \item{verbose}{Logical. Print progress messages? Default is TRUE.}
 }
 \value{
-A data frame with bin-level results containing:
-\itemize{
-\item \code{bin}: bin number (1 to B)
-\item \code{x_left}, \code{x_right}, \code{x_mid}: bin boundaries and midpoint
-\item \code{n}: number of observations in bin
-\item If \code{degree = 0}: \code{y} (fitted value at \code{x_mid})
-\item If \code{degree = 1}: \code{y_left}, \code{y_right} (fitted values at bin boundaries,
-defining a line segment)
-\item If \code{degree = 2}: \code{y_left}, \code{y_mid}, \code{y_right} (fitted values at boundaries
-and midpoint, defining a quadratic curve)
-\item If \code{ci = TRUE}: \code{se}, \code{se_left}, \code{se_right}, \code{ci_low}, \code{ci_high} (and \verb{_left}/\verb{_right} variants)
-\item Plus metadata: \code{B}, \code{degree}, \code{smooth}, \code{partition_method}
+A list of class "dbbin" containing:
+\describe{
+\item{data.dots}{Data frame with dot estimates (one row per bin): \code{x} (bin mean),
+\code{bin}, \code{fit} (fitted value), and if \code{ci=TRUE}: \code{se}, \code{ci.l}, \code{ci.r}.}
+\item{data.line}{Data frame with line estimates (multiple rows per bin): \code{x},
+\code{bin}, \code{fit}. Only present if \code{line} is specified.}
+\item{data.bin}{Data frame with bin geometry: \code{bin.id}, \code{left.endpoint},
+\code{right.endpoint}.}
+\item{model}{The fitted dbreg model object (for dots).}
+\item{opt}{List of options used: \code{dots}, \code{line}, \code{nbins}, \code{binspos}, etc.}
 }
 }
 \description{
 Performs binned regression entirely in SQL, returning plot-ready data with
-estimated bin means or piecewise polynomial fits. Supports unconditional and
-conditional models (with controls and/or fixed effects).
+estimated bin means or piecewise polynomial fits. The API is designed to be compatible
+with the \pkg{binsreg} package by Cattaneo, Crump, Farrell, and Feng (2024).
+Supports unconditional and conditional models (with controls and/or fixed effects).
+}
+\details{
+\subsection{Relationship to binsreg}{
+
+This function aims to provide an API compatible with the \pkg{binsreg} package.
+Key parameter mappings:
+\itemize{
+\item \code{dots=c(0,0)}: Canonical binscatter (bin means), equivalent to binsreg default
+\item \code{dots=c(p,0)}: Piecewise polynomial of degree p, no smoothness constraints
+\item \code{dots=c(p,s)}: Piecewise polynomial with s smoothness constraints at knots
+\item \code{line=c(p,s)}: Same polynomial evaluated on a grid for smooth visualization
+\item \code{binspos="qs"}: Quantile-spaced bins (binsreg default)
+\item \code{binspos="es"}: Evenly-spaced bins
+}
+
+Unlike binsreg, dbbin executes entirely in SQL, making it suitable for large
+databases that cannot fit in memory.
+}
 }
 \examples{
 \dontrun{
-# Simple bin means
-dbbin(mpg ~ wt, mtcars, B = 10, degree = 0)
+ChickWeight = as.data.frame(ChickWeight)
 
-# Piecewise linear fit
-dbbin(mpg ~ wt, mtcars, B = 10, degree = 1)
+# Canonical binscatter: bin means (default)
+dbbin(weight ~ Time, ChickWeight, nbins = 10)
 
-# With controls
-dbbin(mpg ~ wt + hp + cyl, mtcars, B = 10, degree = 1)
+# Piecewise linear, no smoothness
+dbbin(weight ~ Time, ChickWeight, nbins = 10, dots = c(1, 0))
 
-# With fixed effects
-dbbin(mpg ~ wt | gear, mtcars, B = 10, degree = 1)
+# Piecewise quadratic with C1 continuity
+dbbin(weight ~ Time, ChickWeight, nbins = 10, dots = c(2, 1))
 
-# With controls and fixed effects
-dbbin(mpg ~ wt + hp + cyl | gear, mtcars, B = 10, degree = 1)
+# With line overlay for smooth visualization
+dbbin(weight ~ Time, ChickWeight, nbins = 10, dots = c(0, 0), line = c(1, 1))
 
-# Constrained (continuous) binscatter with controls
-dbbin(mpg ~ wt + hp | gear, mtcars, B = 10, degree = 1, smooth = 1)
+# With fixed effects (diet type)
+dbbin(weight ~ Time | Diet, ChickWeight, nbins = 10, dots = c(1, 0))
 }
+}
+\references{
+Cattaneo, M. D., R. K. Crump, M. H. Farrell, and Y. Feng (2024).
+On Binscatter. \emph{American Economic Review}, 114(5): 1488-1514.
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/print.R
 \name{print.dbbin}
 \alias{print.dbbin}
-\title{Print method for dbbin objects}
+\title{Print method for dbbin objects (binsreg-compatible format)}
 \usage{
 \method{print}{dbbin}(x, ...)
 }
@@ -12,5 +12,5 @@
 \item{...}{Additional arguments passed to print}
 }
 \description{
-Print method for dbbin objects
+Print method for dbbin objects (binsreg-compatible format)
 }

@@ -2,38 +2,23 @@
 % Please edit documentation in R/plot.r
 \name{plot.dbbin}
 \alias{plot.dbbin}
-\title{Plot method for dbbin objects}
+\title{Plot method for dbbin objects (binsreg-style)}
 \usage{
-\method{plot}{dbbin}(
-  x,
-  y = NULL,
-  type = c("line", "points", "connected"),
-  ci = FALSE,
-  level = 0.05,
-  backend = c("auto", "tinyplot", "base"),
-  ...
-)
+\method{plot}{dbbin}(x, y = NULL, ci = TRUE, line = TRUE, ...)
 }
 \arguments{
 \item{x}{A dbbin object}
 
 \item{y}{Ignored (for S3 consistency)}
 
-\item{type}{Plot type: "line" (piecewise segments), "points" (bin midpoints),
-or "connected" (points connected with lines). Default is "line".}
+\item{ci}{Logical. Show confidence intervals for dots? Default is TRUE.}
 
-\item{ci}{Logical. Show confidence intervals? Default is FALSE.}
+\item{line}{Logical. Show the line overlay if available? Default is TRUE.}
 
-\item{level}{Significance level for confidence intervals. Default is 0.05
-(95\% confidence intervals). Only used when ci = TRUE.}
-
-\item{backend}{Graphics backend: "auto" (use tinyplot if available, else base),
-"tinyplot", or "base". Default is "auto".}
-
-\item{...}{Additional arguments passed to plotting functions}
+\item{...}{Additional arguments passed to tinyplot}
 }
 \description{
-Visualizes binned regression results from \code{\link{dbbin}}, with support for
-different plot types (line segments, points, or connected points) and optional
-confidence intervals.
+Visualizes binned regression results from \code{\link{dbbin}} using tinyplot.
+Plots dots at bin means with optional confidence intervals, and optionally
+overlays a smooth line if computed.
 }
