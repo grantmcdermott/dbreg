@@ -1,0 +1,8 @@
+altdoc: 0.7.0
+pandoc: 3.8.2.1
+pkgdown: 2.1.3
+pkgdown_sha: ~
+last_built: 2025-12-28T21:02:02+0000
+urls:
+  reference: https://grantmcdermott.com/dbreg/man
+  article: https://grantmcdermott.com/dbreg/vignettes

@@ -82,3 +82,6 @@ nyc.db
 /.quarto/
 
 **/*.quarto_ipynb
+altdoc/freeze.rds
+_quarto/*
+!_quarto/_freeze/
