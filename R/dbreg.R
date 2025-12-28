@@ -90,7 +90,7 @@
 #'   by supplying `verbose = TRUE`, or set globally via
 #'   `options(dbreg.verbose = TRUE)`.
 #' @param ... Additional arguments. Currently ignored, except to handle
-#'   superseded arguments for backwards compatability.
+#'   superseded arguments for backwards compatibility.
 #'
 #' @return A list of class "dbreg" containing various slots, including a table
 #' of coefficients (which the associated `print` method will display).
