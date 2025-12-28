@@ -74,7 +74,7 @@
 #' This distinction only matters for small samples. For large datasets
 #' (`dbreg`'s target use case), the difference is negligible and hence we
 #' default to the simple `"full"` option.
-#' @param query_only Logical indicating whether only the underlying compression
+#' @param sql_only Logical indicating whether only the underlying compression
 #'   SQL query should be returned (i.e., no computation will be performed).
 #'   Default is `FALSE`.
 #' @param data_only Logical indicating whether only the compressed dataset
@@ -89,6 +89,8 @@
 #'   console? Defaults to `FALSE`. This can be overridden for a single call
 #'   by supplying `verbose = TRUE`, or set globally via
 #'   `options(dbreg.verbose = TRUE)`.
+#' @param ... Additional arguments. Currently ignored, except to handle
+#'   superseded arguments for backwards compatability.
 #'
 #' @return A list of class "dbreg" containing various slots, including a table
 #' of coefficients (which the associated `print` method will display).
@@ -262,10 +264,11 @@ dbreg = function(
   compress_nmax = 1e6,
   cluster = NULL,
   ssc = c("full", "nested"),
-  query_only = FALSE,
+  sql_only = FALSE,
   data_only = FALSE,
   drop_missings = TRUE,
-  verbose = getOption("dbreg.verbose", FALSE)
+  verbose = getOption("dbreg.verbose", FALSE),
+  ...
 ) {
 
   verbose = isTRUE(verbose)
@@ -295,6 +298,15 @@ dbreg = function(
   strategy = match.arg(strategy)
   if (strategy == "within") strategy = "demean"  # alias
 
+  # superseded args handled through ...
+  dots = list(...)
+  if (length(dots)) {
+    if (!is.null(dots[["query_only"]]) && !identical(sql_only, dots[["query_only"]])) {
+      sql_only = dots[["query_only"]]
+      warning("The `query_only` argument has been superseded by `sql_only` and will be deprecated in a future `dbreg` release.\n")
+    }
+  }
+
   # Process and validate inputs
   inputs = process_dbreg_inputs(
     fml = fml,
@@ -306,7 +318,7 @@ dbreg = function(
     cluster = cluster,
     ssc = ssc,
     strategy = strategy,
-    query_only = query_only,
+    sql_only = sql_only,
     data_only = data_only,
     compress_ratio = compress_ratio,
     compress_nmax = compress_nmax,
@@ -347,7 +359,7 @@ process_dbreg_inputs = function(
   cluster,
   ssc,
   strategy,
-  query_only,
+  sql_only,
   data_only,
   compress_ratio,
   compress_nmax,
@@ -487,7 +499,7 @@ process_dbreg_inputs = function(
     cluster_var = cluster_var,
     ssc = ssc,
     strategy = strategy,
-    query_only = query_only,
+    sql_only = sql_only,
     data_only = data_only,
     compress_ratio = compress_ratio,
     compress_nmax = compress_nmax,
@@ -800,7 +812,7 @@ execute_moments_strategy = function(inputs) {
     "\nFROM base"
   )
 
-  if (inputs$query_only) {
+  if (inputs$sql_only) {
     return(moments_sql)
   }
   if (inputs$verbose) {
@@ -1130,7 +1142,7 @@ execute_demean_strategy = function(inputs) {
     demean_sql = gsub("FLOAT", "REAL", demean_sql, fixed = TRUE)
   }
 
-  if (inputs$query_only) {
+  if (inputs$sql_only) {
     return(demean_sql)
   }
 
@@ -1345,7 +1357,7 @@ execute_mundlak_strategy = function(inputs) {
     mundlak_sql = gsub("FLOAT", "REAL", mundlak_sql, fixed = TRUE)
   }
 
-  if (inputs$query_only) {
+  if (inputs$sql_only) {
     return(mundlak_sql)
   }
 
@@ -1506,7 +1518,7 @@ execute_compress_strategy = function(inputs) {
     FROM cte"
   )
 
-  if (inputs$query_only) {
+  if (inputs$sql_only) {
     return(query_string)
   }
   if (inputs$verbose) {
@@ -2040,7 +2052,7 @@ gen_coeftable = function(betahat, vcov_mat, df_residual) {
 #' Finalize dbreg result object
 #' @keywords internal
 finalize_dbreg_result = function(result, inputs, chosen_strategy) {
-  if (inputs$query_only) {
+  if (inputs$sql_only) {
     cat(result)
     return(invisible(result))
   }

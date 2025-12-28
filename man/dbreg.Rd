@@ -16,10 +16,11 @@ dbreg(
   compress_nmax = 1e+06,
   cluster = NULL,
   ssc = c("full", "nested"),
-  query_only = FALSE,
+  sql_only = FALSE,
   data_only = FALSE,
   drop_missings = TRUE,
-  verbose = getOption("dbreg.verbose", FALSE)
+  verbose = getOption("dbreg.verbose", FALSE),
+  ...
 )
 }
 \arguments{
@@ -101,7 +102,7 @@ This distinction only matters for small samples. For large datasets
 (\code{dbreg}'s target use case), the difference is negligible and hence we
 default to the simple \code{"full"} option.}
 
-\item{query_only}{Logical indicating whether only the underlying compression
+\item{sql_only}{Logical indicating whether only the underlying compression
 SQL query should be returned (i.e., no computation will be performed).
 Default is \code{FALSE}.}
 
@@ -119,6 +120,9 @@ to skip some internal checks. (Even then, it probably isn't worth it.)}
 console? Defaults to \code{FALSE}. This can be overridden for a single call
 by supplying \code{verbose = TRUE}, or set globally via
 \code{options(dbreg.verbose = TRUE)}.}
+
+\item{...}{Additional arguments. Currently ignored, except to handle
+superseded arguments for backwards compatability.}
 }
 \value{
 A list of class "dbreg" containing various slots, including a table

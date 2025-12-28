@@ -14,7 +14,7 @@ process_dbreg_inputs(
   cluster,
   ssc,
   strategy,
-  query_only,
+  sql_only,
   data_only,
   compress_ratio,
   compress_nmax,
