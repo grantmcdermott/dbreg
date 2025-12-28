@@ -819,9 +819,13 @@ add_basis_columns = function(binned_data, geo, x_name, degree) {
   # This gives u in [0, 1] for each bin
   binned_data$u = (binned_data[[x_name]] - binned_data$x_left) / binned_data$h
   
-  for (d in 2:degree) {
-    col_name = paste0("u", d)
-    binned_data[[col_name]] = binned_data$u^d
+  # Add higher-order terms only if degree >= 2
+  # Note: In R, 2:1 produces c(2,1) not empty, so we need explicit check
+  if (degree >= 2) {
+    for (d in 2:degree) {
+      col_name = paste0("u", d)
+      binned_data[[col_name]] = binned_data$u^d
+    }
   }
   
   return(binned_data)
@@ -887,10 +891,13 @@ execute_unconstrained_binsreg = function(inputs) {
       binned_data[[col_name]] = ifelse(binned_data$bin == bin_val, binned_data$u, 0)
       
       # Create higher-order polynomial terms: u2_i, u3_i, ..., u{degree}_i
-      for (d in 2:inputs$degree) {
-        col_name_d = paste0("u", d, "_", bin_num)
-        u_col = paste0("u", d)
-        binned_data[[col_name_d]] = ifelse(binned_data$bin == bin_val, binned_data[[u_col]], 0)
+      # Note: In R, 2:1 produces c(2,1) not empty, so we need explicit check
+      if (inputs$degree >= 2) {
+        for (d in 2:inputs$degree) {
+          col_name_d = paste0("u", d, "_", bin_num)
+          u_col = paste0("u", d)
+          binned_data[[col_name_d]] = ifelse(binned_data$bin == bin_val, binned_data[[u_col]], 0)
+        }
       }
     }
   }
@@ -914,9 +921,12 @@ execute_unconstrained_binsreg = function(inputs) {
     fml_rhs = paste("0 + bin", u_terms, sep = " + ")
     
     # Higher-order polynomial terms
-    for (d in 2:degree) {
-      ud_terms = paste0("u", d, "_", present_bins, collapse = " + ")
-      fml_rhs = paste(fml_rhs, ud_terms, sep = " + ")
+    # Note: In R, 2:1 produces c(2,1) not empty, so we need explicit check
+    if (degree >= 2) {
+      for (d in 2:degree) {
+        ud_terms = paste0("u", d, "_", present_bins, collapse = " + ")
+        fml_rhs = paste(fml_rhs, ud_terms, sep = " + ")
+      }
     }
   }
   
@@ -1394,10 +1404,13 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
       result = b0 + b1 * u
       
       # Higher-order polynomial terms: u^2, u^3, ..., u^degree
-      for (d in 2:degree) {
-        bd_name = sprintf("u%d_%d", d, bin)
-        bd = if (bd_name %in% coef_names) coef_vals[bd_name] else 0
-        result = result + bd * u^d
+      # Note: In R, 2:1 produces c(2,1) not empty, so we need explicit check
+      if (degree >= 2) {
+        for (d in 2:degree) {
+          bd_name = sprintf("u%d_%d", d, bin)
+          bd = if (bd_name %in% coef_names) coef_vals[bd_name] else 0
+          result = result + bd * u^d
+        }
       }
       
       result
@@ -1436,12 +1449,15 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
         w = c(b0_w, if (!is.null(b1_idx)) u else NULL)
         
         # Higher-order polynomial terms: u^2, u^3, ..., u^degree
-        for (d in 2:degree) {
-          bd_name = sprintf("u%d_%d", d, bin)
-          bd_idx = if (bd_name %in% coef_names) bd_name else NULL
-          if (!is.null(bd_idx)) {
-            idx = c(idx, bd_idx)
-            w = c(w, u^d)
+        # Note: In R, 2:1 produces c(2,1) not empty, so we need explicit check
+        if (degree >= 2) {
+          for (d in 2:degree) {
+            bd_name = sprintf("u%d_%d", d, bin)
+            bd_idx = if (bd_name %in% coef_names) bd_name else NULL
+            if (!is.null(bd_idx)) {
+              idx = c(idx, bd_idx)
+              w = c(w, u^d)
+            }
           }
         }
         
