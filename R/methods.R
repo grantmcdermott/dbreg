@@ -5,14 +5,15 @@
 #' Extract coefficients from dbreg objects
 #'
 #' @param object A `dbreg` object.
-#' @param fes Should the fixed effects be included? Default is `FALSE`.
-#' @param ... Additional arguments (currently unused).
+#' @param fe Should the fixed effects be included? Default is `FALSE`.
+#' @param ... Additional arguments. Currently unused, except to capture
+#' superseded arguments.
 #' @examples
 #' mod = dbreg(Temp ~ Wind | Month, data = airquality, verbose = FALSE)
 #' 
 #' # coefficients
 #' coef(mod)
-#' coef(mod, fes = TRUE)  # include fixed effects
+#' coef(mod, fe = TRUE)  # include fixed effects
 #' 
 #' # confidence intervals
 #' confint(mod)
@@ -24,10 +25,21 @@
 #' head(predict(mod, newdata = airquality))
 #' head(predict(mod, newdata = airquality, interval = "confidence"))
 #' @export
-coef.dbreg = function(object, fes = FALSE, ...) {
+coef.dbreg = function(object, fe = FALSE, ...) {
+  
+  # superseded args handled through ...
+  dots = list(...)
+  if (length(dots)) {
+    if (!is.null(dots[["fes"]]) && !identical(fe, dots[["fes"]])) {
+      fe = dots[["fes"]]
+      warning('The `fes` argument has been superseded by `fe` (without the "s") and will be deprecated in a future `dbreg` release.\n')
+
+    }
+  }
+  
   ct = object[["coeftable"]]
   
-  if (!isTRUE(fes) && !is.null(object$fes)) {
+  if (!isTRUE(fe) && !is.null(object$fe)) {
     xvars = object[["xvars"]]
     ct = ct[xvars, , drop = FALSE]
   }
@@ -102,15 +114,15 @@ predict.dbreg = function(
   }
 
   # Extract common components from object
-  betas = coef(object, fes = TRUE)
+  betas = coef(object, fe = TRUE)
   fml = object$fml
-  fes = object$fes
+  fe = object$fe
   xvars = object$xvars
   yvar = object$yvar
 
   # Ensure FE columns are factors
-  for (fe in fes) {
-    newdata[[fe]] = factor(newdata[[fe]])
+  for (f in fe) {
+    newdata[[f]] = factor(newdata[[f]])
   }
 
   if (strategy == "demean") {
@@ -118,8 +130,8 @@ predict.dbreg = function(
     has_y = yvar %in% names(newdata)
     mean_fn = function(y) mean(y, na.rm = TRUE)
     
-    if (length(fes) == 1) {
-      fe1 = fes[1]
+    if (length(fe) == 1) {
+      fe1 = fe[1]
       # Demean X using group means from newdata
       mm = sapply(xvars, \(v) {
         x_mean = ave(newdata[[v]], newdata[[fe1]], FUN = mean_fn)
@@ -138,8 +150,8 @@ predict.dbreg = function(
       
     } else {
       # 2-FE: double demeaning
-      fe1 = fes[1]
-      fe2 = fes[2]
+      fe1 = fe[1]
+      fe2 = fe[2]
       
       # Demean X using double-demeaning from newdata
       mm = sapply(xvars, \(v) {
@@ -167,12 +179,12 @@ predict.dbreg = function(
     # Create group means for Mundlak prediction
     gmeans = c()
     for (x in xvars) {
-      for (fe in fes) {
-        demean_x = paste0(x, "_bar_", fe)
+      for (f in fe) {
+        demean_x = paste0(x, "_bar_", f)
         gmeans = c(gmeans, demean_x)
         newdata[[demean_x]] = ave(
           newdata[[x]],
-          newdata[[fe]],
+          newdata[[f]],
           FUN = function(y) mean(y, na.rm = TRUE)
         )
       }
@@ -185,7 +197,7 @@ predict.dbreg = function(
     mm = sparse.model.matrix(fml, data = newdata)
   } else {
     # compress/moments: use sparse model matrix with FE dummies
-    mm = sparse.model.matrix(reformulate(c(xvars, fes)), data = newdata)
+    mm = sparse.model.matrix(reformulate(c(xvars, fe)), data = newdata)
   }
 
   # Generate predictions
@@ -235,15 +247,27 @@ vcov.dbreg = function(object, ...) {
 #'   intervals, either a vector of numbers or a vector of names. If missing,
 #'   all parameters are considered.
 #' @param level the confidence level required. Default is 0.95.
-#' @param fes Should the fixed effects be included? Default is `FALSE`.
-#' @param ... Additional arguments (currently unused).
+#' @param fe Should the fixed effects be included? Default is `FALSE`.
+#' @param ... Additional arguments. Currently unused, except to capture
+#' superseded arguments.
 #' @inherit coef.dbreg examples
 #' @importFrom stats qt
 #' @export
-confint.dbreg = function(object, parm, level = 0.95, fes = FALSE, ...) {
+confint.dbreg = function(object, parm, level = 0.95, fe = FALSE, ...) {
+
+  # superseded args handled through ...
+  dots = list(...)
+  if (length(dots)) {
+    if (!is.null(dots[["fes"]]) && !identical(fe, dots[["fes"]])) {
+      fe = dots[["fes"]]
+      warning('The `fes` argument has been superseded by `fe` (without the "s") and will be deprecated in a future `dbreg` release.\n')
+
+    }
+  }
+
   ct = object[["coeftable"]]
   
-  if (!isTRUE(fes) && !is.null(object$fes)) {
+  if (!isTRUE(fe) && !is.null(object$fe)) {
     xvars = object[["xvars"]]
     ct = ct[xvars, , drop = FALSE]
   }

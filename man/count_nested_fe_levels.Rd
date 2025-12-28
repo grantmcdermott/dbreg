@@ -4,7 +4,7 @@
 \alias{count_nested_fe_levels}
 \title{Count levels of FE variables nested within cluster variable}
 \usage{
-count_nested_fe_levels(conn, from_statement, fes, cluster_var)
+count_nested_fe_levels(conn, from_statement, fe, cluster_var)
 }
 \description{
 For ssc = "nested", we exclude FE levels from K if the FE is nested within

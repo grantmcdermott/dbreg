@@ -247,7 +247,7 @@ coef(lm(Temp ~ Wind + factor(Month), data = airquality))
 
 # aside: dbreg's default print method hides the "nuisance" coefficients
 # like the intercept and fixed effect(s). But we can grab them if we want.
-print(mod, fes = TRUE)
+print(mod, fe = TRUE)
 
 # "robust" SEs can also be computed using a sufficient statistics approach
 dbreg(Temp ~ Wind | Month, data = airquality, vcov = "hc1")

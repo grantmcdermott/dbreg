@@ -4,14 +4,15 @@
 \alias{print.dbreg}
 \title{Print method for dbreg objects}
 \usage{
-\method{print}{dbreg}(x, fes = FALSE, ...)
+\method{print}{dbreg}(x, fe = FALSE, ...)
 }
 \arguments{
 \item{x}{`dbreg` object.}
 
-\item{fes}{Should the fixed effects be displayed? Default is `FALSE`.}
+\item{fe}{Should the fixed effects be displayed? Default is `FALSE`.}
 
-\item{...}{Other arguments passed to \code{\link[base]{print}}. Not currently used.}
+\item{...}{Other arguments passed to \code{\link[base]{print}}. Currently
+unused, except to capture superseded arguments.}
 }
 \description{
 Print method for dbreg objects

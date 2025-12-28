@@ -4,7 +4,7 @@
 \alias{confint.dbreg}
 \title{Confidence intervals for dbreg objects}
 \usage{
-\method{confint}{dbreg}(object, parm, level = 0.95, fes = FALSE, ...)
+\method{confint}{dbreg}(object, parm, level = 0.95, fe = FALSE, ...)
 }
 \arguments{
 \item{object}{A `dbreg` object.}
@@ -15,9 +15,10 @@ all parameters are considered.}
 
 \item{level}{the confidence level required. Default is 0.95.}
 
-\item{fes}{Should the fixed effects be included? Default is `FALSE`.}
+\item{fe}{Should the fixed effects be included? Default is `FALSE`.}
 
-\item{...}{Additional arguments (currently unused).}
+\item{...}{Additional arguments. Currently unused, except to capture
+superseded arguments.}
 }
 \description{
 Confidence intervals for dbreg objects
@@ -27,7 +28,7 @@ mod = dbreg(Temp ~ Wind | Month, data = airquality, verbose = FALSE)
 
 # coefficients
 coef(mod)
-coef(mod, fes = TRUE)  # include fixed effects
+coef(mod, fe = TRUE)  # include fixed effects
 
 # confidence intervals
 confint(mod)

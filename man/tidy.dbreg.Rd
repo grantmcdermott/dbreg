@@ -4,7 +4,7 @@
 \alias{tidy.dbreg}
 \title{tidy `dbreg` objects}
 \usage{
-\method{tidy}{dbreg}(x, conf.int = FALSE, conf.level = 0.95, fes = FALSE, ...)
+\method{tidy}{dbreg}(x, conf.int = FALSE, conf.level = 0.95, fe = FALSE, ...)
 }
 \arguments{
 \item{x}{a model of class `dbreg` produced by the [dbreg()] function}
@@ -14,7 +14,7 @@ Default is `FALSE`.}
 
 \item{conf.level}{Confidence level for intervals. Default is 0.95.}
 
-\item{fes}{Should the fixed effects be tidied too? Default is `FALSE`.}
+\item{fe}{Should the fixed effects be tidied too? Default is `FALSE`.}
 
 \item{...}{Additional arguments to tidying method.}
 }
