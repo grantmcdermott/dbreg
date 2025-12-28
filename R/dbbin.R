@@ -38,7 +38,8 @@
 #' @param ci Logical. Calculate standard errors and confidence intervals for dots?
 #'   Default is TRUE.
 #' @param vcov Character string or formula for standard errors. Options are
-#'   "iid" (default if ci=TRUE), "HC1", or a clustering formula like ~cluster_var.
+#'   "HC1" (default, heteroskedasticity-robust, matches binsreg), "iid", or a
+#'   clustering formula like ~cluster_var.
 #' @param level Confidence level as a percentage (e.g., 95 for 95% CI). Default is 95.
 #' @param strategy Acceleration strategy passed to dbreg when smoothness is 0.
 #'   Options are "auto" (default), "compress", or "scan". This parameter is
@@ -218,8 +219,9 @@ dbbin = function(
   alpha = 1 - level / 100
   
   # Handle vcov / ci interaction
+  # Default to HC1 (heteroskedasticity-robust) to match binsreg package
   if (isTRUE(ci) && is.null(vcov)) {
-    vcov = "iid"
+    vcov = "HC1"
   }
   
   # Parse formula using Formula package (same pattern as dbreg)
