@@ -797,7 +797,12 @@ compute_bin_geometry = function(binned_data, x_name) {
 }
 
 
-#' Add centered polynomial basis to binned data
+#' Add normalized polynomial basis to binned data (binsreg compatible)
+#' 
+#' Uses binsreg's basis construction: u = (x - x_left) / h where h is bin width.
+#' This normalizes u to [0, 1] within each bin, matching binsreg's polynomial 
+#' parameterization for s=0 (unconstrained) estimation.
+#' 
 #' @keywords internal
 add_basis_columns = function(binned_data, geo, x_name, degree) {
   
@@ -805,14 +810,18 @@ add_basis_columns = function(binned_data, geo, x_name, degree) {
     return(binned_data)  # No basis needed for means
   }
   
-  # Merge in x_mid
-  binned_data = merge(binned_data, geo[, c("bin", "x_mid")], by = "bin")
+
+  # Merge in bin geometry (x_left and bin width h)
+  geo$h = geo$x_right - geo$x_left
+  binned_data = merge(binned_data, geo[, c("bin", "x_left", "h")], by = "bin")
   
-  # Add centered polynomial terms
-  binned_data$u = binned_data[[x_name]] - binned_data$x_mid
+  # Add normalized polynomial terms matching binsreg: u = (x - x_left) / h
+  # This gives u in [0, 1] for each bin
+  binned_data$u = (binned_data[[x_name]] - binned_data$x_left) / binned_data$h
   
-  if (degree >= 2) {
-    binned_data$u2 = binned_data$u^2
+  for (d in 2:degree) {
+    col_name = paste0("u", d)
+    binned_data[[col_name]] = binned_data$u^d
   }
   
   return(binned_data)
@@ -877,9 +886,11 @@ execute_unconstrained_binsreg = function(inputs) {
       col_name = paste0("u_", bin_num)
       binned_data[[col_name]] = ifelse(binned_data$bin == bin_val, binned_data$u, 0)
       
-      if (inputs$degree >= 2) {
-        col_name2 = paste0("u2_", bin_num)
-        binned_data[[col_name2]] = ifelse(binned_data$bin == bin_val, binned_data$u2, 0)
+      # Create higher-order polynomial terms: u2_i, u3_i, ..., u{degree}_i
+      for (d in 2:inputs$degree) {
+        col_name_d = paste0("u", d, "_", bin_num)
+        u_col = paste0("u", d)
+        binned_data[[col_name_d]] = ifelse(binned_data$bin == bin_val, binned_data[[u_col]], 0)
       }
     }
   }
@@ -894,19 +905,19 @@ execute_unconstrained_binsreg = function(inputs) {
     # Bin means: y ~ 0 + bin
     fml_rhs = "0 + bin"
     
-  } else if (degree == 1) {
-    # Piecewise linear: y ~ 0 + bin + u_1 + ...
-    # Only include u_i for present bins
+  } else {
+    # Piecewise polynomial: y ~ 0 + bin + u_1 + ... [+ u2_1 + ... + u{degree}_1 + ...]
     present_bins = sort(as.integer(as.character(unique(binned_data$bin))))
+    
+    # Linear terms
     u_terms = paste0("u_", present_bins, collapse = " + ")
     fml_rhs = paste("0 + bin", u_terms, sep = " + ")
     
-  } else {
-    # Piecewise quadratic
-    present_bins = sort(as.integer(as.character(unique(binned_data$bin))))
-    u_terms = paste0("u_", present_bins, collapse = " + ")
-    u2_terms = paste0("u2_", present_bins, collapse = " + ")
-    fml_rhs = paste("0 + bin", u_terms, u2_terms, sep = " + ")
+    # Higher-order polynomial terms
+    for (d in 2:degree) {
+      ud_terms = paste0("u", d, "_", present_bins, collapse = " + ")
+      fml_rhs = paste(fml_rhs, ud_terms, sep = " + ")
+    }
   }
   
   # Add controls if present
@@ -1352,13 +1363,17 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
     } else NULL
     
   } else {
-    # Degree >= 1: piecewise polynomial y = b0 + b1*u + b2*u^2 where u = x - x_mid
+    # Degree >= 1: piecewise polynomial using normalized basis (binsreg compatible)
+    # u = (x - x_left) / h where h is bin width, giving u in [0, 1]
     eval_fn = function(x_val, bin) {
       bin_col = paste0("bin", bin)
       bin_idx = which(geo$bin == bin)
       if (length(bin_idx) == 0) return(NA_real_)
-      x_mid = geo$x_mid[bin_idx]
-      u = x_val - x_mid
+      
+      # Normalized basis: u = (x - x_left) / h
+      x_left = geo$x_left[bin_idx]
+      h = geo$x_right[bin_idx] - x_left
+      u = (x_val - x_left) / h
       
       # Get intercept (b0)
       if (!has_intercept) {
@@ -1375,15 +1390,17 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
       b1_name = sprintf("u_%d", bin)
       b1 = if (b1_name %in% coef_names) coef_vals[b1_name] else 0
       
-      # Quadratic term
-      if (degree >= 2) {
-        b2_name = sprintf("u2_%d", bin)
-        b2 = if (b2_name %in% coef_names) coef_vals[b2_name] else 0
-      } else {
-        b2 = 0
+      # Start with intercept + linear term
+      result = b0 + b1 * u
+      
+      # Higher-order polynomial terms: u^2, u^3, ..., u^degree
+      for (d in 2:degree) {
+        bd_name = sprintf("u%d_%d", d, bin)
+        bd = if (bd_name %in% coef_names) coef_vals[bd_name] else 0
+        result = result + bd * u^d
       }
       
-      b0 + b1 * u + b2 * u^2
+      result
     }
     
     se_fn = if (!is.null(V_beta)) {
@@ -1391,8 +1408,11 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
         bin_col = paste0("bin", bin)
         bin_idx = which(geo$bin == bin)
         if (length(bin_idx) == 0) return(NA_real_)
-        x_mid = geo$x_mid[bin_idx]
-        u = x_val - x_mid
+        
+        # Normalized basis: u = (x - x_left) / h
+        x_left = geo$x_left[bin_idx]
+        h = geo$x_right[bin_idx] - x_left
+        u = (x_val - x_left) / h
         
         # Build coefficient indices and weights
         if (!has_intercept) {
@@ -1408,18 +1428,22 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
           }
         }
         
+        # Linear term
         b1_name = sprintf("u_%d", bin)
         b1_idx = if (b1_name %in% coef_names) b1_name else NULL
         
-        if (degree >= 2) {
-          b2_name = sprintf("u2_%d", bin)
-          b2_idx = if (b2_name %in% coef_names) b2_name else NULL
-        } else {
-          b2_idx = NULL
-        }
+        idx = c(b0_idx, b1_idx)
+        w = c(b0_w, if (!is.null(b1_idx)) u else NULL)
         
-        idx = c(b0_idx, b1_idx, b2_idx)
-        w = c(b0_w, if (!is.null(b1_idx)) u else NULL, if (!is.null(b2_idx)) u^2 else NULL)
+        # Higher-order polynomial terms: u^2, u^3, ..., u^degree
+        for (d in 2:degree) {
+          bd_name = sprintf("u%d_%d", d, bin)
+          bd_idx = if (bd_name %in% coef_names) bd_name else NULL
+          if (!is.null(bd_idx)) {
+            idx = c(idx, bd_idx)
+            w = c(w, u^d)
+          }
+        }
         
         if (length(idx) == 0) return(NA_real_)
         get_se(idx, w)

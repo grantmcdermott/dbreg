@@ -2,11 +2,13 @@
 % Please edit documentation in R/dbbin.R
 \name{add_basis_columns}
 \alias{add_basis_columns}
-\title{Add centered polynomial basis to binned data}
+\title{Add normalized polynomial basis to binned data (binsreg compatible)}
 \usage{
 add_basis_columns(binned_data, geo, x_name, degree)
 }
 \description{
-Add centered polynomial basis to binned data
+Uses binsreg's basis construction: u = (x - x_left) / h where h is bin width.
+This normalizes u to [0, 1] within each bin, matching binsreg's polynomial 
+parameterization for s=0 (unconstrained) estimation.
 }
 \keyword{internal}
