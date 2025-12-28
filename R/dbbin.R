@@ -146,9 +146,7 @@ dbbin = function(
     if (dots_s > dots_p) {
       stop("dots: smoothness s must be <= degree p (got dots = c(", dots_p, ", ", dots_s, "))")
     }
-    if (dots_p > 2) {
-      stop("dots: degree > 2 not supported")
-    }
+    # Note: p > 2 is now supported via truncated power spline basis
   } else {
     stop("dots must be NULL, FALSE, TRUE, or a vector c(p, s) with p = degree, s = smoothness")
   }
@@ -170,9 +168,7 @@ dbbin = function(
       if (line_s > line_p) {
         stop("line: smoothness s must be <= degree p (got line = c(", line_p, ", ", line_s, "))")
       }
-      if (line_p > 2) {
-        stop("line: degree > 2 not supported")
-      }
+      # Note: p > 2 is now supported via truncated power spline basis
     } else {
       stop("line must be NULL, FALSE, TRUE, or a vector c(p, s)")
     }
@@ -481,6 +477,8 @@ dbbin = function(
     result = execute_separate_binsreg(inputs)
   } else {
     # Single model for both dots and line
+    # Use unconstrained path for s=0 (bin dummies, can use compress strategy)
+    # Use constrained path for s>0 (spline basis, requires row-level data)
     if (smooth == 0) {
       result = execute_unconstrained_binsreg(inputs)
     } else {
@@ -820,11 +818,6 @@ add_basis_columns = function(binned_data, geo, x_name, degree) {
   return(binned_data)
 }
 
-
-#
-## Design OLS Engine ----
-#
-
 #' Execute unconstrained binned regression (smooth = 0)
 #' 
 #' Uses dbreg() with design matrix approach for fast unconstrained estimation.
@@ -1087,27 +1080,38 @@ execute_constrained_binsreg = function(inputs) {
   basis_exprs = character()
   
   # Global polynomial part (excluding intercept, which dbreg handles)
-  if (degree >= 1) {
-    basis_names = c(basis_names, "x_spline")
-    basis_exprs = c(basis_exprs, glue("{x_name} AS x_spline"))
-  }
-  if (degree >= 2) {
-    basis_names = c(basis_names, "x2_spline")
-    basis_exprs = c(basis_exprs, glue("({x_name} * {x_name}) AS x2_spline"))
+  # x, x^2, x^3, ..., x^degree
+  for (d in seq_len(degree)) {
+    col_name = paste0("x", d, "_spline")
+    basis_names = c(basis_names, col_name)
+    if (d == 1) {
+      # x^1 = x (no POWER needed)
+      basis_exprs = c(basis_exprs, glue("{x_name} AS {col_name}"))
+    } else {
+      # x^d using POWER()
+      basis_exprs = c(basis_exprs, glue("POWER({x_name}, {d}) AS {col_name}"))
+    }
   }
   
   # Truncated power terms at each knot: (x - κ_j)₊^r for r = smooth, ..., degree
+  # When degree=0 and smooth=0, r=0 creates step functions (bin indicators)
   for (j in seq_along(knots)) {
     kappa = knots[j]
     for (r in smooth:degree) {
       col_name = sprintf("knot%d_pow%d", j, r)
       
-      if (r == 1) {
+      if (r == 0) {
+        # (x - κ)₊⁰ = step function: 1 if x > κ, 0 otherwise (bin indicator shift)
+        expr = glue("CASE WHEN {x_name} > {kappa} THEN 1.0 ELSE 0.0 END AS {col_name}")
+      } else if (r == 1) {
         # (x - κ)₊ = CASE WHEN x > κ THEN x - κ ELSE 0 END
         expr = glue("CASE WHEN {x_name} > {kappa} THEN {x_name} - {kappa} ELSE 0 END AS {col_name}")
       } else if (r == 2) {
         # (x - κ)₊² = CASE WHEN x > κ THEN (x - κ)² ELSE 0 END
         expr = glue("CASE WHEN {x_name} > {kappa} THEN ({x_name} - {kappa}) * ({x_name} - {kappa}) ELSE 0 END AS {col_name}")
+      } else {
+        # General case for r > 2
+        expr = glue("CASE WHEN {x_name} > {kappa} THEN POWER({x_name} - {kappa}, {r}) ELSE 0 END AS {col_name}")
       }
       basis_names = c(basis_names, col_name)
       basis_exprs = c(basis_exprs, expr)
@@ -1208,12 +1212,12 @@ evaluate_spline_at_bins = function(fit, geo, knots, degree, smooth, basis_names,
     bvec = numeric(length(basis_names))
     names(bvec) = basis_names
     
-    # Global polynomial part
-    if (degree >= 1 && "x_spline" %in% basis_names) {
-      bvec["x_spline"] = x_val
-    }
-    if (degree >= 2 && "x2_spline" %in% basis_names) {
-      bvec["x2_spline"] = x_val^2
+    # Global polynomial part: x^1, x^2, ..., x^degree
+    for (d in seq_len(degree)) {
+      col_name = paste0("x", d, "_spline")
+      if (col_name %in% basis_names) {
+        bvec[col_name] = x_val^d
+      }
     }
     
     # Knot features
@@ -1221,7 +1225,13 @@ evaluate_spline_at_bins = function(fit, geo, knots, degree, smooth, basis_names,
       for (r in smooth:degree) {
         col_name = sprintf("knot%d_pow%d", j, r)
         if (col_name %in% basis_names) {
-          bvec[col_name] = pmax(0, x_val - knots[j])^r
+          if (r == 0) {
+            # Step function: 1 if x > knot, 0 otherwise
+            bvec[col_name] = as.numeric(x_val > knots[j])
+          } else {
+            # Truncated power: (x - κ)₊^r
+            bvec[col_name] = pmax(0, x_val - knots[j])^r
+          }
         }
       }
     }
