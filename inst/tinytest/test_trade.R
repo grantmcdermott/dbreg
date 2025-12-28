@@ -43,18 +43,18 @@ for (i in seq_along(dict_db)) {
 expect_true(trade_dbreg$nobs == 210)
 
 
-# Query-only mode
+# SQL query-only mode
 
 invisible(capture.output({
-  trade_query = dbreg(
+  trade_sql = dbreg(
     trade_fml,
     data = trade,
     verbose = FALSE,
-    query_only = TRUE
+    sql_only = TRUE
   )
 }))
-expect_true(is.character(trade_query))
-expect_true(grepl("^WITH", trade_query))
+expect_true(is.character(trade_sql))
+expect_true(grepl("^WITH", trade_sql))
 
 # Data-only mode
 

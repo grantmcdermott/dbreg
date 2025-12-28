@@ -10,19 +10,29 @@ generics::tidy
 #' @param conf.int Logical indicating whether to include confidence intervals.
 #'   Default is `FALSE`.
 #' @param conf.level Confidence level for intervals. Default is 0.95.
-#' @param fes Should the fixed effects be tidied too? Default is `FALSE`.
+#' @param fe Should the fixed effects be tidied too? Default is `FALSE`.
 #' @param ... Additional arguments to tidying method.
 #' @export
-tidy.dbreg = function(x, conf.int = FALSE, conf.level = 0.95, fes = FALSE, ...) {
+tidy.dbreg = function(x, conf.int = FALSE, conf.level = 0.95, fe = FALSE, ...) {
+  # superseded args handled through ...
+  dots = list(...)
+  if (length(dots)) {
+    if (!is.null(dots[["fes"]]) && !identical(fe, dots[["fes"]])) {
+      fe = dots[["fes"]]
+      warning(
+        'The `fes` argument has been superseded by `fe` (without the "s") and will be deprecated in a future `dbreg` release.\n'
+      )
+    }
+  }
   ct = x[["coeftable"]]
-  if (!isTRUE(fes) && !is.null(x$fes)) {
+  if (!isTRUE(fe) && !is.null(x$fe)) {
       xvars = x[["xvars"]]
       ct = ct[xvars, , drop = FALSE]
   }
   out = data.frame(term = rownames(ct), ct, row.names = NULL)
   
   if (isTRUE(conf.int)) {
-    ci = confint(x, level = conf.level, fes = fes)
+    ci = confint(x, level = conf.level, fe = fe)
     out$conf.low = ci[, 1]
     out$conf.high = ci[, 2]
   }

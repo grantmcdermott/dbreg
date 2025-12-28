@@ -41,16 +41,16 @@ expect_equal(as.numeric(gof_vals["r2"]), as.numeric(fe_stats$r2), tolerance = 1e
 expect_equal(as.numeric(gof_vals["adj_r2"]), as.numeric(fe_stats$ar2), tolerance = 1e-6)
 expect_equal(as.numeric(gof_vals["rmse"]), as.numeric(fe_stats$rmse), tolerance = 1e-6)
 
-# Test fes argument
-mod_nofes = dbreg(
+# Test fe argument
+mod_nofe = dbreg(
   Temp ~ Wind | Month,
   data = airquality
 )
 
-ci_nofes = confint(mod_nofes, fes = FALSE)
-expect_equal(nrow(ci_nofes), 1)
-expect_equal(rownames(ci_nofes), "Wind")
+ci_nofe = confint(mod_nofe, fe = FALSE)
+expect_equal(nrow(ci_nofe), 1)
+expect_equal(rownames(ci_nofe), "Wind")
 
-ci_fes = confint(mod_nofes, fes = TRUE)
-expect_true(nrow(ci_fes) > 1)
-expect_true("Wind" %in% rownames(ci_fes))
+ci_fe = confint(mod_nofe, fe = TRUE)
+expect_true(nrow(ci_fe) > 1)
+expect_true("Wind" %in% rownames(ci_fe))

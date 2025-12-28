@@ -19,8 +19,11 @@ Breaking changes
   model and thus potentially different coefficients). (#24)
 - The default `verbose` behaviour is changed to `FALSE`. Users can revert to
   the old behaviour for a single call (i.e., `dbreg(..., verbose = TRUE)`), or
-  set it globally (i.e., `options(dbreb.verbose = TRUE)`). (#33)
-
+  set it globally (i.e., `options(dbreg.verbose = TRUE)`). (#33)
+- Technically not a breaking change, since we currently support backwards
+  compatibility, but several minor arguments have been renamed/superseded. (#34)
+  - `query_only` -> `sql_only` (in `dbreg`)
+  - `fes` -> `fe` (in `print.dbreg`, `coef.dbreg`, `confint.dbreg`, etc.)
 
 New features
 
@@ -90,7 +93,6 @@ Bug fixes
   and "meat" of the sandwich matrix. But testing suggests that this leads to a
   <2 increase in total estimation time, which seems a reasonable tradeoff for
   heteroskedastic-robust SEs. (#27)
-
 
 Internals
 

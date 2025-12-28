@@ -4,14 +4,15 @@
 \alias{coef.dbreg}
 \title{Extract coefficients from dbreg objects}
 \usage{
-\method{coef}{dbreg}(object, fes = FALSE, ...)
+\method{coef}{dbreg}(object, fe = FALSE, ...)
 }
 \arguments{
 \item{object}{A `dbreg` object.}
 
-\item{fes}{Should the fixed effects be included? Default is `FALSE`.}
+\item{fe}{Should the fixed effects be included? Default is `FALSE`.}
 
-\item{...}{Additional arguments (currently unused).}
+\item{...}{Additional arguments. Currently unused, except to capture
+superseded arguments.}
 }
 \description{
 Extract coefficients from dbreg objects
@@ -21,7 +22,7 @@ mod = dbreg(Temp ~ Wind | Month, data = airquality, verbose = FALSE)
 
 # coefficients
 coef(mod)
-coef(mod, fes = TRUE)  # include fixed effects
+coef(mod, fe = TRUE)  # include fixed effects
 
 # confidence intervals
 confint(mod)
