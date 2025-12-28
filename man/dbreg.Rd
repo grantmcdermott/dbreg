@@ -122,7 +122,7 @@ by supplying \code{verbose = TRUE}, or set globally via
 \code{options(dbreg.verbose = TRUE)}.}
 
 \item{...}{Additional arguments. Currently ignored, except to handle
-superseded arguments for backwards compatability.}
+superseded arguments for backwards compatibility.}
 }
 \value{
 A list of class "dbreg" containing various slots, including a table
