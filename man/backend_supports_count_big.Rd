@@ -10,11 +10,11 @@ backend_supports_count_big(conn)
 \item{conn}{A DBI database connection object.}
 }
 \value{
-Logical value: `TRUE` if the backend supports `COUNT_BIG`, `FALSE` otherwise.
+Logical value: \code{TRUE} if the backend supports \code{COUNT_BIG}, \code{FALSE} otherwise.
 }
 \description{
 This function checks whether the provided database connection is to a backend
-that supports the `COUNT_BIG` function, such as SQL Server or Azure SQL.
+that supports the \code{COUNT_BIG} function, such as SQL Server or Azure SQL.
 }
 \examples{
 \dontrun{
@@ -22,3 +22,4 @@ that supports the `COUNT_BIG` function, such as SQL Server or Azure SQL.
   backend_supports_count_big(con)
 }
 }
+\keyword{internal}

@@ -7,7 +7,7 @@
 gof(object, ...)
 }
 \arguments{
-\item{object}{A `dbreg` object.}
+\item{object}{A \code{dbreg} object.}
 
 \item{...}{Additional arguments (currently unused)}
 }
@@ -17,4 +17,7 @@ Named vector with r2, adj_r2, and rmse
 \description{
 Calculate goodness-of-fit metrics for dbreg objects
 }
-\keyword{internal}
+\examples{
+mod = dbreg(Temp ~ Wind | Month, data = airquality)
+gof(mod)
+}

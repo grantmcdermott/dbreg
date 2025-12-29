@@ -7,7 +7,7 @@
 execute_demean_strategy(inputs)
 }
 \description{
-Double demeaning / within estimator. Gives identical coefficients to 
+Double demeaning / within estimator. Gives identical coefficients to
 fixed effects regression.
 }
 \keyword{internal}

@@ -8,35 +8,65 @@ project:
 
 website:
   title: "$ALTDOC_PACKAGE_NAME"
-  code-links: true
+  site-url: https://grantmcdermott.com/dbreg/
+  # code-links: true
   navbar:
     search: true
+    left:
+      - text: About
+        menu:
+        - text: News
+          file: $ALTDOC_NEWS
+        - text: Citation
+          file: $ALTDOC_CITATION
+        - text: License
+          file: $ALTDOC_LICENSE
+      - text: Reference
+        file: man/dbreg.qmd
     right:
       - icon: github
         href: $ALTDOC_PACKAGE_URL_GITHUB
         aria-label: $ALTDOC_PACKAGE_NAME GitHub
+        target: _blank
+      - icon: bluesky
+        href: https://bsky.app/profile/gmcd.bsky.social
+        aria-label: "@gmcd.bsky.social"
+        target: _blank
+      - icon: mastodon
+        href: https://mastodon.social/@gmcd
+        aria-label: "@gmcd@mastodon.social"
+        target: _blank
   sidebar:
-    collapse-level: 1
-    contents:
-      - text: Home
-        file: index.md
-      - section: $ALTDOC_VIGNETTE_BLOCK
-      - section: $ALTDOC_MAN_BLOCK
-      - text: News
-        file: $ALTDOC_NEWS
-      - text: Changelog
-        file: $ALTDOC_CHANGELOG
-      - text: License
-        file: $ALTDOC_LICENSE
-      - text: Licence
-        file: $ALTDOC_LICENCE
-      - text: Code of conduct
-        file: $ALTDOC_CODE_OF_CONDUCT
-      - text: Citation
-        file: $ALTDOC_CITATION
-
+    - id: documentation
+      title: Reference
+      style: floating
+      collapse-level: 2
+      contents:
+        - section: "Main functions"
+          contents:
+            - text: dbreg
+              file: man/dbreg.qmd
+        - section: "Methods"
+          contents:
+            - text: coef.dbreg
+              file: man/coef.dbreg.qmd
+            - text: confint.dbreg
+              file: man/confint.dbreg.qmd
+            - text: predict.dbreg
+              file: man/predict.dbreg.qmd
+            - text: print.dbreg
+              file: man/print.dbreg.qmd
+            - text: vcov.dbreg
+              file: man/vcov.dbreg.qmd
+        - section: "Utilities"
+          contents:
+            - text: gof
+              file: man/gof.qmd
+            - text: tidy, glance
+              file: man/tidiers.qmd
 format:
   html:
-    code-link: true
-#     theme: cosmo
+    toc: true
+    # code-link: true
+    theme: cosmo
 #     number-sections: false

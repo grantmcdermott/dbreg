@@ -9,7 +9,7 @@
 #' @param ... Additional arguments. Currently unused, except to capture
 #' superseded arguments.
 #' @examples
-#' mod = dbreg(Temp ~ Wind | Month, data = airquality, verbose = FALSE)
+#' mod = dbreg(Temp ~ Wind | Month, data = airquality)
 #' 
 #' # coefficients
 #' coef(mod)
