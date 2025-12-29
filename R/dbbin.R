@@ -398,13 +398,14 @@ dbbin = function(
       sample_size = max(10000L, ceiling(n_rows * effective_sample_frac))  # at least 10k rows
       random_expr = dbbin_sql_random(backend)
       
-      sample_sql = glue("
+      # Build sample query (backend-specific for LIMIT/TOP)
+      sample_sql_base = glue("
         SELECT {x_name}
         FROM {table_name}
         WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
         ORDER BY {random_expr}
-        LIMIT {sample_size}
       ")
+      sample_sql = dbbin_sql_limit(sample_sql_base, sample_size, backend)
       sampled_data = DBI::dbGetQuery(conn, sample_sql)
       x_sample = sampled_data[[x_name]]
       
@@ -530,7 +531,24 @@ dbbin_sql_count <- function(backend) {
 #' @return SQL NTILE expression
 #' @keywords internal
 dbbin_sql_ntile <- function(x_name, n_bins) {
+
   glue("NTILE({n_bins}) OVER (ORDER BY {x_name})")
+}
+
+#' Apply row limit to a SQL query (backend-specific)
+#' @param query The SQL query string
+#' @param n Number of rows to limit to
+#' @param backend Backend name from detect_backend()
+#' @return SQL query with appropriate LIMIT/TOP clause
+#' @keywords internal
+dbbin_sql_limit <- function(query, n, backend) {
+  if (backend == "sqlserver") {
+    # SQL Server uses TOP n after SELECT
+    sub("^SELECT", paste("SELECT TOP", n), query, ignore.case = TRUE)
+  } else {
+    # Others use LIMIT at the end
+    paste(query, "LIMIT", n)
+  }
 }
 
 
