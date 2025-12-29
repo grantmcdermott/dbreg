@@ -290,6 +290,11 @@ dbbin = function(
     conn_managed = TRUE
   }
   
+  # Detect backend for SQL compatibility
+
+  backend_info = detect_backend(conn)
+  backend = backend_info$name
+  
   # Cleanup function
   cleanup = function() {
     if (conn_managed && DBI::dbIsValid(conn)) {
@@ -309,21 +314,24 @@ dbbin = function(
     table_name = dbplyr::remote_name(data)
     if (is.null(table_name)) {
       # Create temp table from subquery using raw SQL
-      table_name = sprintf("__db_bins_%s_input", 
+      base_name = sprintf("__db_bins_%s_input", 
                           gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-      subquery_sql = dbplyr::sql_render(data)
-      DBI::dbExecute(conn, glue("CREATE TEMPORARY TABLE {table_name} AS {subquery_sql}"))
+      table_name = dbbin_temp_table_name(base_name, backend)
+      subquery_sql = as.character(dbplyr::sql_render(data))
+      dbbin_create_temp_table_as(conn, table_name, subquery_sql, backend)
       temp_tables = c(temp_tables, table_name)
     }
   } else if (is.data.frame(data)) {
     # Copy R dataframe to temp table
-    table_name = sprintf("__db_bins_%s_input", 
+    base_name = sprintf("__db_bins_%s_input", 
                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+    table_name = dbbin_temp_table_name(base_name, backend)
     DBI::dbWriteTable(conn, table_name, data, temporary = TRUE)
     temp_tables = c(temp_tables, table_name)
   } else {
     stop("data must be a dataframe, table name, or lazy table (e.g., from dplyr::tbl())")
   }
+
   
   # Cleanup temp tables
   cleanup_tables = function() {
@@ -523,6 +531,44 @@ dbbin_sql_count <- function(backend) {
 #' @keywords internal
 dbbin_sql_ntile <- function(x_name, n_bins) {
   glue("NTILE({n_bins}) OVER (ORDER BY {x_name})")
+}
+
+
+#' Generate a temp table name with optional SQL Server prefix
+#' @param base_name Base name for the temp table
+#' @param backend Backend name from detect_backend()
+#' @return Temp table name (with # prefix for SQL Server)
+#' @keywords internal
+dbbin_temp_table_name <- function(base_name, backend) {
+  # SQL Server uses # prefix for local temp tables
+  if (backend == "sqlserver") {
+    paste0("#", base_name)
+  } else {
+    base_name
+  }
+}
+
+
+#' Create a temp table from a SELECT query
+#' @param conn Database connection
+#' @param table_name Name for the temp table
+#' @param select_sql The SELECT statement (without CREATE TABLE)
+#' @param backend Backend name from detect_backend()
+#' @keywords internal
+dbbin_create_temp_table_as <- function(conn, table_name, select_sql, backend) {
+  if (backend == "sqlserver") {
+    # SQL Server: SELECT ... INTO #table FROM ...
+    # We need to insert INTO clause after SELECT
+    # Assume select_sql starts with "SELECT"
+    sql <- sub("^SELECT", paste0("SELECT * INTO ", table_name, " FROM (SELECT"), 
+               select_sql, ignore.case = TRUE)
+    sql <- paste0(sql, ") AS __subq")
+    DBI::dbExecute(conn, sql)
+  } else {
+    # Standard SQL: CREATE TEMPORARY TABLE name AS SELECT ...
+    sql <- glue("CREATE TEMPORARY TABLE {table_name} AS {select_sql}")
+    DBI::dbExecute(conn, sql)
+  }
 }
 
 
@@ -1006,26 +1052,25 @@ execute_constrained_binsreg = function(inputs) {
   backend = backend_info$name
   count_expr = dbbin_sql_count(backend)
   
-  # Create temp table name for binned data
-  binned_table = sprintf("__dbbin_%s_binned", 
-                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+  # Create temp table name for binned data (with # prefix for SQL Server)
+  base_table_name = sprintf("__dbbin_%s_binned", 
+                            gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+  binned_table = dbbin_temp_table_name(base_table_name, backend)
   
   # Step 1: Create binned data table with bin assignments
   if (partition_method == "quantile") {
     # NTILE-based quantile binning
     ntile_expr = dbbin_sql_ntile(x_name, B)
-    bin_sql = glue("
-      CREATE TEMPORARY TABLE {binned_table} AS
+    select_sql = glue("
       SELECT *, {ntile_expr} AS bin
       FROM {table_name}
       WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
     ")
-    DBI::dbExecute(conn, bin_sql)
+    dbbin_create_temp_table_as(conn, binned_table, select_sql, backend)
     
   } else if (partition_method == "equal") {
     # Equal-width binning using window functions for min/max
-    bin_sql = glue("
-      CREATE TEMPORARY TABLE {binned_table} AS
+    select_sql = glue("
       SELECT t2.*,
              CASE WHEN raw_bin > {B} THEN {B} ELSE CAST(raw_bin AS INTEGER) END AS bin
       FROM (
@@ -1040,7 +1085,7 @@ execute_constrained_binsreg = function(inputs) {
         ) t1
       ) t2
     ")
-    DBI::dbExecute(conn, bin_sql)
+    dbbin_create_temp_table_as(conn, binned_table, select_sql, backend)
     
   } else if (partition_method == "manual") {
     # Manual breaks: assign bin based on user-specified breakpoints
@@ -1055,14 +1100,13 @@ execute_constrained_binsreg = function(inputs) {
     case_parts = c(case_parts, glue("ELSE {n_bins}"))
     case_expr = paste("CASE", paste(case_parts, collapse = " "), "END")
     
-    bin_sql = glue("
-      CREATE TEMPORARY TABLE {binned_table} AS
+    select_sql = glue("
       SELECT *, {case_expr} AS bin
       FROM {table_name}
       WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
         AND {x_name} >= {breaks[1]} AND {x_name} <= {breaks[length(breaks)]}
     ")
-    DBI::dbExecute(conn, bin_sql)
+    dbbin_create_temp_table_as(conn, binned_table, select_sql, backend)
     
     # Update B to match number of bins from breaks
     B = n_bins
@@ -1140,17 +1184,17 @@ execute_constrained_binsreg = function(inputs) {
   }
   
   # Create new table with basis columns (replace binned table)
-  spline_table = sprintf("__dbbin_%s_spline", 
-                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+  base_spline_name = sprintf("__dbbin_%s_spline", 
+                             gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+  spline_table = dbbin_temp_table_name(base_spline_name, backend)
   
   basis_cols_sql = paste(basis_exprs, collapse = ",\n           ")
-  spline_sql = glue("
-    CREATE TEMPORARY TABLE {spline_table} AS
+  spline_select_sql = glue("
     SELECT *,
            {basis_cols_sql}
     FROM {binned_table}
   ")
-  DBI::dbExecute(conn, spline_sql)
+  dbbin_create_temp_table_as(conn, spline_table, spline_select_sql, backend)
   on.exit(try(DBI::dbRemoveTable(conn, spline_table, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
   
   # Step 4: Build formula for dbreg
