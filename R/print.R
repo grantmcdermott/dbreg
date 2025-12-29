@@ -140,12 +140,12 @@ decimalFormat = function(x){
   res
 }
 
-#' Print method for dbbin objects (binsreg-compatible format)
+#' Print method for dbbinsreg objects (binsreg-compatible format)
 #' 
-#' @param x A dbbin object
+#' @param x A dbbinsreg object
 #' @param ... Additional arguments passed to print
 #' @export
-print.dbbin = function(x, ...) {
+print.dbbinsreg = function(x, ...) {
   opt = x$opt
   
   # Header

@@ -46,7 +46,7 @@
 #'   connection will be created.
 #' @param verbose Logical. Print progress messages? Default is TRUE.
 #'
-#' @return A list of class "dbbin" containing:
+#' @return A list of class "dbbinsreg" containing:
 #' \describe{
 #'   \item{data.dots}{Data frame with dot estimates (one row per bin): `x` (bin mean),
 #'     `bin`, `fit` (fitted value), and if `ci=TRUE`: `se`, `ci.l`, `ci.r`.}
@@ -72,12 +72,12 @@
 #'   \item `binspos="es"`: Evenly-spaced bins
 #' }
 #'
-#' Unlike binsreg, dbbin executes entirely in SQL, making it suitable for large
+#' Unlike binsreg, dbbinsreg executes entirely in SQL, making it suitable for large
 #' databases that cannot fit in memory.
 #'
 #' ## Note on quantile bin boundaries
 #'
-#' When using quantile-spaced bins (`binspos="qs"`), dbbin uses SQL's `NTILE()`
+#' When using quantile-spaced bins (`binspos="qs"`), dbbinsreg uses SQL's `NTILE()`
 #' window function, while binsreg uses R's `quantile()` with
 #' `type=2`. These algorithms have slightly different tie-breaking behavior,
 #' which can cause small differences in bin assignments at boundaries. In
@@ -95,21 +95,21 @@
 #' ChickWeight = as.data.frame(ChickWeight)
 #' 
 #' # Canonical binscatter: bin means (default)
-#' dbbin(weight ~ Time, ChickWeight, nbins = 10)
+#' dbbinsreg(weight ~ Time, ChickWeight, nbins = 10)
 #'
 #' # Piecewise linear, no smoothness
-#' dbbin(weight ~ Time, ChickWeight, nbins = 10, dots = c(1, 0))
+#' dbbinsreg(weight ~ Time, ChickWeight, nbins = 10, dots = c(1, 0))
 #'
 #' # Piecewise quadratic with C1 continuity
-#' dbbin(weight ~ Time, ChickWeight, nbins = 10, dots = c(2, 1))
+#' dbbinsreg(weight ~ Time, ChickWeight, nbins = 10, dots = c(2, 1))
 #'
 #' # With line overlay for smooth visualization
-#' dbbin(weight ~ Time, ChickWeight, nbins = 10, dots = c(0, 0), line = c(1, 1))
+#' dbbinsreg(weight ~ Time, ChickWeight, nbins = 10, dots = c(0, 0), line = c(1, 1))
 #'
 #' # With fixed effects (diet type)
-#' dbbin(weight ~ Time | Diet, ChickWeight, nbins = 10, dots = c(1, 0))
+#' dbbinsreg(weight ~ Time | Diet, ChickWeight, nbins = 10, dots = c(1, 0))
 #' }
-dbbin = function(
+dbbinsreg = function(
   fml,
   data,
   dots = c(0, 0),
@@ -238,7 +238,7 @@ dbbin = function(
   # Parse formula using Formula package (same pattern as dbreg)
   if (!requireNamespace("Formula", quietly = TRUE)) {
     stop(
-      "The dbbin() function requires the Formula package.\n",
+      "The dbbinsreg() function requires the Formula package.\n",
       "Install it with: install.packages('Formula')",
       call. = FALSE
     )
@@ -316,16 +316,16 @@ dbbin = function(
       # Create temp table from subquery using raw SQL
       base_name = sprintf("__db_bins_%s_input", 
                           gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-      table_name = dbbin_temp_table_name(base_name, backend)
+      table_name = dbbinsreg_temp_table_name(base_name, backend)
       subquery_sql = as.character(dbplyr::sql_render(data))
-      dbbin_create_temp_table_as(conn, table_name, subquery_sql, backend)
+      dbbinsreg_create_temp_table_as(conn, table_name, subquery_sql, backend)
       temp_tables = c(temp_tables, table_name)
     }
   } else if (is.data.frame(data)) {
     # Copy R dataframe to temp table
     base_name = sprintf("__db_bins_%s_input", 
                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-    table_name = dbbin_temp_table_name(base_name, backend)
+    table_name = dbbinsreg_temp_table_name(base_name, backend)
     DBI::dbWriteTable(conn, table_name, data, temporary = TRUE)
     temp_tables = c(temp_tables, table_name)
   } else {
@@ -370,7 +370,7 @@ dbbin = function(
   sampled = FALSE
   if (partition_method != "manual") {
     # Get row count using direct SQL
-    count_expr = dbbin_sql_count(backend)
+    count_expr = dbbinsreg_sql_count(backend)
     count_sql = glue("
       SELECT {count_expr} AS n 
       FROM {table_name} 
@@ -396,7 +396,7 @@ dbbin = function(
       
       # Sample data for break computation using direct SQL
       sample_size = max(10000L, ceiling(n_rows * effective_sample_frac))  # at least 10k rows
-      random_expr = dbbin_sql_random(backend)
+      random_expr = dbbinsreg_sql_random(backend)
       
       # Build sample query (backend-specific for LIMIT/TOP)
       sample_sql_base = glue("
@@ -405,7 +405,7 @@ dbbin = function(
         WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
         ORDER BY {random_expr}
       ")
-      sample_sql = dbbin_sql_limit(sample_sql_base, sample_size, backend)
+      sample_sql = dbbinsreg_sql_limit(sample_sql_base, sample_size, backend)
       sampled_data = DBI::dbGetQuery(conn, sample_sql)
       x_sample = sampled_data[[x_name]]
       
@@ -506,7 +506,7 @@ dbbin = function(
 #' @param backend Backend name from detect_backend()
 #' @return SQL expression for random ordering
 #' @keywords internal
-dbbin_sql_random <- function(backend) {
+dbbinsreg_sql_random <- function(backend) {
   switch(backend,
     "duckdb" = "RANDOM()",
     "sqlserver" = "NEWID()",
@@ -521,7 +521,7 @@ dbbin_sql_random <- function(backend) {
 #' @param backend Backend name from detect_backend()
 #' @return SQL expression for counting rows
 #' @keywords internal
-dbbin_sql_count <- function(backend) {
+dbbinsreg_sql_count <- function(backend) {
   if (backend == "sqlserver") "COUNT_BIG(*)" else "COUNT(*)"
 }
 
@@ -530,7 +530,7 @@ dbbin_sql_count <- function(backend) {
 #' @param n_bins Number of bins
 #' @return SQL NTILE expression
 #' @keywords internal
-dbbin_sql_ntile <- function(x_name, n_bins) {
+dbbinsreg_sql_ntile <- function(x_name, n_bins) {
 
   glue("NTILE({n_bins}) OVER (ORDER BY {x_name})")
 }
@@ -541,7 +541,7 @@ dbbin_sql_ntile <- function(x_name, n_bins) {
 #' @param backend Backend name from detect_backend()
 #' @return SQL query with appropriate LIMIT/TOP clause
 #' @keywords internal
-dbbin_sql_limit <- function(query, n, backend) {
+dbbinsreg_sql_limit <- function(query, n, backend) {
   if (backend == "sqlserver") {
     # SQL Server uses TOP n after SELECT
     sub("^SELECT", paste("SELECT TOP", n), query, ignore.case = TRUE)
@@ -557,7 +557,7 @@ dbbin_sql_limit <- function(query, n, backend) {
 #' @param backend Backend name from detect_backend()
 #' @return Temp table name (with # prefix for SQL Server)
 #' @keywords internal
-dbbin_temp_table_name <- function(base_name, backend) {
+dbbinsreg_temp_table_name <- function(base_name, backend) {
   # SQL Server uses # prefix for local temp tables
   if (backend == "sqlserver") {
     paste0("#", base_name)
@@ -573,7 +573,7 @@ dbbin_temp_table_name <- function(base_name, backend) {
 #' @param select_sql The SELECT statement (without CREATE TABLE)
 #' @param backend Backend name from detect_backend()
 #' @keywords internal
-dbbin_create_temp_table_as <- function(conn, table_name, select_sql, backend) {
+dbbinsreg_create_temp_table_as <- function(conn, table_name, select_sql, backend) {
   if (backend == "sqlserver") {
     # SQL Server: SELECT ... INTO #table FROM ...
     # We need to insert INTO clause after SELECT
@@ -596,13 +596,13 @@ dbbin_create_temp_table_as <- function(conn, table_name, select_sql, backend) {
 #' models following binsreg's approach. This function:
 #' 1. Fits a model with dots parameters (dots.p, dots.s) for data.dots
 #' 2. Fits a model with line parameters (line.p, line.s) for data.line
-#' 3. Combines results into single dbbin output
+#' 3. Combines results into single dbbinsreg output
 #' 
 #' @keywords internal
 execute_separate_binsreg = function(inputs) {
   
   if (inputs$verbose) {
-    cat("[dbbin] Fitting separate models for dots and line (different parameters)\n")
+    cat("[dbbinsreg] Fitting separate models for dots and line (different parameters)\n")
     cat(sprintf("        dots = c(%d, %d), line = c(%d, %d)\n",
                 inputs$dots[1], inputs$dots[2], inputs$line[1], inputs$line[2]))
   }
@@ -674,7 +674,7 @@ execute_separate_binsreg = function(inputs) {
     result$knots.line = line_result$knots
   }
   
-  class(result) = "dbbin"
+  class(result) = "dbbinsreg"
   return(result)
 }
 
@@ -731,7 +731,7 @@ create_binned_data = function(inputs) {
   ln_fn = if (is_sql_server) "LOG" else "LN"
   
   # Bin assignment expression
-  # Note: NTILE() differs slightly from binsreg's quantile(type=2). See ?dbbin details.
+  # Note: NTILE() differs slightly from binsreg's quantile(type=2). See ?dbbinsreg details.
   
   if (partition_method == "quantile") {
     bin_expr = sprintf("ntile(%d) OVER (ORDER BY %s)", B, x_name)
@@ -905,7 +905,7 @@ add_basis_columns = function(binned_data, geo, x_name, degree) {
 execute_unconstrained_binsreg = function(inputs) {
   
   if (inputs$verbose) {
-    cat("[dbbin] Executing unconstrained binned regression (smooth = 0)\n")
+    cat("[dbbinsreg] Executing unconstrained binned regression (smooth = 0)\n")
   }
   
   # Fetch binned data into R (no temp tables created)
@@ -926,7 +926,7 @@ execute_unconstrained_binsreg = function(inputs) {
   
   if (length(insufficient_bins) > 0) {
     if (inputs$verbose) {
-      cat(sprintf("[dbbin] Dropping %d bins with insufficient observations (n < %d)\n", 
+      cat(sprintf("[dbbinsreg] Dropping %d bins with insufficient observations (n < %d)\n", 
                   length(insufficient_bins), min_obs))
     }
     binned_data = binned_data[!binned_data$bin %in% insufficient_bins, ]
@@ -1014,7 +1014,7 @@ execute_unconstrained_binsreg = function(inputs) {
   actual_strategy = if (inputs$strategy == "auto") "compress" else inputs$strategy
   if (actual_strategy %in% c("moments", "demean", "within", "mundlak")) {
     if (inputs$verbose) {
-      cat("[dbbin] Note: Using 'compress' strategy (required for binned regression)\n")
+      cat("[dbbinsreg] Note: Using 'compress' strategy (required for binned regression)\n")
     }
     actual_strategy = "compress"
   }
@@ -1048,7 +1048,7 @@ execute_unconstrained_binsreg = function(inputs) {
 execute_constrained_binsreg = function(inputs) {
   
   if (inputs$verbose) {
-    cat("[dbbin] Executing constrained binscatter via regression splines (smooth = ", 
+    cat("[dbbinsreg] Executing constrained binscatter via regression splines (smooth = ", 
         inputs$smooth, ")\n", sep = "")
   }
   
@@ -1068,23 +1068,23 @@ execute_constrained_binsreg = function(inputs) {
   # Get backend info
   backend_info = detect_backend(conn)
   backend = backend_info$name
-  count_expr = dbbin_sql_count(backend)
+  count_expr = dbbinsreg_sql_count(backend)
   
   # Create temp table name for binned data (with # prefix for SQL Server)
-  base_table_name = sprintf("__dbbin_%s_binned", 
+  base_table_name = sprintf("__dbbinsreg_%s_binned", 
                             gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-  binned_table = dbbin_temp_table_name(base_table_name, backend)
+  binned_table = dbbinsreg_temp_table_name(base_table_name, backend)
   
   # Step 1: Create binned data table with bin assignments
   if (partition_method == "quantile") {
     # NTILE-based quantile binning
-    ntile_expr = dbbin_sql_ntile(x_name, B)
+    ntile_expr = dbbinsreg_sql_ntile(x_name, B)
     select_sql = glue("
       SELECT *, {ntile_expr} AS bin
       FROM {table_name}
       WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
     ")
-    dbbin_create_temp_table_as(conn, binned_table, select_sql, backend)
+    dbbinsreg_create_temp_table_as(conn, binned_table, select_sql, backend)
     
   } else if (partition_method == "equal") {
     # Equal-width binning using window functions for min/max
@@ -1103,7 +1103,7 @@ execute_constrained_binsreg = function(inputs) {
         ) t1
       ) t2
     ")
-    dbbin_create_temp_table_as(conn, binned_table, select_sql, backend)
+    dbbinsreg_create_temp_table_as(conn, binned_table, select_sql, backend)
     
   } else if (partition_method == "manual") {
     # Manual breaks: assign bin based on user-specified breakpoints
@@ -1124,7 +1124,7 @@ execute_constrained_binsreg = function(inputs) {
       WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
         AND {x_name} >= {breaks[1]} AND {x_name} <= {breaks[length(breaks)]}
     ")
-    dbbin_create_temp_table_as(conn, binned_table, select_sql, backend)
+    dbbinsreg_create_temp_table_as(conn, binned_table, select_sql, backend)
     
     # Update B to match number of bins from breaks
     B = n_bins
@@ -1154,7 +1154,7 @@ execute_constrained_binsreg = function(inputs) {
   knots = geo$x_right[1:(B-1)]
   
   if (inputs$verbose) {
-    cat("[dbbin] Using ", length(knots), " interior knots for spline basis\n", sep = "")
+    cat("[dbbinsreg] Using ", length(knots), " interior knots for spline basis\n", sep = "")
   }
   
   # Step 3: Build spline basis columns using SQL
@@ -1202,9 +1202,9 @@ execute_constrained_binsreg = function(inputs) {
   }
   
   # Create new table with basis columns (replace binned table)
-  base_spline_name = sprintf("__dbbin_%s_spline", 
+  base_spline_name = sprintf("__dbbinsreg_%s_spline", 
                              gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-  spline_table = dbbin_temp_table_name(base_spline_name, backend)
+  spline_table = dbbinsreg_temp_table_name(base_spline_name, backend)
   
   basis_cols_sql = paste(basis_exprs, collapse = ",\n           ")
   spline_select_sql = glue("
@@ -1212,7 +1212,7 @@ execute_constrained_binsreg = function(inputs) {
            {basis_cols_sql}
     FROM {binned_table}
   ")
-  dbbin_create_temp_table_as(conn, spline_table, spline_select_sql, backend)
+  dbbinsreg_create_temp_table_as(conn, spline_table, spline_select_sql, backend)
   on.exit(try(DBI::dbRemoveTable(conn, spline_table, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
   
   # Step 4: Build formula for dbreg
@@ -1232,7 +1232,7 @@ execute_constrained_binsreg = function(inputs) {
   fml = stats::as.formula(fml_str)
   
   if (inputs$verbose) {
-    cat("[dbbin] Fitting regression spline \n")
+    cat("[dbbinsreg] Fitting regression spline \n")
   }
   
   # Step 5: Run regression via dbreg
@@ -1357,14 +1357,14 @@ evaluate_spline_at_bins = function(fit, geo, knots, degree, smooth, basis_names,
   } else NULL
   
   # Use the unified output builder
-  build_dbbin_output(inputs, fit, geo, eval_fn, se_fn, knots = knots)
+  build_dbbinsreg_output(inputs, fit, geo, eval_fn, se_fn, knots = knots)
 }
 
 
 #' Construct output from unconstrained binned regression
 #' 
 #' @description Internal helper that transforms coefficient estimates from unconstrained
-#' binned regression into the standard dbbin output list format.
+#' binned regression into the standard dbbinsreg output list format.
 #' 
 #' @keywords internal
 construct_output = function(inputs, fit, geo, V_beta = NULL) {
@@ -1530,7 +1530,7 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
   }
   
   # Use the new unified output builder
-  build_dbbin_output(inputs, fit, geo, eval_fn, se_fn)
+  build_dbbinsreg_output(inputs, fit, geo, eval_fn, se_fn)
 }
 
 
@@ -1556,20 +1556,20 @@ lagrange_interp_3pt = function(x_seq, x_pts, y_pts) {
 }
 
 
-#' Build dbbin output list (binsreg-compatible format)
+#' Build dbbinsreg output list (binsreg-compatible format)
 #' 
-#' @description Creates the standard dbbin output structure matching binsreg's
+#' @description Creates the standard dbbinsreg output structure matching binsreg's
 #' output format: data.dots (evaluated at bin means), data.line (on grid),
 #' and data.bin (bin geometry).
 #' 
-#' @param inputs List of input parameters from dbbin()
+#' @param inputs List of input parameters from dbbinsreg()
 #' @param fit The dbreg model object
 #' @param geo Data frame with bin geometry (x_left, x_right, x_mid, n, x_mean)
 #' @param eval_fn Function that takes (x, bin) and returns fitted y values
 #' @param se_fn Function that takes (x, bin) and returns standard errors (or NULL)
 #' @param knots Optional vector of knots (for constrained estimation)
 #' 
-#' @return A list with class "dbbin" containing:
+#' @return A list with class "dbbinsreg" containing:
 #'   - data.dots: data.frame with columns x, bin, fit, se, ci.l, ci.r (at bin means)
 #'   - data.line: data.frame with columns x, bin, fit (on grid) - only if line requested
 #'   - data.bin: data.frame with bin.id, left.endpoint, right.endpoint
@@ -1577,7 +1577,7 @@ lagrange_interp_3pt = function(x_seq, x_pts, y_pts) {
 #'   - opt: list of options (dots, line, nbins, binspos, etc.)
 #' 
 #' @keywords internal
-build_dbbin_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots = NULL) {
+build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots = NULL) {
   
   B = nrow(geo)
   level = inputs$level  # This is alpha (e.g., 0.05)
@@ -1682,6 +1682,6 @@ build_dbbin_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots = N
     result$knots = knots
   }
   
-  class(result) = "dbbin"
+  class(result) = "dbbinsreg"
   return(result)
 }

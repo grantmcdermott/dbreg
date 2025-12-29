@@ -1,4 +1,4 @@
-# NYC Taxi dbbin tests (binsreg-compatible API)
+# NYC Taxi dbbinsreg tests (binsreg-compatible API)
 # NOTE: these tests are only run if two conditions are met
 #   1. Environment variable DBREG_TEST_NYC=TRUE
 #   2. NYC taxi data at {repo}/nyc-taxi/year=2012
@@ -30,7 +30,7 @@ cleanup = function() {
 
 ## Test 1: Basic binning with quantile-spaced bins ----
 
-bins_qs = dbbin(
+bins_qs = dbbinsreg(
   fare_amount ~ trip_distance,
   "nyc_jan",
   nbins = 20,
@@ -40,7 +40,7 @@ bins_qs = dbbin(
   verbose = FALSE
 )
 
-expect_true(inherits(bins_qs, "dbbin"))
+expect_true(inherits(bins_qs, "dbbinsreg"))
 expect_true(is.list(bins_qs))
 expect_true("data.dots" %in% names(bins_qs))
 expect_true("data.bin" %in% names(bins_qs))
@@ -53,7 +53,7 @@ expect_equal(bins_qs$opt$binspos, "qs")
 ## Test 2: Even-spaced bins ----
 cleanup()
 
-bins_es = dbbin(
+bins_es = dbbinsreg(
   fare_amount ~ trip_distance,
   "nyc_jan",
   nbins = 15,
@@ -71,7 +71,7 @@ expect_true(max(bin_widths) / min(bin_widths) < 1.1)
 ## Test 3: Binning with controls ----
 cleanup()
 
-bins_ctrl = dbbin(
+bins_ctrl = dbbinsreg(
   fare_amount ~ trip_distance + passenger_count,
   "nyc_jan",
   nbins = 10,
@@ -86,7 +86,7 @@ expect_true(grepl("passenger_count", deparse(bins_ctrl$opt$formula)))
 ## Test 4: Piecewise linear with continuity ----
 cleanup()
 
-bins_linear = dbbin(
+bins_linear = dbbinsreg(
   fare_amount ~ trip_distance,
   "nyc_jan",
   nbins = 10,
@@ -102,7 +102,7 @@ expect_equal(bins_linear$opt$dots[2], 1)
 ## Test 5: Dots and line with different specs ----
 cleanup()
 
-bins_mixed = dbbin(
+bins_mixed = dbbinsreg(
   fare_amount ~ trip_distance,
   "nyc_jan",
   nbins = 10,
@@ -120,7 +120,7 @@ expect_true(nrow(bins_mixed$data.line) > 10)
 ## Test 6: Confidence intervals with HC1 ----
 cleanup()
 
-bins_ci = dbbin(
+bins_ci = dbbinsreg(
   fare_amount ~ trip_distance,
   "nyc_jan",
   nbins = 10,
@@ -141,7 +141,7 @@ expect_true(all(bins_ci$data.dots$ci.r > bins_ci$data.dots$fit))
 ## Test 7: With fixed effects ----
 cleanup()
 
-bins_fe = dbbin(
+bins_fe = dbbinsreg(
   fare_amount ~ trip_distance | vendor_name,
   "nyc_jan",
   nbins = 10,
@@ -155,7 +155,7 @@ expect_equal(nrow(bins_fe$data.dots), 10)
 ## Test 8: Piecewise quadratic with C1 continuity ----
 cleanup()
 
-bins_quad = dbbin(
+bins_quad = dbbinsreg(
   fare_amount ~ trip_distance,
   "nyc_jan",
   nbins = 8,

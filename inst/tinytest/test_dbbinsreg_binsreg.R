@@ -1,10 +1,10 @@
-# Validate dbbin against binsreg package
-# Tests that dbbin produces results consistent with binsreg
+# Validate dbbinsreg against binsreg package
+# Tests that dbbinsreg produces results consistent with binsreg
 #
 # KNOWN DIFFERENCE: Quantile binning algorithm
-# binsreg uses R's quantile(type=2), dbbin uses SQL NTILE().
+# binsreg uses R's quantile(type=2), dbbinsreg uses SQL NTILE().
 # This causes small differences (~1-2%) in bin boundaries and thus fitted values.
-# See R/dbbin.R for detailed documentation.
+# See R/dbbinsreg.R for detailed documentation.
 
 if (!requireNamespace("binsreg", quietly = TRUE)) {
   exit_file("binsreg package not installed")
@@ -32,7 +32,7 @@ TOL_SE <- 0.01   # 1% absolute tolerance for SEs
 pdf(NULL)
 br1 <- binsreg(y, x, data = df, nbins = 10, dots = c(0, 0), line = NULL)
 dev.off()
-db1 <- dbbin(y ~ x, data = df, nbins = 10, dots = c(0, 0), line = NULL, ci = FALSE, verbose = FALSE)
+db1 <- dbbinsreg(y ~ x, data = df, nbins = 10, dots = c(0, 0), line = NULL, ci = FALSE, verbose = FALSE)
 
 # Compare fits (allow for quantile algorithm differences)
 br1_fit <- br1$data.plot[[1]]$data.dots$fit
@@ -49,7 +49,7 @@ expect_true(rel_diff1 < TOL_FIT,
 pdf(NULL)
 br2 <- binsreg(y, x, data = df, nbins = 10, dots = c(1, 1), line = NULL)
 dev.off()
-db2 <- dbbin(y ~ x, data = df, nbins = 10, dots = c(1, 1), line = NULL, ci = FALSE, verbose = FALSE)
+db2 <- dbbinsreg(y ~ x, data = df, nbins = 10, dots = c(1, 1), line = NULL, ci = FALSE, verbose = FALSE)
 
 br2_fit <- br2$data.plot[[1]]$data.dots$fit
 db2_fit <- db2$data.dots$fit
@@ -61,14 +61,14 @@ expect_true(rel_diff2 < TOL_FIT,
 #
 ## Test 3: HC1 standard errors match ----
 #
-# This was a bug fix: dbbin now defaults to vcov="HC1" to match binsreg
+# This was a bug fix: dbbinsreg now defaults to vcov="HC1" to match binsreg
 
 # binsreg requires noplot=FALSE to generate CI data
 pdf(NULL)
 br3 <- binsreg(y, x, data = df, nbins = 10, dots = c(0, 0), ci = c(0, 0), vce = "HC1")
 dev.off()
 
-db3 <- dbbin(y ~ x, data = df, nbins = 10, dots = c(0, 0), ci = TRUE, vcov = "HC1", verbose = FALSE)
+db3 <- dbbinsreg(y ~ x, data = df, nbins = 10, dots = c(0, 0), ci = TRUE, vcov = "HC1", verbose = FALSE)
 
 # Back-calculate binsreg SE from CI width
 z <- qnorm(0.975)
@@ -97,21 +97,21 @@ pdf(NULL)
 br4 <- binsreg(y_het, x, data = df_het, nbins = 10, dots = c(0, 0), ci = c(0, 0))
 dev.off()
 
-db4 <- dbbin(y ~ x, data = df_het, nbins = 10, dots = c(0, 0), ci = TRUE, verbose = FALSE)
+db4 <- dbbinsreg(y ~ x, data = df_het, nbins = 10, dots = c(0, 0), ci = TRUE, verbose = FALSE)
 
 br4_se <- (br4$data.plot[[1]]$data.ci$ci.r - br4$data.plot[[1]]$data.ci$ci.l) / (2 * z)
 db4_se <- db4$data.dots$se
 
 # Both should show increasing SEs
 expect_true(br4_se[10] > br4_se[1], info = "binsreg SEs should increase with x")
-expect_true(db4_se[10] > db4_se[1], info = "dbbin SEs should increase with x")
+expect_true(db4_se[10] > db4_se[1], info = "dbbinsreg SEs should increase with x")
 
 
 #
 ## Test 5: IID standard errors give constant SE ----
 #
 
-db5 <- dbbin(y ~ x, data = df, nbins = 10, dots = c(0, 0), ci = TRUE, vcov = "iid", verbose = FALSE)
+db5 <- dbbinsreg(y ~ x, data = df, nbins = 10, dots = c(0, 0), ci = TRUE, vcov = "iid", verbose = FALSE)
 
 # IID should give constant SE across bins
 se_range <- diff(range(db5$data.dots$se))
@@ -130,7 +130,7 @@ w_mat <- as.matrix(df[, "w", drop = FALSE])
 pdf(NULL)
 br6 <- binsreg(df$y_ctrl, df$x, w = w_mat, nbins = 10, dots = c(0, 0))
 dev.off()
-db6 <- dbbin(y_ctrl ~ x + w, data = df, nbins = 10, dots = c(0, 0), ci = FALSE, verbose = FALSE)
+db6 <- dbbinsreg(y_ctrl ~ x + w, data = df, nbins = 10, dots = c(0, 0), ci = FALSE, verbose = FALSE)
 
 br6_fit <- br6$data.plot[[1]]$data.dots$fit
 db6_fit <- db6$data.dots$fit
