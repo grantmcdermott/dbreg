@@ -1,23 +1,23 @@
 
-#' Plot method for dbbin objects (binsreg-style)
+#' Plot method for dbbinsreg objects (binsreg-style)
 #' 
 #' @md
 #' @description
-#' Visualizes binned regression results from \code{\link{dbbin}} using tinyplot.
+#' Visualizes binned regression results from \code{\link{dbbinsreg}} using tinyplot.
 #' Plots dots at bin means with optional confidence intervals, and optionally
 #' overlays a smooth line if computed.
 #' 
-#' @param x A dbbin object
+#' @param x A dbbinsreg object
 #' @param y Ignored (for S3 consistency)
 #' @param ci Logical. Show confidence intervals for dots? Default is TRUE.
 #' @param line Logical. Show the line overlay if available? Default is TRUE.
 #' @param ... Additional arguments passed to tinyplot
 #' @export
-plot.dbbin = function(x, y = NULL, ci = TRUE, line = TRUE, ...) {
+plot.dbbinsreg = function(x, y = NULL, ci = TRUE, line = TRUE, ...) {
   
   # Check for tinyplot
   if (!requireNamespace("tinyplot", quietly = TRUE)) {
-    stop("The plot.dbbin method requires the tinyplot package.\n",
+    stop("The plot.dbbinsreg method requires the tinyplot package.\n",
          "Install it with: install.packages('tinyplot')",
          call. = FALSE)
   }

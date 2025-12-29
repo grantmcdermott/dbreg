@@ -3,7 +3,7 @@
 S3method(coef,dbreg)
 S3method(confint,dbreg)
 S3method(glance,dbreg)
-S3method(plot,dbbin)
+S3method(plot,dbbinsreg)
 S3method(predict,dbreg)
 S3method(print,dbbinsreg)
 S3method(print,dbreg)
