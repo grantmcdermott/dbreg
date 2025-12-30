@@ -50,6 +50,8 @@ Imports:
 Suggests:
   here,
   fixest (>= 0.13.0),
+  knitr,
+  quarto,
   tinytest
 Enhances:
   dbplyr
@@ -58,4 +60,4 @@ Encoding: UTF-8
 RoxygenNote: 7.3.3
 License: MIT + file LICENSE
 URL: https://grantmcdermott.com/dbreg/
-Roxygen: list(markdown = TRUE)
+VignetteBuilder: quarto

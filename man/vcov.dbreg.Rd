@@ -7,7 +7,7 @@
 \method{vcov}{dbreg}(object, ...)
 }
 \arguments{
-\item{object}{A \code{dbreg} object.}
+\item{object}{A `dbreg` object.}
 
 \item{...}{Additional arguments (currently unused).}
 }

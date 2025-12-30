@@ -9,3 +9,4 @@ nyc-taxi/
 ^docs$
 ^altdoc$
 ^_quarto$
+vignettes/

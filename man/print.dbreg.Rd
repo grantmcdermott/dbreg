@@ -7,9 +7,9 @@
 \method{print}{dbreg}(x, fe = FALSE, ...)
 }
 \arguments{
-\item{x}{\code{dbreg} object.}
+\item{x}{`dbreg` object.}
 
-\item{fe}{Should the fixed effects be displayed? Default is \code{FALSE}.}
+\item{fe}{Should the fixed effects be displayed? Default is `FALSE`.}
 
 \item{...}{Other arguments passed to \code{\link[base]{print}}. Currently
 unused, except to capture superseded arguments.}

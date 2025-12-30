@@ -13,15 +13,15 @@
 )
 }
 \arguments{
-\item{object}{A \code{dbreg} object.}
+\item{object}{A `dbreg` object.}
 
 \item{newdata}{Data frame for predictions. Required for objects that were
-estimated using the \code{"mundlak"} and \code{"moments"} strategies, since \code{dbreg}
+estimated using the `"mundlak"` and `"moments"` strategies, since `dbreg`
 does not retain any data for these estimations.}
 
-\item{interval}{Type of interval to compute: \code{"none"} (default),
-\code{"confidence"}, or \code{"prediction"}. Note that \code{"confidence"} intervals
-reflect uncertainty in the estimated mean, while \code{"prediction"} intervals
+\item{interval}{Type of interval to compute: `"none"` (default), 
+`"confidence"`, or `"prediction"`. Note that `"confidence"` intervals
+reflect uncertainty in the estimated mean, while `"prediction"` intervals
 additionally account for residual variance. See
 \code{\link[stats]{predict.lm}} for details.}
 
@@ -35,21 +35,21 @@ Predict method for dbreg objects
 \section{Predicting on "demean" strategy objects}{
 
 
-Predicting on \code{dbreg} objects should generally work as expected. However,
-predictions from \code{"demean"} strategy models carry two important caveats:
-\enumerate{
-\item Predictions require group means to transform back to the original scale.
-If \code{newdata} contains the outcome variable, group means are computed from
-\code{newdata} and used to return level predictions. If the outcome is absent,
+Predicting on `dbreg` objects should generally work as expected. However,
+predictions from `"demean"` strategy models carry two important caveats:
+
+1. Predictions require group means to transform back to the original scale.
+If `newdata` contains the outcome variable, group means are computed from
+`newdata` and used to return level predictions. If the outcome is absent,
 within-group predictions (deviations from group means) are returned instead,
 with a message.
-\item Confidence/prediction intervals are not supported. A demeaned model cannot
+
+2. Confidence/prediction intervals are not supported. A demeaned model cannot
 account for uncertainty in the fixed-effects (since these were absorbed at
 estimation time), which in turn would yield intervals that are too narrow.
-Requesting intervals for \code{"demean"} strategy models will return point
+Requesting intervals for `"demean"` strategy models will return point
 predictions with a message. Users should re-estimate with a different
 strategy if intervals are needed.
-}
 }
 
 \examples{
@@ -70,5 +70,5 @@ head(predict(mod, newdata = airquality))
 head(predict(mod, newdata = airquality, interval = "confidence"))
 }
 \seealso{
-\code{\link[=dbreg]{dbreg()}} for examples.
+[dbreg()] for examples.
 }

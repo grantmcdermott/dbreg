@@ -7,7 +7,7 @@
 \method{confint}{dbreg}(object, parm, level = 0.95, fe = FALSE, ...)
 }
 \arguments{
-\item{object}{A \code{dbreg} object.}
+\item{object}{A `dbreg` object.}
 
 \item{parm}{a specification of which parameters are to be given confidence
 intervals, either a vector of numbers or a vector of names. If missing,
@@ -15,7 +15,7 @@ all parameters are considered.}
 
 \item{level}{the confidence level required. Default is 0.95.}
 
-\item{fe}{Should the fixed effects be included? Default is \code{FALSE}.}
+\item{fe}{Should the fixed effects be included? Default is `FALSE`.}
 
 \item{...}{Additional arguments. Currently unused, except to capture
 superseded arguments.}

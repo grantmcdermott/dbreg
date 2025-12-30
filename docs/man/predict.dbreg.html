@@ -126,6 +126,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </button>
           <div class="collapse navbar-collapse" id="navbarCollapse">
             <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="../vignettes/intro.html"> 
+<span class="menu-text">Get started</span></a>
+  </li>  
   <li class="nav-item dropdown ">
     <a class="nav-link dropdown-toggle" href="#" id="nav-menu-about" role="link" data-bs-toggle="dropdown" aria-expanded="false">
  <span class="menu-text">About</span>
@@ -172,7 +176,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
-        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/coef.dbreg.html">Methods</a></li><li class="breadcrumb-item"><a href="../man/predict.dbreg.html">predict.dbreg</a></li></ol></nav>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/coef.dbreg.html">Base methods</a></li><li class="breadcrumb-item"><a href="../man/predict.dbreg.html">predict.dbreg</a></li></ol></nav>
         <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
         </a>
     </div>
@@ -208,12 +212,29 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
         <li class="sidebar-item sidebar-item-section">
       <div class="sidebar-item-container"> 
             <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true">
- <span class="menu-text">Methods</span></a>
+ <span class="menu-text">utilities</span></a>
           <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Toggle section">
             <i class="bi bi-chevron-right ms-2"></i>
           </a> 
       </div>
       <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/gof.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">gof</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true">
+ <span class="menu-text">Base methods</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">  
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="../man/coef.dbreg.html" class="sidebar-item-text sidebar-link">
@@ -248,23 +269,23 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </li>
         <li class="sidebar-item sidebar-item-section">
       <div class="sidebar-item-container"> 
-            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true">
- <span class="menu-text">Utilities</span></a>
-          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true">
+ <span class="menu-text">Other methods</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true" aria-label="Toggle section">
             <i class="bi bi-chevron-right ms-2"></i>
           </a> 
       </div>
-      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">  
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 show">  
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="../man/gof.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text">gof</span></a>
+  <a href="../man/tidiers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">glance.dbreg</span></a>
   </div>
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="../man/tidiers.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text">tidy, glance</span></a>
+ <span class="menu-text">tidy.dbreg</span></a>
   </div>
 </li>
       </ul>
@@ -292,7 +313,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </nav>
     </div>
 <!-- main -->
-<main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/coef.dbreg.html">Methods</a></li><li class="breadcrumb-item"><a href="../man/predict.dbreg.html">predict.dbreg</a></li></ol></nav></header>
+<main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/coef.dbreg.html">Base methods</a></li><li class="breadcrumb-item"><a href="../man/predict.dbreg.html">predict.dbreg</a></li></ol></nav></header>
 
 
 
@@ -323,7 +344,7 @@ predict(
 <code id="object">object</code>
 </td>
 <td>
-A <code>dbreg</code> object.
+A ‘dbreg’ object.
 </td>
 </tr>
 <tr>
@@ -331,7 +352,7 @@ A <code>dbreg</code> object.
 <code id="newdata">newdata</code>
 </td>
 <td>
-Data frame for predictions. Required for objects that were estimated using the <code>“mundlak”</code> and <code>“moments”</code> strategies, since <code>dbreg</code> does not retain any data for these estimations.
+Data frame for predictions. Required for objects that were estimated using the ‘"mundlak"’ and ‘"moments"’ strategies, since ‘dbreg’ does not retain any data for these estimations.
 </td>
 </tr>
 <tr>
@@ -339,7 +360,7 @@ Data frame for predictions. Required for objects that were estimated using the <
 <code id="interval">interval</code>
 </td>
 <td>
-Type of interval to compute: <code>“none”</code> (default), <code>“confidence”</code>, or <code>“prediction”</code>. Note that <code>“confidence”</code> intervals reflect uncertainty in the estimated mean, while <code>“prediction”</code> intervals additionally account for residual variance. See <code>predict.lm</code> for details.
+Type of interval to compute: ‘"none"’ (default), ‘"confidence"’, or ‘"prediction"’. Note that ‘"confidence"’ intervals reflect uncertainty in the estimated mean, while ‘"prediction"’ intervals additionally account for residual variance. See <code>predict.lm</code> for details.
 </td>
 </tr>
 <tr>
@@ -362,19 +383,15 @@ Additional arguments (currently unused).
 </section>
 <section id="predicting-on-demean-strategy-objects" class="level3">
 <h3 class="anchored" data-anchor-id="predicting-on-demean-strategy-objects">Predicting on "demean" strategy objects</h3>
-<p>Predicting on <code>dbreg</code> objects should generally work as expected. However, predictions from <code>“demean”</code> strategy models carry two important caveats:</p>
-<ol>
-<li>
-<p>Predictions require group means to transform back to the original scale. If <code>newdata</code> contains the outcome variable, group means are computed from <code>newdata</code> and used to return level predictions. If the outcome is absent, within-group predictions (deviations from group means) are returned instead, with a message.</p>
-</li>
-<li>
-<p>Confidence/prediction intervals are not supported. A demeaned model cannot account for uncertainty in the fixed-effects (since these were absorbed at estimation time), which in turn would yield intervals that are too narrow. Requesting intervals for <code>“demean”</code> strategy models will return point predictions with a message. Users should re-estimate with a different strategy if intervals are needed.</p>
-</li>
+<p>Predicting on ‘dbreg’ objects should generally work as expected. However, predictions from ‘"demean"’ strategy models carry two important caveats:</p>
+<ol type="1">
+<li><p>Predictions require group means to transform back to the original scale. If ‘newdata’ contains the outcome variable, group means are computed from ‘newdata’ and used to return level predictions. If the outcome is absent, within-group predictions (deviations from group means) are returned instead, with a message.</p></li>
+<li><p>Confidence/prediction intervals are not supported. A demeaned model cannot account for uncertainty in the fixed-effects (since these were absorbed at estimation time), which in turn would yield intervals that are too narrow. Requesting intervals for ‘"demean"’ strategy models will return point predictions with a message. Users should re-estimate with a different strategy if intervals are needed.</p></li>
 </ol>
 </section>
 <section id="see-also" class="level3">
 <h3 class="anchored" data-anchor-id="see-also">See Also</h3>
-<p><code>dbreg()</code> for examples.</p>
+<p>[dbreg()] for examples.</p>
 </section>
 <section id="examples" class="level3">
 <h3 class="anchored" data-anchor-id="examples">Examples</h3>

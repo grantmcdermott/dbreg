@@ -4,22 +4,22 @@
 \alias{tidiers}
 \alias{tidy.dbreg}
 \alias{glance.dbreg}
-\title{Tidiers for \code{dbreg} objects}
+\title{Tidiers for `dbreg` objects}
 \usage{
 \method{tidy}{dbreg}(x, conf.int = FALSE, conf.level = 0.95, fe = FALSE, ...)
 
 \method{glance}{dbreg}(x, ...)
 }
 \arguments{
-\item{x}{a model of class \code{dbreg} produced by the \code{\link[dbreg]{dbreg}}
+\item{x}{a model of class `dbreg` produced by the \code{\link[dbreg]{dbreg}}
 function.}
 
 \item{conf.int}{Logical indicating whether to include confidence intervals.
-Default is \code{FALSE}.}
+Default is `FALSE`.}
 
 \item{conf.level}{Confidence level for intervals. Default is 0.95.}
 
-\item{fe}{Should the fixed effects be tidied too? Default is \code{FALSE}.}
+\item{fe}{Should the fixed effects be tidied too? Default is `FALSE`.}
 
 \item{...}{Additional arguments to tidying method. Currently unused except to
 handle superseded arguments.}

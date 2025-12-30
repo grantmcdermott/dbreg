@@ -13,6 +13,8 @@ website:
   navbar:
     search: true
     left:
+      - text: Get started
+        file: vignettes/intro.qmd
       - text: About
         menu:
         - text: News
@@ -46,7 +48,11 @@ website:
           contents:
             - text: dbreg
               file: man/dbreg.qmd
-        - section: "Methods"
+        - section: "utilities"
+          contents:
+            - text: gof
+              file: man/gof.qmd
+        - section: "Base methods"
           contents:
             - text: coef.dbreg
               file: man/coef.dbreg.qmd
@@ -58,11 +64,11 @@ website:
               file: man/print.dbreg.qmd
             - text: vcov.dbreg
               file: man/vcov.dbreg.qmd
-        - section: "Utilities"
+        - section: "Other methods"
           contents:
-            - text: gof
-              file: man/gof.qmd
-            - text: tidy, glance
+            - text: glance.dbreg
+              file: man/tidiers.qmd
+            - text: tidy.dbreg
               file: man/tidiers.qmd
 format:
   html:

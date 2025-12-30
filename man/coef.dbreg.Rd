@@ -7,9 +7,9 @@
 \method{coef}{dbreg}(object, fe = FALSE, ...)
 }
 \arguments{
-\item{object}{A \code{dbreg} object.}
+\item{object}{A `dbreg` object.}
 
-\item{fe}{Should the fixed effects be included? Default is \code{FALSE}.}
+\item{fe}{Should the fixed effects be included? Default is `FALSE`.}
 
 \item{...}{Additional arguments. Currently unused, except to capture
 superseded arguments.}
