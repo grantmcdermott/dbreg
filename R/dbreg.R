@@ -406,8 +406,10 @@ process_dbreg_inputs = function(
     if (!inherits(data, "data.frame")) {
       stop("`data` must be data.frame.")
     }
-    duckdb_register(conn, "tmp_table_dbreg", data)
-    from_statement = "FROM tmp_table_dbreg"
+    temp_name = sprintf("tmp_table_dbreg_%s", 
+                       gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+    duckdb_register(conn, temp_name, data)
+    from_statement = paste("FROM", temp_name)
   } else if (!is.null(path)) {
     if (!is.character(path)) {
       stop("`path` must be character.")
