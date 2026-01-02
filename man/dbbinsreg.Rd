@@ -84,7 +84,7 @@ by supplying \code{verbose = TRUE}, or set globally via
 A list of class "dbbinsreg" containing:
 \describe{
 \item{data.dots}{Data frame with dot estimates (one row per bin): \code{x} (bin mean),
-\code{bin}, \code{fit} (fitted value), and if \code{ci=TRUE}: \code{se}, \code{ci.l}, \code{ci.r}.}
+\code{bin}, \code{fit} (fitted value), and if \code{ci=TRUE}: \code{se}, \code{lwr}, \code{upr}.}
 \item{data.line}{Data frame with line estimates (multiple rows per bin): \code{x},
 \code{bin}, \code{fit}. Only present if \code{line} is specified.}
 \item{data.bin}{Data frame with bin geometry: \code{bin.id}, \code{left.endpoint},

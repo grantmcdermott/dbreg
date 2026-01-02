@@ -52,7 +52,7 @@
 #' @return A list of class "dbbinsreg" containing:
 #' \describe{
 #'   \item{data.dots}{Data frame with dot estimates (one row per bin): `x` (bin mean),
-#'     `bin`, `fit` (fitted value), and if `ci=TRUE`: `se`, `ci.l`, `ci.r`.}
+#'     `bin`, `fit` (fitted value), and if `ci=TRUE`: `se`, `lwr`, `upr`.}
 #'   \item{data.line}{Data frame with line estimates (multiple rows per bin): `x`,
 #'     `bin`, `fit`. Only present if `line` is specified.}
 #'   \item{data.bin}{Data frame with bin geometry: `bin.id`, `left.endpoint`,
@@ -321,7 +321,6 @@ dbbinsreg = function(
                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
     table_name = dbbinsreg_temp_table_name(base_name, backend)
     DBI::dbWriteTable(conn, table_name, data, temporary = TRUE)
-    duckdb_register(conn, table_name, data)
     temp_tables = c(temp_tables, table_name)
   } else {
     stop("data must be a dataframe, table name, or lazy table (e.g., from dplyr::tbl())")
@@ -1565,7 +1564,7 @@ lagrange_interp_3pt = function(x_seq, x_pts, y_pts) {
 #' @param knots Optional vector of knots (for constrained estimation)
 #' 
 #' @return A list with class "dbbinsreg" containing:
-#'   - data.dots: data.frame with columns x, bin, fit, se, ci.l, ci.r (at bin means)
+#'   - data.dots: data.frame with columns x, bin, fit, se, lwr, upr (at bin means)
 #'   - data.line: data.frame with columns x, bin, fit (on grid) - only if line requested
 #'   - data.bin: data.frame with bin.id, left.endpoint, right.endpoint
 #'   - model: the dbreg fit object
@@ -1589,12 +1588,12 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
     
     if (!is.null(se_fn) && isTRUE(inputs$ci)) {
       se_dots = sapply(seq_len(B), function(i) se_fn(x_mean[i], geo$bin[i]))
-      ci_l = fit_dots - crit_val * se_dots
-      ci_r = fit_dots + crit_val * se_dots
+      lwr = fit_dots - crit_val * se_dots
+      upr = fit_dots + crit_val * se_dots
     } else {
       se_dots = rep(NA_real_, B)
-      ci_l = rep(NA_real_, B)
-      ci_r = rep(NA_real_, B)
+      lwr = rep(NA_real_, B)
+      upr = rep(NA_real_, B)
     }
     
     data_dots = data.frame(
@@ -1602,8 +1601,8 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
       bin = geo$bin,
       fit = fit_dots,
       se = se_dots,
-      ci.l = ci_l,
-      ci.r = ci_r
+      lwr = lwr,
+      upr = upr
     )
     rownames(data_dots) = NULL
   } else {

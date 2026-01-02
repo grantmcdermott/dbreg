@@ -21,7 +21,7 @@ build_dbbinsreg_output(inputs, fit, geo, eval_fn, se_fn = NULL, knots = NULL)
 }
 \value{
 A list with class "dbbinsreg" containing:
-  - data.dots: data.frame with columns x, bin, fit, se, ci.l, ci.r (at bin means)
+  - data.dots: data.frame with columns x, bin, fit, se, lwr, upr (at bin means)
   - data.line: data.frame with columns x, bin, fit (on grid) - only if line requested
   - data.bin: data.frame with bin.id, left.endpoint, right.endpoint
   - model: the dbreg fit object
