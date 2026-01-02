@@ -1,4 +1,4 @@
-#' Database-native binned regression (binsreg-compatible API)
+#' Run a binscatter regression on a database backend
 #'
 #' @md
 #' @description Performs binned regression entirely in SQL, returning plot-ready data with
@@ -19,10 +19,12 @@
 #'   an alias for `data` for consistency with \code{\link{dbreg}}. Can include
 #'   file globbing for Hive-partitioned datasets, e.g.
 #'   `"read_parquet('mydata/**/*.parquet')"`.
-#' @param dots A vector `c(p, s)` specifying the polynomial degree \eqn{p} and
-#'   smoothness \eqn{s} for the dots (point estimates at bin means). Default is
+#' @param points A vector `c(p, s)` specifying the polynomial degree \eqn{p} and
+#'   smoothness \eqn{s} for the points (point estimates at bin means). Default is
 #'   `c(0, 0)` for canonical binscatter (bin means). Set to `NULL` or `FALSE` to
-#'   suppress dots. The smoothness `s` must satisfy `s <= p`.
+#'   suppress points. The smoothness `s` must satisfy `s <= p`.
+#' @param dots Alias for `points` for \code{\link[binsreg]{binsreg}} compatibility.
+#'   If not `NULL`, overrides the `points` argument.
 #' @param line A vector `c(p, s)` specifying the polynomial degree \eqn{p} and
 #'   smoothness \eqn{s} for the line (evaluated on a grid within bins). Default
 #'   is `NULL` (no line). Set to `TRUE` for `c(0, 0)` or a vector like `c(1, 1)`
@@ -40,7 +42,7 @@
 #'   computing the bin boundaries, since this requires an expensive ranking
 #'   operation. The subsequent, primary regression operations use all of the
 #'   data.
-#' @param ci Logical. Calculate standard errors and confidence intervals for dots?
+#' @param ci Logical. Calculate standard errors and confidence intervals for points?
 #'   Default is `TRUE`.
 #' @param cb Logical. Calculate simultaneous confidence bands using simulation?
 #'   Default is `FALSE`.
@@ -55,7 +57,7 @@
 #' @param strategy Acceleration strategy passed to \code{\link{dbreg}} when
 #'   smoothness is zero. Options are `"auto"` (default), `"compress"`, or
 #'   `"scan"`. This parameter is ignored when `s` (smoothness parameter in
-#'   `dots` or `lines`) > 0. See \code{\link{dbreg}} for details.
+#'   `points` or `lines`) > 0. See \code{\link{dbreg}} for details.
 #' @param conn Database connection. If `NULL` (default), an ephemeral DuckDB
 #'   connection will be created.
 #' @param verbose Logical. Print auto strategy and progress messages to the
@@ -65,32 +67,44 @@
 #'
 #' @return A list of class "dbbinsreg" containing:
 #' \describe{
-#'   \item{data.dots}{Data frame with dot estimates (one row per bin): `x` (bin mean),
-#'     `bin`, `fit` (fitted value), and if `ci=TRUE`: `se`, `lwr`, `upr`.}
-#'   \item{data.line}{Data frame with line estimates (multiple rows per bin): `x`,
+#'   \item{points}{Data frame of the point estimates (one row per bin): `x`
+#'     (bin mean), `bin`, and `fit` (fitted value). If `ci=TRUE` in the original
+#'     call, then also includes the columns: `se`, `lwr`, and `upr`. Similarly,
+#'     if `cb=TRUE`, then includes the columns: `cb_lwr` and `cb_upr`.}
+#'   \item{line}{Data frame of the line estimates (multiple rows per bin): `x`,
 #'     `bin`, `fit`. Only present if `line` is specified.}
-#'   \item{data.bin}{Data frame with bin geometry: `bin.id`, `left.endpoint`,
-#'     `right.endpoint`.}
-#'   \item{model}{The fitted `dbreg` model object (for dots).}
-#'   \item{opt}{List of options used: `dots`, `line`, `nbins`, `binspos`, etc.}
+#'   \item{bins}{Data frame with bin boundaries: `id` (bin number), `left`
+#'     (left endpoint), `right` (right endpoint).}
+#'   \item{model}{The fitted `dbreg` model object (for points).}
+#'   \item{opt}{List of options used: `points`, `line`, `nbins`, `binspos`, etc.}
 #' }
+#' 
+#' @section Comparison with binsreg:
+#' 
+#' The \code{dbbinsreg} function is deeply inspired by the \pkg{binsreg}
+#' package (Cattaneo et. al., 2024). The main difference is that
+#' \code{dbbinsreg} performs most of its computation on a database backend,
+#' employing various acceration strategies, which makes it particularly suitable
+#' for large datasets. 
+#' 
+#' ## API 
 #'
-#' @details
-#' ## Relationship to binsreg
-#'
-#' This function aims to provide an API similar to the \pkg{binsreg} package.
-#' Key parameter mappings:
+#' We aim to mimic the \code{\link[binsreg]{binsreg}} API as much as possible.
+#' Key parameter mappings include:
 #' \itemize{
-#'   \item `dots = c(0,0)`: Canonical binscatter (bin means), equivalent to binsreg default
-#'   \item `dots = c(p,0)`: Piecewise polynomial of degree \eqn{p}, no smoothness constraints
-#'   \item `dots = c(p,s)`: Piecewise polynomial with \eqn{s} smoothness constraints at knots
-#'   \item `line = c(p,s)`: Same polynomial evaluated on a grid for smooth visualization
-#'   \item `binspos = "qs"`: Quantile-spaced bins (\code{\link[binsreg]{binsreg}} default)
-#'   \item `binspos = "es"`: Evenly-spaced bins
+#'   \item `points` (alias `dots`): Point estimates at bin means
+#'   \itemize{
+#'     \item `c(0,0)`: Canonical binscatter (bin means)
+#'     \item `c(p,0)`: Piecewise polynomial of degree \eqn{p}, no smoothness
+#'     \item `c(p,s)`: Piecewise polynomial with \eqn{s} smoothness constraints
+#'   }
+#'   \item `line`: Same as `points` but evaluated on a finer grid for smooth visualization
+#'   \item `binspos`: Bin positioning
+#'   \itemize{
+#'     \item `"qs"`: Quantile-spaced (equal count)
+#'     \item `"es"`: Evenly-spaced (equal width)
+#'   }
 #' }
-#'
-#' Unlike \code{\link[binsreg]{binsreg}}, \code{dbbinsreg} executes entirely in
-#' SQL, making it suitable for large databases that cannot fit in memory.
 #'
 #' ## Confidence intervals vs confidence bands
 #'
@@ -109,7 +123,7 @@
 #' within the band. This is useful for making statements about the overall shape
 #' of the relationship rather than individual point estimates.
 #'
-#' Note: Unlike \code{\link[binsreg]{binsreg}}, which evaluates CB on a fine
+#' Caveat: Unlike \code{\link[binsreg]{binsreg}}, which evaluates CB on a fine
 #' grid within each bin, `dbbinsreg` computes CB only at bin means (same points
 #' as CI). This is much simpler for our backend SQL implementation and should be
 #' sufficient for most applications.
@@ -139,22 +153,22 @@
 #' dbbinsreg(weight ~ Time, cw, nbins = 10)
 #'
 #' # Piecewise linear, no smoothness
-#' dbbinsreg(weight ~ Time, cw, nbins = 10, dots = c(1, 0))
+#' dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(1, 0))
 #'
 #' # Piecewise quadratic with C1 continuity
-#' dbbinsreg(weight ~ Time, cw, nbins = 10, dots = c(2, 1))
+#' dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(2, 1))
 #'
 #' # With line overlay for smooth visualization
-#' dbbinsreg(weight ~ Time, cw, nbins = 10, dots = c(0, 0), line = c(1, 1))
+#' dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(0, 0), line = c(1, 1))
 #'
 #' # With fixed effects (diet type)
-#' dbbinsreg(weight ~ Time | Diet, cw, nbins = 10, dots = c(1, 0))
+#' dbbinsreg(weight ~ Time | Diet, cw, nbins = 10, points = c(1, 0))
 #' }
 dbbinsreg = function(
   fml,
   data = NULL,
   path = NULL,
-  dots = c(0, 0),
+  points = c(0, 0),
   line = NULL,
   linegrid = 20,
   nbins = 20,
@@ -167,8 +181,14 @@ dbbinsreg = function(
   nsims = 500,
   strategy = "auto",
   conn = NULL,
-  verbose = getOption("dbreg.verbose", FALSE)
+  verbose = getOption("dbreg.verbose", FALSE),
+  dots = NULL
 ) {
+  
+  # Handle dots as alias for points (binsreg compatibility)
+  if (!is.null(dots)) {
+    points = dots
+  }
   
   # Handle path as alias for data (for consistency with dbreg)
   if (is.null(data) && !is.null(path)) {
@@ -176,28 +196,28 @@ dbbinsreg = function(
   }
   
   # -------------------------------------------------------------------------
-  # Process binsreg-style arguments: dots, line, binspos
+  # Process binsreg-style arguments: points, line, binspos
   # -------------------------------------------------------------------------
   
-  # Parse dots argument: c(p, s) or TRUE/FALSE/NULL
-  dots_p = 0L
-  dots_s = 0L
-  dots_on = TRUE
+  # Parse points argument: c(p, s) or TRUE/FALSE/NULL
+  points_p = 0L
+  points_s = 0L
+  points_on = TRUE
   
-  if (is.null(dots) || identical(dots, FALSE)) {
-    dots_on = FALSE
-  } else if (identical(dots, TRUE)) {
-    dots_p = 0L
-    dots_s = 0L
-  } else if (is.numeric(dots) && length(dots) == 2) {
-    dots_p = as.integer(dots[1])
-    dots_s = as.integer(dots[2])
-    if (dots_s > dots_p) {
-      stop("dots: smoothness s must be <= degree p (got dots = c(", dots_p, ", ", dots_s, "))")
+  if (is.null(points) || identical(points, FALSE)) {
+    points_on = FALSE
+  } else if (identical(points, TRUE)) {
+    points_p = 0L
+    points_s = 0L
+  } else if (is.numeric(points) && length(points) == 2) {
+    points_p = as.integer(points[1])
+    points_s = as.integer(points[2])
+    if (points_s > points_p) {
+      stop("points: smoothness s must be <= degree p (got points = c(", points_p, ", ", points_s, "))")
     }
     # Note: p > 2 is now supported via truncated power spline basis
   } else {
-    stop("dots must be NULL, FALSE, TRUE, or a vector c(p, s) with p = degree, s = smoothness")
+    stop("points must be NULL, FALSE, TRUE, or a vector c(p, s) with p = degree, s = smoothness")
   }
   
   # Parse line argument: c(p, s) or TRUE/FALSE/NULL
@@ -208,9 +228,9 @@ dbbinsreg = function(
   if (!is.null(line) && !identical(line, FALSE)) {
     line_on = TRUE
     if (identical(line, TRUE)) {
-      # Default to same as dots if TRUE
-      line_p = dots_p
-      line_s = dots_s
+      # Default to same as points if TRUE
+      line_p = points_p
+      line_s = points_s
     } else if (is.numeric(line) && length(line) == 2) {
       line_p = as.integer(line[1])
       line_s = as.integer(line[2])
@@ -243,10 +263,10 @@ dbbinsreg = function(
   }
   
   # Convert binsreg parameters to internal parameters
-  # For now, we use the dots parameters as the primary model
-  degree = dots_p
+  # For now, we use the points parameters as the primary model
+  degree = points_p
 
-  smooth = dots_s
+  smooth = points_s
   B = as.integer(nbins)
   
   # Validate linegrid
@@ -502,31 +522,31 @@ dbbinsreg = function(
     verbose = verbose,
     formula = as.formula(formula_str),
     # binsreg-style parameters
-    dots = if (dots_on) c(dots_p, dots_s) else NULL,
+    points = if (points_on) c(points_p, points_s) else NULL,
     line = if (line_on) c(line_p, line_s) else NULL,
     linegrid = linegrid,
-    dots_on = dots_on,
+    points_on = points_on,
     line_on = line_on,
     binspos = binspos
   )
   
   # -------------------------------------------------------------------------
-  # DISPATCH: Execute estimation based on dots/line parameters
+  # DISPATCH: Execute estimation based on points/line parameters
   # -------------------------------------------------------------------------
   # Following binsreg logic:
-  # - If dots and line have same (p,s): fit one model, use for both
+  # - If points and line have same (p,s): fit one model, use for both
   # - If different: fit separate models
   # - smooth > 0 uses constrained splines, smooth == 0 uses unconstrained piecewise
   
   # Determine if we need separate models
-  need_separate_models = line_on && dots_on && 
-    (dots_p != line_p || dots_s != line_s)
+  need_separate_models = line_on && points_on && 
+    (points_p != line_p || points_s != line_s)
   
   if (need_separate_models) {
-    # Fit separate models for dots and line
+    # Fit separate models for points and line
     result = execute_separate_binsreg(inputs)
   } else {
-    # Single model for both dots and line
+    # Single model for both points and line
     # Use unconstrained path for s=0 (bin dummies, can use compress strategy)
     # Use constrained path for s>0 (spline basis, requires row-level data)
     if (smooth == 0) {
@@ -631,11 +651,11 @@ dbbinsreg_create_temp_table_as = function(conn, table_name, select_sql, backend)
 }
 
 
-#' Execute separate binsreg models for dots and line
+#' Execute separate binsreg models for points and line
 #' 
-#' When dots and line have different (p,s) parameters, we need to fit two separate
+#' When points and line have different (p,s) parameters, we need to fit two separate
 #' models following binsreg's approach. This function:
-#' 1. Fits a model with dots parameters (dots.p, dots.s) for data.dots
+#' 1. Fits a model with points parameters (points.p, points.s) for data.dots
 #' 2. Fits a model with line parameters (line.p, line.s) for data.line
 #' 3. Combines results into single dbbinsreg output
 #' 
@@ -643,28 +663,28 @@ dbbinsreg_create_temp_table_as = function(conn, table_name, select_sql, backend)
 execute_separate_binsreg = function(inputs) {
   
   if (inputs$verbose) {
-    cat("[dbbinsreg] Fitting separate models for dots and line (different parameters)\n")
-    cat(sprintf("        dots = c(%d, %d), line = c(%d, %d)\n",
-                inputs$dots[1], inputs$dots[2], inputs$line[1], inputs$line[2]))
+    cat("[dbbinsreg] Fitting separate models for points and line (different parameters)\n")
+    cat(sprintf("        points = c(%d, %d), line = c(%d, %d)\n",
+                inputs$points[1], inputs$points[2], inputs$line[1], inputs$line[2]))
   }
   
   # Save original parameters
-  original_dots = inputs$dots
+  original_points = inputs$points
   original_line = inputs$line
   
   # -------------------------------------------------------------------------
-  # Step 1: Fit model for DOTS using dots parameters
+  # Step 1: Fit model for POINTS using points parameters
   # -------------------------------------------------------------------------
-  dots_inputs = inputs
-  dots_inputs$degree = original_dots[1]
-  dots_inputs$smooth = original_dots[2]
-  dots_inputs$line_on = FALSE  # Only compute dots
-  dots_inputs$dots_on = TRUE
+  points_inputs = inputs
+  points_inputs$degree = original_points[1]
+  points_inputs$smooth = original_points[2]
+  points_inputs$line_on = FALSE  # Only compute points
+  points_inputs$points_on = TRUE
   
-  if (dots_inputs$smooth == 0) {
-    dots_result = execute_unconstrained_binsreg(dots_inputs)
+  if (points_inputs$smooth == 0) {
+    points_result = execute_unconstrained_binsreg(points_inputs)
   } else {
-    dots_result = execute_constrained_binsreg(dots_inputs)
+    points_result = execute_constrained_binsreg(points_inputs)
   }
   
   # -------------------------------------------------------------------------
@@ -674,8 +694,8 @@ execute_separate_binsreg = function(inputs) {
   line_inputs$degree = original_line[1]
   line_inputs$smooth = original_line[2]
   line_inputs$line_on = TRUE  # Only compute line
-  line_inputs$dots_on = FALSE
-  line_inputs$ci = FALSE  # CIs only for dots
+  line_inputs$points_on = FALSE
+  line_inputs$ci = FALSE  # CIs only for points
   
   if (line_inputs$smooth == 0) {
     line_result = execute_unconstrained_binsreg(line_inputs)
@@ -687,32 +707,35 @@ execute_separate_binsreg = function(inputs) {
   # Step 3: Combine results
   # -------------------------------------------------------------------------
   result = list(
-    data.dots = dots_result$data.dots,
-    data.line = line_result$data.line,
-    data.bin = dots_result$data.bin,  # Same for both
-    model.dots = dots_result$model,
-    model.line = line_result$model,
+    points = points_result$points,
+    line = line_result$line,
+    bins = points_result$bins,
+    model = list(
+      points = points_result$model,
+      line = line_result$model
+    ),
     opt = list(
-      dots = original_dots,
+      points = original_points,
       line = original_line,
-      nbins = dots_result$opt$nbins,
+      nbins = points_result$opt$nbins,
       binspos = inputs$binspos,
-      N = dots_result$opt$N,
+      N = points_result$opt$N,
       x_var = inputs$x_name,
       y_var = inputs$y_name,
       formula = inputs$formula,
-      level = dots_result$opt$level,
+      level = points_result$opt$level,
       ci = inputs$ci,
       vcov = inputs$vcov
     )
   )
   
   # Add knots if available
-  if (!is.null(dots_result$knots)) {
-    result$knots.dots = dots_result$knots
+  if (!is.null(points_result$knots)) {
+    result$knots = list(points = points_result$knots)
   }
   if (!is.null(line_result$knots)) {
-    result$knots.line = line_result$knots
+    if (is.null(result$knots)) result$knots = list()
+    result$knots$line = line_result$knots
   }
   
   class(result) = "dbbinsreg"
@@ -1613,9 +1636,9 @@ lagrange_interp_3pt = function(x_seq, x_pts, y_pts) {
 #' @return A list with class "dbbinsreg" containing:
 #'   - data.dots: data.frame with columns x, bin, fit, se, lwr, upr (at bin means)
 #'   - data.line: data.frame with columns x, bin, fit (on grid) - only if line requested
-#'   - data.bin: data.frame with bin.id, left.endpoint, right.endpoint
+#'   - data.bin: data.frame with id, left, right
 #'   - model: the dbreg fit object
-#'   - opt: list of options (dots, line, nbins, binspos, etc.)
+#'   - opt: list of options (points, line, nbins, binspos, etc.)
 #' 
 #' @keywords internal
 build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots = NULL, V_beta = NULL) {
@@ -1628,7 +1651,7 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
   # -------------------------------------------------------------------------
   # Build data.dots: evaluate at bin means (binsreg style)
   # -------------------------------------------------------------------------
-  if (isTRUE(inputs$dots_on)) {
+  if (isTRUE(inputs$points_on)) {
     # Evaluate at bin means
     x_mean = geo$x_mean
     fit_dots = sapply(seq_len(B), function(i) eval_fn(x_mean[i], geo$bin[i]))
@@ -1697,12 +1720,12 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
   }
   
   # -------------------------------------------------------------------------
-  # Build data.bin: bin geometry (binsreg format)
+  # Build bins: bin geometry
   # -------------------------------------------------------------------------
   data_bin = data.frame(
-    bin.id = geo$bin,
-    left.endpoint = geo$x_left,
-    right.endpoint = geo$x_right
+    id = geo$bin,
+    left = geo$x_left,
+    right = geo$x_right
   )
   rownames(data_bin) = NULL
   
@@ -1710,7 +1733,7 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
   # Build opt: options list (binsreg style)
   # -------------------------------------------------------------------------
   opt = list(
-    dots = inputs$dots,
+    points = inputs$points,
     line = inputs$line,
     nbins = B,
     binspos = inputs$binspos,
@@ -1728,9 +1751,9 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
   # Build result list
   # -------------------------------------------------------------------------
   result = list(
-    data.dots = data_dots,
-    data.line = data_line,
-    data.bin = data_bin,
+    points = data_dots,
+    line = data_line,
+    bins = data_bin,
     model = fit,
     opt = opt
   )

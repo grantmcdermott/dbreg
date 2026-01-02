@@ -1,4 +1,4 @@
-#' Run a regression on a database backend.
+#' Run a regression on a database backend
 #'
 #' @md
 #' @description

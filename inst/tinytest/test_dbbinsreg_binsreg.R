@@ -26,36 +26,36 @@ TOL_SE <- 0.01   # 1% absolute tolerance for SEs
 
 
 #
-## Test 1: Canonical binscatter - dots = c(0, 0) ----
+## Test 1: Canonical binscatter - points = c(0, 0) ----
 #
 
 pdf(NULL)
 br1 <- binsreg(y, x, data = df, nbins = 10, dots = c(0, 0), line = NULL)
 dev.off()
-db1 <- dbbinsreg(y ~ x, data = df, nbins = 10, dots = c(0, 0), line = NULL, ci = FALSE, verbose = FALSE)
+db1 <- dbbinsreg(y ~ x, data = df, nbins = 10, points = c(0, 0), line = NULL, ci = FALSE, verbose = FALSE)
 
 # Compare fits (allow for quantile algorithm differences)
 br1_fit <- br1$data.plot[[1]]$data.dots$fit
-db1_fit <- db1$data.dots$fit
+db1_fit <- db1$points$fit
 rel_diff1 <- max(abs(br1_fit - db1_fit) / abs(br1_fit))
 expect_true(rel_diff1 < TOL_FIT, 
-            info = sprintf("dots=c(0,0): rel diff %.4f > %.2f", rel_diff1, TOL_FIT))
+            info = sprintf("points=c(0,0): rel diff %.4f > %.2f", rel_diff1, TOL_FIT))
 
 
 #
-## Test 2: Piecewise linear with continuity - dots = c(1, 1) ----
+## Test 2: Piecewise linear with continuity - points = c(1, 1) ----
 #
 
 pdf(NULL)
 br2 <- binsreg(y, x, data = df, nbins = 10, dots = c(1, 1), line = NULL)
 dev.off()
-db2 <- dbbinsreg(y ~ x, data = df, nbins = 10, dots = c(1, 1), line = NULL, ci = FALSE, verbose = FALSE)
+db2 <- dbbinsreg(y ~ x, data = df, nbins = 10, points = c(1, 1), line = NULL, ci = FALSE, verbose = FALSE)
 
 br2_fit <- br2$data.plot[[1]]$data.dots$fit
-db2_fit <- db2$data.dots$fit
+db2_fit <- db2$points$fit
 rel_diff2 <- max(abs(br2_fit - db2_fit) / abs(br2_fit))
 expect_true(rel_diff2 < TOL_FIT,
-            info = sprintf("dots=c(1,1): rel diff %.4f > %.2f", rel_diff2, TOL_FIT))
+            info = sprintf("points=c(1,1): rel diff %.4f > %.2f", rel_diff2, TOL_FIT))
 
 
 #
@@ -68,13 +68,13 @@ pdf(NULL)
 br3 <- binsreg(y, x, data = df, nbins = 10, dots = c(0, 0), ci = c(0, 0), vce = "HC1")
 dev.off()
 
-db3 <- dbbinsreg(y ~ x, data = df, nbins = 10, dots = c(0, 0), ci = TRUE, vcov = "HC1", verbose = FALSE)
+db3 <- dbbinsreg(y ~ x, data = df, nbins = 10, points = c(0, 0), ci = TRUE, vcov = "HC1", verbose = FALSE)
 
 # Back-calculate binsreg SE from CI width
 z <- qnorm(0.975)
 br3_ci <- br3$data.plot[[1]]$data.ci
 br3_se <- (br3_ci$ci.r - br3_ci$ci.l) / (2 * z)
-db3_se <- db3$data.dots$se
+db3_se <- db3$points$se
 
 # SEs should match closely (small diff from quantile algorithm)
 se_diff <- max(abs(br3_se - db3_se))
@@ -97,10 +97,10 @@ pdf(NULL)
 br4 <- binsreg(y_het, x, data = df_het, nbins = 10, dots = c(0, 0), ci = c(0, 0))
 dev.off()
 
-db4 <- dbbinsreg(y ~ x, data = df_het, nbins = 10, dots = c(0, 0), ci = TRUE, verbose = FALSE)
+db4 <- dbbinsreg(y ~ x, data = df_het, nbins = 10, points = c(0, 0), ci = TRUE, verbose = FALSE)
 
 br4_se <- (br4$data.plot[[1]]$data.ci$ci.r - br4$data.plot[[1]]$data.ci$ci.l) / (2 * z)
-db4_se <- db4$data.dots$se
+db4_se <- db4$points$se
 
 # Both should show increasing SEs
 expect_true(br4_se[10] > br4_se[1], info = "binsreg SEs should increase with x")
@@ -111,10 +111,10 @@ expect_true(db4_se[10] > db4_se[1], info = "dbbinsreg SEs should increase with x
 ## Test 5: IID standard errors give constant SE ----
 #
 
-db5 <- dbbinsreg(y ~ x, data = df, nbins = 10, dots = c(0, 0), ci = TRUE, vcov = "iid", verbose = FALSE)
+db5 <- dbbinsreg(y ~ x, data = df, nbins = 10, points = c(0, 0), ci = TRUE, vcov = "iid", verbose = FALSE)
 
 # IID should give constant SE across bins
-se_range <- diff(range(db5$data.dots$se))
+se_range <- diff(range(db5$points$se))
 expect_true(se_range < 1e-10, info = "IID SEs should be constant across bins")
 
 
@@ -130,10 +130,10 @@ w_mat <- as.matrix(df[, "w", drop = FALSE])
 pdf(NULL)
 br6 <- binsreg(df$y_ctrl, df$x, w = w_mat, nbins = 10, dots = c(0, 0))
 dev.off()
-db6 <- dbbinsreg(y_ctrl ~ x + w, data = df, nbins = 10, dots = c(0, 0), ci = FALSE, verbose = FALSE)
+db6 <- dbbinsreg(y_ctrl ~ x + w, data = df, nbins = 10, points = c(0, 0), ci = FALSE, verbose = FALSE)
 
 br6_fit <- br6$data.plot[[1]]$data.dots$fit
-db6_fit <- db6$data.dots$fit
+db6_fit <- db6$points$fit
 rel_diff6 <- max(abs(br6_fit - db6_fit) / abs(br6_fit))
 expect_true(rel_diff6 < TOL_FIT,
             info = sprintf("with controls: rel diff %.4f > %.2f", rel_diff6, TOL_FIT))

@@ -2,13 +2,13 @@
 % Please edit documentation in R/dbbinsreg.R
 \name{dbbinsreg}
 \alias{dbbinsreg}
-\title{Database-native binned regression (binsreg-compatible API)}
+\title{Run a binscatter regression on a database backend}
 \usage{
 dbbinsreg(
   fml,
   data = NULL,
   path = NULL,
-  dots = c(0, 0),
+  points = c(0, 0),
   line = NULL,
   linegrid = 20,
   nbins = 20,
@@ -21,7 +21,8 @@ dbbinsreg(
   nsims = 500,
   strategy = "auto",
   conn = NULL,
-  verbose = getOption("dbreg.verbose", FALSE)
+  verbose = getOption("dbreg.verbose", FALSE),
+  dots = NULL
 )
 }
 \arguments{
@@ -43,10 +44,10 @@ an alias for \code{data} for consistency with \code{\link{dbreg}}. Can include
 file globbing for Hive-partitioned datasets, e.g.
 \code{"read_parquet('mydata/**/*.parquet')"}.}
 
-\item{dots}{A vector \code{c(p, s)} specifying the polynomial degree \eqn{p} and
-smoothness \eqn{s} for the dots (point estimates at bin means). Default is
+\item{points}{A vector \code{c(p, s)} specifying the polynomial degree \eqn{p} and
+smoothness \eqn{s} for the points (point estimates at bin means). Default is
 \code{c(0, 0)} for canonical binscatter (bin means). Set to \code{NULL} or \code{FALSE} to
-suppress dots. The smoothness \code{s} must satisfy \code{s <= p}.}
+suppress points. The smoothness \code{s} must satisfy \code{s <= p}.}
 
 \item{line}{A vector \code{c(p, s)} specifying the polynomial degree \eqn{p} and
 smoothness \eqn{s} for the line (evaluated on a grid within bins). Default
@@ -70,7 +71,7 @@ computing the bin boundaries, since this requires an expensive ranking
 operation. The subsequent, primary regression operations use all of the
 data.}
 
-\item{ci}{Logical. Calculate standard errors and confidence intervals for dots?
+\item{ci}{Logical. Calculate standard errors and confidence intervals for points?
 Default is \code{TRUE}.}
 
 \item{cb}{Logical. Calculate simultaneous confidence bands using simulation?
@@ -90,7 +91,7 @@ Default is 500. Only used when \code{cb = TRUE}.}
 \item{strategy}{Acceleration strategy passed to \code{\link{dbreg}} when
 smoothness is zero. Options are \code{"auto"} (default), \code{"compress"}, or
 \code{"scan"}. This parameter is ignored when \code{s} (smoothness parameter in
-\code{dots} or \code{lines}) > 0. See \code{\link{dbreg}} for details.}
+\code{points} or \code{lines}) > 0. See \code{\link{dbreg}} for details.}
 
 \item{conn}{Database connection. If \code{NULL} (default), an ephemeral DuckDB
 connection will be created.}
@@ -99,18 +100,23 @@ connection will be created.}
 console? Defaults to \code{FALSE}. This can be overridden for a single call
 by supplying \code{verbose = TRUE}, or set globally via
 \code{options(dbreg.verbose = TRUE)}.}
+
+\item{dots}{Alias for \code{points} for \code{\link[binsreg]{binsreg}} compatibility.
+If not \code{NULL}, overrides the \code{points} argument.}
 }
 \value{
 A list of class "dbbinsreg" containing:
 \describe{
-\item{data.dots}{Data frame with dot estimates (one row per bin): \code{x} (bin mean),
-\code{bin}, \code{fit} (fitted value), and if \code{ci=TRUE}: \code{se}, \code{lwr}, \code{upr}.}
-\item{data.line}{Data frame with line estimates (multiple rows per bin): \code{x},
+\item{points}{Data frame of the point estimates (one row per bin): \code{x}
+(bin mean), \code{bin}, and \code{fit} (fitted value). If \code{ci=TRUE} in the original
+call, then also includes the columns: \code{se}, \code{lwr}, and \code{upr}. Similarly,
+if \code{cb=TRUE}, then includes the columns: \code{cb_lwr} and \code{cb_upr}.}
+\item{line}{Data frame of the line estimates (multiple rows per bin): \code{x},
 \code{bin}, \code{fit}. Only present if \code{line} is specified.}
-\item{data.bin}{Data frame with bin geometry: \code{bin.id}, \code{left.endpoint},
-\code{right.endpoint}.}
-\item{model}{The fitted \code{dbreg} model object (for dots).}
-\item{opt}{List of options used: \code{dots}, \code{line}, \code{nbins}, \code{binspos}, etc.}
+\item{bins}{Data frame with bin boundaries: \code{id} (bin number), \code{left}
+(left endpoint), \code{right} (right endpoint).}
+\item{model}{The fitted \code{dbreg} model object (for points).}
+\item{opt}{List of options used: \code{points}, \code{line}, \code{nbins}, \code{binspos}, etc.}
 }
 }
 \description{
@@ -119,22 +125,32 @@ estimated bin means or piecewise polynomial fits. The API is designed to be comp
 with the \pkg{binsreg} package by Cattaneo, Crump, Farrell, and Feng (2024).
 Supports unconditional and conditional models (with controls and/or fixed effects).
 }
-\details{
-\subsection{Relationship to binsreg}{
+\section{Comparison with binsreg}{
 
-This function aims to provide an API similar to the \pkg{binsreg} package.
-Key parameter mappings:
+
+The \code{dbbinsreg} function is deeply inspired by the \pkg{binsreg}
+package (Cattaneo et. al., 2024). The main difference is that
+\code{dbbinsreg} performs most of its computation on a database backend,
+employing various acceration strategies, which makes it particularly suitable
+for large datasets.
+\subsection{API}{
+
+We aim to mimic the \code{\link[binsreg]{binsreg}} API as much as possible.
+Key parameter mappings include:
 \itemize{
-\item \code{dots = c(0,0)}: Canonical binscatter (bin means), equivalent to binsreg default
-\item \code{dots = c(p,0)}: Piecewise polynomial of degree \eqn{p}, no smoothness constraints
-\item \code{dots = c(p,s)}: Piecewise polynomial with \eqn{s} smoothness constraints at knots
-\item \code{line = c(p,s)}: Same polynomial evaluated on a grid for smooth visualization
-\item \code{binspos = "qs"}: Quantile-spaced bins (\code{\link[binsreg]{binsreg}} default)
-\item \code{binspos = "es"}: Evenly-spaced bins
+\item \code{points} (alias \code{dots}): Point estimates at bin means
+\itemize{
+\item \code{c(0,0)}: Canonical binscatter (bin means)
+\item \code{c(p,0)}: Piecewise polynomial of degree \eqn{p}, no smoothness
+\item \code{c(p,s)}: Piecewise polynomial with \eqn{s} smoothness constraints
 }
-
-Unlike \code{\link[binsreg]{binsreg}}, \code{dbbinsreg} executes entirely in
-SQL, making it suitable for large databases that cannot fit in memory.
+\item \code{line}: Same as \code{points} but evaluated on a finer grid for smooth visualization
+\item \code{binspos}: Bin positioning
+\itemize{
+\item \code{"qs"}: Quantile-spaced (equal count)
+\item \code{"es"}: Evenly-spaced (equal width)
+}
+}
 }
 
 \subsection{Confidence intervals vs confidence bands}{
@@ -154,7 +170,7 @@ coverage: with (\eqn{1-\alpha}) probability, the entire true function lies
 within the band. This is useful for making statements about the overall shape
 of the relationship rather than individual point estimates.
 
-Note: Unlike \code{\link[binsreg]{binsreg}}, which evaluates CB on a fine
+Caveat: Unlike \code{\link[binsreg]{binsreg}}, which evaluates CB on a fine
 grid within each bin, \code{dbbinsreg} computes CB only at bin means (same points
 as CI). This is much simpler for our backend SQL implementation and should be
 sufficient for most applications.
@@ -172,6 +188,7 @@ become negligible with larger datasets. To match
 of data in R and pass them via the \code{binspos} argument as a numeric vector.
 }
 }
+
 \examples{
 \dontrun{
 cw = as.data.frame(ChickWeight)
@@ -180,16 +197,16 @@ cw = as.data.frame(ChickWeight)
 dbbinsreg(weight ~ Time, cw, nbins = 10)
 
 # Piecewise linear, no smoothness
-dbbinsreg(weight ~ Time, cw, nbins = 10, dots = c(1, 0))
+dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(1, 0))
 
 # Piecewise quadratic with C1 continuity
-dbbinsreg(weight ~ Time, cw, nbins = 10, dots = c(2, 1))
+dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(2, 1))
 
 # With line overlay for smooth visualization
-dbbinsreg(weight ~ Time, cw, nbins = 10, dots = c(0, 0), line = c(1, 1))
+dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(0, 0), line = c(1, 1))
 
 # With fixed effects (diet type)
-dbbinsreg(weight ~ Time | Diet, cw, nbins = 10, dots = c(1, 0))
+dbbinsreg(weight ~ Time | Diet, cw, nbins = 10, points = c(1, 0))
 }
 }
 \references{

@@ -191,31 +191,31 @@ print.dbbinsreg = function(x, ...) {
   cat("Formula:", deparse(opt$formula), "\n")
   
   # Options line like binsreg
-  dots_str = if (!is.null(opt$dots)) paste0("c(", opt$dots[1], ",", opt$dots[2], ")") else "NULL"
+  points_str = if (!is.null(opt$points)) paste0("c(", opt$points[1], ",", opt$points[2], ")") else "NULL"
   line_str = if (!is.null(opt$line)) paste0("c(", opt$line[1], ",", opt$line[2], ")") else "NULL"
-  cat(sprintf("dots = %s | line = %s | nbins = %d | binspos = '%s'\n", 
-              dots_str, line_str, opt$nbins, opt$binspos))
+  cat(sprintf("points = %s | line = %s | nbins = %d | binspos = '%s'\n", 
+              points_str, line_str, opt$nbins, opt$binspos))
   cat(sprintf("N = %s | level = %d%%\n", 
               prettyNum(opt$N, big.mark = ","), opt$level))
   
-  # Show data.dots
-  if (!is.null(x$data.dots)) {
-    cat("\n$data.dots:\n")
-    print(x$data.dots, ...)
+  # Show points
+  if (!is.null(x$points)) {
+    cat("\n$points:\n")
+    print(x$points, ...)
   }
   
-  # Show data.line preview if present
-  if (!is.null(x$data.line)) {
-    cat("\n$data.line:\n")
-    print(utils::head(x$data.line, 10), ...)
-    if (nrow(x$data.line) > 10) {
-      cat(sprintf("... %d more rows\n", nrow(x$data.line) - 10))
+  # Show line preview if present
+  if (!is.null(x$line)) {
+    cat("\n$line:\n")
+    print(utils::head(x$line, 10), ...)
+    if (nrow(x$line) > 10) {
+      cat(sprintf("... %d more rows\n", nrow(x$line) - 10))
     }
   }
   
   # Show bins
-  cat("\n$data.bin:\n")
-  print(x$data.bin, ...)
+  cat("\n$bins:\n")
+  print(x$bins, ...)
   
   invisible(x)
 }

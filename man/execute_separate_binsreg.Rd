@@ -2,14 +2,14 @@
 % Please edit documentation in R/dbbinsreg.R
 \name{execute_separate_binsreg}
 \alias{execute_separate_binsreg}
-\title{Execute separate binsreg models for dots and line}
+\title{Execute separate binsreg models for points and line}
 \usage{
 execute_separate_binsreg(inputs)
 }
 \description{
-When dots and line have different (p,s) parameters, we need to fit two separate
+When points and line have different (p,s) parameters, we need to fit two separate
 models following binsreg's approach. This function:
-1. Fits a model with dots parameters (dots.p, dots.s) for data.dots
+1. Fits a model with points parameters (points.p, points.s) for data.dots
 2. Fits a model with line parameters (line.p, line.s) for data.line
 3. Combines results into single dbbinsreg output
 }

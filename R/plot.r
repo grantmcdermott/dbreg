@@ -26,18 +26,18 @@ plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...
   x_var = opt$x_var
   y_var = opt$y_var
 
-  # Start with dots (the main binscatter points)
-  if (!is.null(x$data.dots)) {
-    dots = x$data.dots
+  # Start with points (the main binscatter points)
+  if (!is.null(x$points)) {
+    pts = x$points
     
     # Check if CB is available and requested
-    has_cb = cb && all(c("cb_lwr", "cb_upr") %in% names(dots)) && !all(is.na(dots$cb_lwr))
+    has_cb = cb && all(c("cb_lwr", "cb_upr") %in% names(pts)) && !all(is.na(pts$cb_lwr))
     
     # Plot CB ribbon first (so it's behind the points)
     if (has_cb) {
       tinyplot::tinyplot(
         fit ~ x,
-        data = dots,
+        data = pts,
         ymin = cb_lwr,
         ymax = cb_upr,
         type = "ribbon",
@@ -47,31 +47,31 @@ plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...
         ...
       )
       # Add points/CI on top
-      if (ci && all(c("lwr", "upr") %in% names(dots)) && !all(is.na(dots$lwr))) {
+      if (ci && all(c("lwr", "upr") %in% names(pts)) && !all(is.na(pts$lwr))) {
         if (is.null(type)) type = "pointrange"
         tinyplot::tinyplot_add(
           fit ~ x,
-          data = dots,
-          ymin = dots$lwr,
-          ymax = dots$upr,
+          data = pts,
+          ymin = pts$lwr,
+          ymax = pts$upr,
           type = type,
           lty = 1 # FIXME
         )
       } else {
         tinyplot::tinyplot_add(
           fit ~ x,
-          data = dots,
+          data = pts,
           type = "p"
         )
       }
-    } else if (ci && all(c("lwr", "upr") %in% names(dots)) && !all(is.na(dots$lwr))) {
+    } else if (ci && all(c("lwr", "upr") %in% names(pts)) && !all(is.na(pts$lwr))) {
       # CI only (no CB)
       if (is.null(type)) type = "pointrange"
       tinyplot::tinyplot(
         fit ~ x,
-        data = dots,
-        ymin = dots$lwr,
-        ymax = dots$upr,
+        data = pts,
+        ymin = pts$lwr,
+        ymax = pts$upr,
         type = type,
         xlab = x_var,
         ylab = y_var,
@@ -81,7 +81,7 @@ plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...
       # No CI or CB
       tinyplot::tinyplot(
         fit ~ x,
-        data = dots,
+        data = pts,
         type = type,
         xlab = x_var,
         ylab = y_var,
@@ -90,8 +90,8 @@ plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...
     }
     
     # Overlay line if available and requested
-    if (line && !is.null(x$data.line)) {
-      line_data = x$data.line
+    if (line && !is.null(x$line)) {
+      line_data = x$line
       tinyplot::tinyplot_add(
         fit ~ x, data = line_data,
         ymin = NULL, ymax = NULL,
@@ -101,10 +101,10 @@ plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...
         col = "steelblue"
       )
     }
-  } else if (!is.null(x$data.line)) {
-    # No dots, just show line
+  } else if (!is.null(x$line)) {
+    # No points, just show line
     if (is.null(type)) type = "l"
-    line_data = x$data.line
+    line_data = x$line
     tinyplot::tinyplot(
       fit ~ x,
       data = line_data,
@@ -115,7 +115,7 @@ plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...
       ...
     )
   } else {
-    warning("No data to plot (neither data.dots nor data.line available)")
+    warning("No data to plot (neither points nor line available)")
   }
   
   invisible(x)

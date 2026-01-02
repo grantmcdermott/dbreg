@@ -31,9 +31,9 @@ build_dbbinsreg_output(
 A list with class "dbbinsreg" containing:
   - data.dots: data.frame with columns x, bin, fit, se, lwr, upr (at bin means)
   - data.line: data.frame with columns x, bin, fit (on grid) - only if line requested
-  - data.bin: data.frame with bin.id, left.endpoint, right.endpoint
+  - data.bin: data.frame with id, left, right
   - model: the dbreg fit object
-  - opt: list of options (dots, line, nbins, binspos, etc.)
+  - opt: list of options (points, line, nbins, binspos, etc.)
 }
 \description{
 Creates the standard dbbinsreg output structure matching binsreg's
