@@ -1,20 +1,22 @@
 
-#' Plot method for dbbinsreg objects (binsreg-style)
+#' Plot method for dbbinsreg objects
 #' 
 #' @md
 #' @description
-#' Visualizes binned regression results from \code{\link{dbbinsreg}} using tinyplot.
+#' Visualizes binned regression results from \code{\link{dbbinsreg}}.
 #' Plots dots at bin means with optional confidence intervals, and optionally
-#' overlays a smooth line if computed.
+#' overlays a smooth line if computed. Uses tinyplot for rendering but works
+#' with both \code{plot()} and \code{tinyplot()} generics.
 #' 
-#' @param x A dbbinsreg object
-#' @param y Ignored (for S3 consistency)
-#' @param ci Logical. Show confidence intervals for dots? Default is TRUE.
-#' @param line Logical. Show the line overlay if available? Default is TRUE.
-#' @param ... Additional arguments passed to tinyplot
+#' @param x A `dbbinsreg` object
+#' @param type The type of plot. If `NULL` (the default), then the type will be
+#' inferred based on the underlying object (e.g, `"errorbar"` for)
+#' @param ci Logical. Show confidence intervals for dots? Default is `TRUE.`
+#' @param line Logical. Show the line overlay if available? Default is `TRUE.`
+#' @param ... Additional arguments passed to `\code{\link[tinyplot]{tinyplot}},
+#' e.g. `theme`, `main`, etc.
 #' @export
-plot.dbbinsreg = function(x, y = NULL, ci = TRUE, line = TRUE, ...) {
-  
+plot.dbbinsreg = function(x, type = NULL, ci = TRUE, line = TRUE, ...) {
   # Extract metadata
   opt = x$opt
   x_var = opt$x_var
@@ -23,16 +25,16 @@ plot.dbbinsreg = function(x, y = NULL, ci = TRUE, line = TRUE, ...) {
   # Start with dots (the main binscatter points)
   if (!is.null(x$data.dots)) {
     dots = x$data.dots
-    
+
     # If CI requested and available, use errorbar
-    if (ci && all(c("ci.l", "ci.r") %in% names(dots)) && !all(is.na(dots$ci.l))) {
+    if (ci && all(c("lwr", "upr") %in% names(dots)) && !all(is.na(dots$lwr))) {
+      if (is.null(type)) type = "errorbar"
       tinyplot::tinyplot(
         fit ~ x,
         data = dots,
-        type = "p",
-        ymin = dots$ci.l,
-        ymax = dots$ci.r,
-        pch = 19,
+        ymin = dots$lwr,
+        ymax = dots$upr,
+        type = type,
         xlab = x_var,
         ylab = y_var,
         ...
@@ -41,8 +43,7 @@ plot.dbbinsreg = function(x, y = NULL, ci = TRUE, line = TRUE, ...) {
       tinyplot::tinyplot(
         fit ~ x,
         data = dots,
-        type = "p",
-        pch = 19,
+        type = type,
         xlab = x_var,
         ylab = y_var,
         ...
@@ -52,15 +53,21 @@ plot.dbbinsreg = function(x, y = NULL, ci = TRUE, line = TRUE, ...) {
     # Overlay line if available and requested
     if (line && !is.null(x$data.line)) {
       line_data = x$data.line
-      graphics::lines(line_data$x, line_data$fit, col = "steelblue", lwd = 2)
+      # graphics::lines(line_data$x, line_data$fit, col = "steelblue", lwd = 2)
+      tinyplot::tinyplot_add(
+        fit ~ x, data = line_data,
+        ymin = NULL, ymax = NULL,
+        type = "l", lwd = 2, col = "steelblue"
+      )
     }
   } else if (!is.null(x$data.line)) {
     # No dots, just show line
+    if (is.null(type)) type = "l"
     line_data = x$data.line
     tinyplot::tinyplot(
       fit ~ x,
       data = line_data,
-      type = "l",
+      type = type,
       xlab = x_var,
       ylab = y_var,
       ...
@@ -71,3 +78,7 @@ plot.dbbinsreg = function(x, y = NULL, ci = TRUE, line = TRUE, ...) {
   
   invisible(x)
 }
+
+#' @rdname plot.dbbinsreg
+#' @export
+tinyplot.dbbinsreg = plot.dbbinsreg

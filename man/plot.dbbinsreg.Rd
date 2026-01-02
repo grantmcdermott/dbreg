@@ -2,23 +2,28 @@
 % Please edit documentation in R/plot.r
 \name{plot.dbbinsreg}
 \alias{plot.dbbinsreg}
-\title{Plot method for dbbinsreg objects (binsreg-style)}
+\alias{tinyplot.dbbinsreg}
+\title{Plot method for dbbinsreg objects}
 \usage{
-\method{plot}{dbbinsreg}(x, y = NULL, ci = TRUE, line = TRUE, ...)
+\method{plot}{dbbinsreg}(x, type = NULL, ci = TRUE, line = TRUE, ...)
+
+tinyplot.dbbinsreg(x, type = NULL, ci = TRUE, line = TRUE, ...)
 }
 \arguments{
-\item{x}{A dbbinsreg object}
+\item{x}{A \code{dbbinsreg} object}
 
-\item{y}{Ignored (for S3 consistency)}
+\item{type}{The type of plot. If \code{NULL} (the default), then the type will be
+inferred based on the underlying object (e.g, \code{"errorbar"} for)}
 
-\item{ci}{Logical. Show confidence intervals for dots? Default is TRUE.}
+\item{ci}{Logical. Show confidence intervals for dots? Default is \code{TRUE.}}
 
-\item{line}{Logical. Show the line overlay if available? Default is TRUE.}
+\item{line}{Logical. Show the line overlay if available? Default is \code{TRUE.}}
 
-\item{...}{Additional arguments passed to tinyplot}
+\item{...}{Additional arguments passed to \verb{\code{\link[tinyplot]{tinyplot}}, e.g. }theme\verb{, }main`, etc.}
 }
 \description{
-Visualizes binned regression results from \code{\link{dbbinsreg}} using tinyplot.
+Visualizes binned regression results from \code{\link{dbbinsreg}}.
 Plots dots at bin means with optional confidence intervals, and optionally
-overlays a smooth line if computed.
+overlays a smooth line if computed. Uses tinyplot for rendering but works
+with both \code{plot()} and \code{tinyplot()} generics.
 }
