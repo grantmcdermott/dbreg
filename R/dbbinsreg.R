@@ -96,22 +96,22 @@
 #' @export
 #' @examples
 #' \dontrun{
-#' ChickWeight = as.data.frame(ChickWeight)
+#' cw = as.data.frame(ChickWeight)
 #' 
 #' # Canonical binscatter: bin means (default)
-#' dbbinsreg(weight ~ Time, ChickWeight, nbins = 10)
+#' dbbinsreg(weight ~ Time, cw, nbins = 10)
 #'
 #' # Piecewise linear, no smoothness
-#' dbbinsreg(weight ~ Time, ChickWeight, nbins = 10, dots = c(1, 0))
+#' dbbinsreg(weight ~ Time, cw, nbins = 10, dots = c(1, 0))
 #'
 #' # Piecewise quadratic with C1 continuity
-#' dbbinsreg(weight ~ Time, ChickWeight, nbins = 10, dots = c(2, 1))
+#' dbbinsreg(weight ~ Time, cw, nbins = 10, dots = c(2, 1))
 #'
 #' # With line overlay for smooth visualization
-#' dbbinsreg(weight ~ Time, ChickWeight, nbins = 10, dots = c(0, 0), line = c(1, 1))
+#' dbbinsreg(weight ~ Time, cw, nbins = 10, dots = c(0, 0), line = c(1, 1))
 #'
 #' # With fixed effects (diet type)
-#' dbbinsreg(weight ~ Time | Diet, ChickWeight, nbins = 10, dots = c(1, 0))
+#' dbbinsreg(weight ~ Time | Diet, cw, nbins = 10, dots = c(1, 0))
 #' }
 dbbinsreg = function(
   fml,
