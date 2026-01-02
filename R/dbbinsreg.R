@@ -321,6 +321,7 @@ dbbinsreg = function(
                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
     table_name = dbbinsreg_temp_table_name(base_name, backend)
     DBI::dbWriteTable(conn, table_name, data, temporary = TRUE)
+    duckdb_register(conn, table_name, data)
     temp_tables = c(temp_tables, table_name)
   } else {
     stop("data must be a dataframe, table name, or lazy table (e.g., from dplyr::tbl())")

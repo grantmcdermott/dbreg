@@ -211,7 +211,7 @@
 #' @seealso \code{\link[DBI]{dbConnect}} for creating database connections,
 #' \code{\link[duckdb]{duckdb}} for DuckDB-specific connections
 #'
-#' @importFrom DBI dbConnect dbDisconnect dbGetInfo dbGetQuery dbIsValid
+#' @importFrom DBI dbConnect dbDisconnect dbGetInfo dbGetQuery dbIsValid dbRemoveTable
 #' @importFrom duckdb duckdb duckdb_register
 #' @importFrom Formula Formula
 #' @importFrom Matrix chol2inv crossprod Diagonal sparse.model.matrix
