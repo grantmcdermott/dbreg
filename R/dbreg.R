@@ -211,11 +211,11 @@
 #' @seealso \code{\link[DBI]{dbConnect}} for creating database connections,
 #' \code{\link[duckdb]{duckdb}} for DuckDB-specific connections
 #'
-#' @importFrom DBI dbConnect dbDisconnect dbGetInfo dbGetQuery dbIsValid dbRemoveTable
+#' @importFrom DBI dbConnect dbDisconnect dbExecute dbGetInfo dbGetQuery dbIsValid dbRemoveTable
 #' @importFrom duckdb duckdb duckdb_register
 #' @importFrom Formula Formula
 #' @importFrom Matrix chol2inv crossprod Diagonal sparse.model.matrix
-#' @importFrom stats formula pt reformulate setNames
+#' @importFrom stats aggregate as.formula formula pt reformulate setNames
 #' @importFrom glue glue glue_sql
 #'
 #' @examples

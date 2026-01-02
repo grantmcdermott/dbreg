@@ -371,7 +371,7 @@ dbbinsreg = function(
       FROM {table_name} 
       WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
     ")
-    n_rows = DBI::dbGetQuery(conn, count_sql)$n
+    n_rows = dbGetQuery(conn, count_sql)$n
     
     # Determine effective sample_frac
     if (is.null(sample_frac)) {
@@ -401,7 +401,7 @@ dbbinsreg = function(
         ORDER BY {random_expr}
       ")
       sample_sql = dbbinsreg_sql_limit(sample_sql_base, sample_size, backend)
-      sampled_data = DBI::dbGetQuery(conn, sample_sql)
+      sampled_data = dbGetQuery(conn, sample_sql)
       x_sample = sampled_data[[x_name]]
       
       # Compute breaks based on partition method
@@ -501,7 +501,7 @@ dbbinsreg = function(
 #' @param backend Backend name from detect_backend()
 #' @return SQL expression for random ordering
 #' @keywords internal
-dbbinsreg_sql_random <- function(backend) {
+dbbinsreg_sql_random = function(backend) {
   switch(backend,
     "duckdb" = "RANDOM()",
     "sqlserver" = "NEWID()",
@@ -516,7 +516,7 @@ dbbinsreg_sql_random <- function(backend) {
 #' @param backend Backend name from detect_backend()
 #' @return SQL expression for counting rows
 #' @keywords internal
-dbbinsreg_sql_count <- function(backend) {
+dbbinsreg_sql_count = function(backend) {
   if (backend == "sqlserver") "COUNT_BIG(*)" else "COUNT(*)"
 }
 
@@ -525,7 +525,7 @@ dbbinsreg_sql_count <- function(backend) {
 #' @param n_bins Number of bins
 #' @return SQL NTILE expression
 #' @keywords internal
-dbbinsreg_sql_ntile <- function(x_name, n_bins) {
+dbbinsreg_sql_ntile = function(x_name, n_bins) {
 
   glue("NTILE({n_bins}) OVER (ORDER BY {x_name})")
 }
@@ -536,7 +536,7 @@ dbbinsreg_sql_ntile <- function(x_name, n_bins) {
 #' @param backend Backend name from detect_backend()
 #' @return SQL query with appropriate LIMIT/TOP clause
 #' @keywords internal
-dbbinsreg_sql_limit <- function(query, n, backend) {
+dbbinsreg_sql_limit = function(query, n, backend) {
   if (backend == "sqlserver") {
     # SQL Server uses TOP n after SELECT
     sub("^SELECT", paste("SELECT TOP", n), query, ignore.case = TRUE)
@@ -552,7 +552,7 @@ dbbinsreg_sql_limit <- function(query, n, backend) {
 #' @param backend Backend name from detect_backend()
 #' @return Temp table name (with # prefix for SQL Server)
 #' @keywords internal
-dbbinsreg_temp_table_name <- function(base_name, backend) {
+dbbinsreg_temp_table_name = function(base_name, backend) {
   # SQL Server uses # prefix for local temp tables
   if (backend == "sqlserver") {
     paste0("#", base_name)
@@ -568,19 +568,19 @@ dbbinsreg_temp_table_name <- function(base_name, backend) {
 #' @param select_sql The SELECT statement (without CREATE TABLE)
 #' @param backend Backend name from detect_backend()
 #' @keywords internal
-dbbinsreg_create_temp_table_as <- function(conn, table_name, select_sql, backend) {
+dbbinsreg_create_temp_table_as = function(conn, table_name, select_sql, backend) {
   if (backend == "sqlserver") {
     # SQL Server: SELECT ... INTO #table FROM ...
     # We need to insert INTO clause after SELECT
     # Assume select_sql starts with "SELECT"
-    sql <- sub("^SELECT", paste0("SELECT * INTO ", table_name, " FROM (SELECT"), 
+    sql = sub("^SELECT", paste0("SELECT * INTO ", table_name, " FROM (SELECT"), 
                select_sql, ignore.case = TRUE)
-    sql <- paste0(sql, ") AS __subq")
-    DBI::dbExecute(conn, sql)
+    sql = paste0(sql, ") AS __subq")
+    dbExecute(conn, sql)
   } else {
     # Standard SQL: CREATE TEMPORARY TABLE name AS SELECT ...
-    sql <- glue("CREATE TEMPORARY TABLE {table_name} AS {select_sql}")
-    DBI::dbExecute(conn, sql)
+    sql = glue("CREATE TEMPORARY TABLE {table_name} AS {select_sql}")
+    dbExecute(conn, sql)
   }
 }
 
@@ -821,7 +821,7 @@ create_binned_data = function(inputs) {
   }
   
   # Fetch into R
-  binned_data = DBI::dbGetQuery(conn, query)
+  binned_data = dbGetQuery(conn, query)
   
   return(binned_data)
 }
@@ -832,7 +832,7 @@ create_binned_data = function(inputs) {
 compute_bin_geometry = function(binned_data, x_name) {
   
   # Group by bin and compute geometry
-  geo = stats::aggregate(
+  geo = aggregate(
     binned_data[[x_name]],
     by = list(bin = binned_data$bin),
     FUN = function(x) {
@@ -1003,7 +1003,7 @@ execute_unconstrained_binsreg = function(inputs) {
     fml_str = sprintf("%s ~ %s", y_name, fml_rhs)
   }
   
-  fml = stats::as.formula(fml_str)
+  fml = as.formula(fml_str)
   
   # Force compress strategy for factor bins (moments doesn't support factors)
   actual_strategy = if (inputs$strategy == "auto") "compress" else inputs$strategy
@@ -1142,7 +1142,7 @@ execute_constrained_binsreg = function(inputs) {
     GROUP BY bin
     ORDER BY bin
   ")
-  geo = DBI::dbGetQuery(conn, geo_sql)
+  geo = dbGetQuery(conn, geo_sql)
   
   # Step 2: Extract interior knots from bin boundaries
   # Knots are at x_right[1], x_right[2], ..., x_right[B-1]
@@ -1224,7 +1224,7 @@ execute_constrained_binsreg = function(inputs) {
   } else {
     fml_str = sprintf("%s ~ %s", y_name, rhs)
   }
-  fml = stats::as.formula(fml_str)
+  fml = as.formula(fml_str)
   
   if (inputs$verbose) {
     cat("[dbbinsreg] Fitting regression spline \n")
@@ -1277,7 +1277,7 @@ evaluate_spline_at_bins = function(fit, geo, knots, degree, smooth, basis_names,
   
   # Extract coefficients
   coef_tbl = fit$coeftable
-  coefs = stats::setNames(coef_tbl[, "estimate"], rownames(coef_tbl))
+  coefs = setNames(coef_tbl[, "estimate"], rownames(coef_tbl))
   
   # Get intercept
   intercept = if ("(Intercept)" %in% names(coefs)) coefs["(Intercept)"] else 0
