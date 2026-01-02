@@ -13,7 +13,7 @@ dbbinsreg(
   linegrid = 20,
   nbins = 20,
   binspos = "qs",
-  sample_frac = NULL,
+  randcut = NULL,
   ci = TRUE,
   cb = FALSE,
   vcov = NULL,
@@ -63,7 +63,7 @@ must satisfy \code{s <= p}.}
 equal-count bins, the default), \code{"es"} (evenly-spaced, equal-width bins),
 or a numeric vector of knot positions for manual specification.}
 
-\item{sample_frac}{Numeric in the range \verb{(0,1]}. Controls the random sampling
+\item{randcut}{Numeric in the range \verb{(0,1]}. Controls the random sampling
 fraction for bin boundary computation on large datasets. If \code{NULL} (the
 default), then sampling is automatic: \code{0.01} (1\%) for datasets exceeding 1
 million rows and \code{1} (100\%) otherwise. Note that sampling is only used for
