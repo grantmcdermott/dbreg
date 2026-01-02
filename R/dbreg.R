@@ -522,7 +522,7 @@ process_dbreg_inputs = function(
 #'   con = DBI::dbConnect(odbc::odbc(), ...)
 #'   backend_supports_count_big(con)
 #' }
-#' @export
+#' @keywords internal
 backend_supports_count_big = function(conn) {
   info = try(dbGetInfo(conn), silent = TRUE)
   if (inherits(info, "try-error")) {

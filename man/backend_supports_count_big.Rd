@@ -22,3 +22,4 @@ that supports the `COUNT_BIG` function, such as SQL Server or Azure SQL.
   backend_supports_count_big(con)
 }
 }
+\keyword{internal}

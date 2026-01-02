@@ -9,7 +9,7 @@
 #' @param ... Additional arguments. Currently unused, except to capture
 #' superseded arguments.
 #' @examples
-#' mod = dbreg(Temp ~ Wind | Month, data = airquality, verbose = FALSE)
+#' mod = dbreg(Temp ~ Wind | Month, data = airquality)
 #' 
 #' # coefficients
 #' coef(mod)
@@ -133,7 +133,7 @@ predict.dbreg = function(
     if (length(fe) == 1) {
       fe1 = fe[1]
       # Demean X using group means from newdata
-      mm = sapply(xvars, \(v) {
+      mm = sapply(xvars, function(v) {
         x_mean = ave(newdata[[v]], newdata[[fe1]], FUN = mean_fn)
         newdata[[v]] - x_mean
       })
@@ -154,7 +154,7 @@ predict.dbreg = function(
       fe2 = fe[2]
       
       # Demean X using double-demeaning from newdata
-      mm = sapply(xvars, \(v) {
+      mm = sapply(xvars, function(v) {
         x_u = ave(newdata[[v]], newdata[[fe1]], FUN = mean_fn)
         x_t = ave(newdata[[v]], newdata[[fe2]], FUN = mean_fn)
         x_o = mean_fn(newdata[[v]])

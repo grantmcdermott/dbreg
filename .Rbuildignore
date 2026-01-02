@@ -6,3 +6,7 @@
 ^\_benchmarks/
 SCRATCH/
 nyc-taxi/
+^docs$
+^altdoc$
+^_quarto$
+vignettes/

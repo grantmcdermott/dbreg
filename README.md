@@ -5,6 +5,7 @@
 <a href="https://CRAN.R-project.org/package=dbreg"><img src="https://www.r-pkg.org/badges/version/dbreg" class="img-fluid" alt="CRAN version"></a>
 <a href="https://grantmcdermott.r-universe.dev"><img src="https://grantmcdermott.r-universe.dev/badges/dbreg" class="img-fluid" alt="R-universe version"></a>
 <a href="https://github.com/grantmcdermott/dbreg/actions/workflows/R-CMD-check.yaml"><img src="https://github.com/grantmcdermott/dbreg/actions/workflows/R-CMD-check.yaml/badge.svg" class="img-fluid" alt="GitHub Actions"></a>
+<a href="https://grantmcdermott.com/dbreg/index.html"><img src="https://img.shields.io/badge/docs-homepage-blue.svg" class="img-fluid" alt="Docs"></a>
 <!-- badges: end -->
 
 Fast regressions on database backends.

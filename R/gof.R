@@ -3,7 +3,10 @@
 #' @param object A `dbreg` object.
 #' @param ... Additional arguments (currently unused)
 #' @return Named vector with r2, adj_r2, and rmse
-#' @keywords internal
+#' @examples
+#' mod = dbreg(Temp ~ Wind | Month, data = airquality)
+#' gof(mod)
+#' @export
 gof = function(object, ...) {
   nobs = object$nobs_orig
   df_res = object$df_residual
