@@ -18,8 +18,7 @@ trade_fml = Euros ~ dist_km | Destination + Origin
 trade_dbreg = dbreg(
   trade_fml,
   data = trade,
-  vcov = 'hc1',
-  verbose = FALSE
+  vcov = 'hc1'
 )
 
 trade_feols = feols(
@@ -44,25 +43,24 @@ for (i in seq_along(dict_db)) {
 expect_true(trade_dbreg$nobs == 210)
 
 
-# Query-only mode
+# SQL query-only mode
 
 invisible(capture.output({
-  trade_query = dbreg(
+  trade_sql = dbreg(
     trade_fml,
     data = trade,
     verbose = FALSE,
-    query_only = TRUE
+    sql_only = TRUE
   )
 }))
-expect_true(is.character(trade_query))
-expect_true(grepl("^WITH", trade_query))
+expect_true(is.character(trade_sql))
+expect_true(grepl("^WITH", trade_sql))
 
 # Data-only mode
 
 trade_data = dbreg(
   trade_fml,
   data = trade,
-  verbose = FALSE,
   data_only = TRUE
 )
 expect_true(inherits(trade_data, "data.frame"))
@@ -78,8 +76,7 @@ trade_demean1 = dbreg(
   trade_fml1,
   data = trade,
   strategy = "demean",
-  vcov = "hc1",
-  verbose = FALSE
+  vcov = "hc1"
 )
 
 trade_feols1 = feols(
@@ -108,8 +105,7 @@ trade_mundlak = dbreg(
   trade_fml,
   data = trade,
   strategy = "mundlak",
-  vcov = "hc1",
-  verbose = FALSE
+  vcov = "hc1"
 )
 
 # Manual Mundlak with feols (no FE, just group means as covariates)
@@ -139,8 +135,7 @@ for (i in seq_along(dict_db)) {
 trade_cluster_compress = dbreg(
   trade_fml,
   data = trade,
-  vcov = ~Destination,
-  verbose = FALSE
+  vcov = ~Destination
 )
 
 trade_cluster_feols = feols(
@@ -169,8 +164,7 @@ expect_equal(
 trade_cluster_arg = dbreg(
   trade_fml,
   data = trade,
-  cluster = ~Destination,
-  verbose = FALSE
+  cluster = ~Destination
 )
 
 expect_equal(
@@ -184,8 +178,7 @@ trade_cluster_nested = dbreg(
   trade_fml,
   data = trade,
   vcov = ~Destination,
-  ssc = "nested",
-  verbose = FALSE
+  ssc = "nested"
 )
 
 trade_cluster_feols_nested = feols(
@@ -206,8 +199,7 @@ trade_cluster_demean = dbreg(
   trade_fml1,
   data = trade,
   strategy = "demean",
-  vcov = ~Destination,
-  verbose = FALSE
+  vcov = ~Destination
 )
 
 trade_cluster_demean_feols = feols(
@@ -235,8 +227,7 @@ trade_cluster_mundlak = dbreg(
   trade_fml,
   data = trade,
   strategy = "mundlak",
-  vcov = ~Destination,
-  verbose = FALSE
+  vcov = ~Destination
 )
 
 # Manual Mundlak with feols and clustered SEs
@@ -265,8 +256,7 @@ trade_cluster_moments = dbreg(
   trade_fml_nofe,
   data = trade,
   strategy = "moments",
-  vcov = ~Destination,
-  verbose = FALSE
+  vcov = ~Destination
 )
 
 trade_cluster_moments_feols = feols(

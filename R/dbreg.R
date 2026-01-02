@@ -74,7 +74,7 @@
 #' This distinction only matters for small samples. For large datasets
 #' (`dbreg`'s target use case), the difference is negligible and hence we
 #' default to the simple `"full"` option.
-#' @param query_only Logical indicating whether only the underlying compression
+#' @param sql_only Logical indicating whether only the underlying compression
 #'   SQL query should be returned (i.e., no computation will be performed).
 #'   Default is `FALSE`.
 #' @param data_only Logical indicating whether only the compressed dataset
@@ -86,10 +86,14 @@
 #'   unless you are absolutely sure that your data have no missings and you wish
 #'   to skip some internal checks. (Even then, it probably isn't worth it.)
 #' @param verbose Logical. Print auto strategy and progress messages to the
-#'   console? Defaults to `TRUE`.
+#'   console? Defaults to `FALSE`. This can be overridden for a single call
+#'   by supplying `verbose = TRUE`, or set globally via
+#'   `options(dbreg.verbose = TRUE)`.
+#' @param ... Additional arguments. Currently ignored, except to handle
+#'   superseded arguments for backwards compatibility.
 #'
 #' @return A list of class "dbreg" containing various slots, including a table
-#' of coefficients (which the associated print method will display).
+#' of coefficients (which the associated `print` method will display).
 #'
 #' @section Acceleration Strategies:
 #'
@@ -229,7 +233,7 @@
 #' 
 #' # aside: dbreg's default print method hides the "nuisance" coefficients
 #' # like the intercept and fixed effect(s). But we can grab them if we want.
-#' print(mod, fes = TRUE)
+#' print(mod, fe = TRUE)
 #' 
 #' # "robust" SEs can also be computed using a sufficient statistics approach
 #' dbreg(Temp ~ Wind | Month, data = airquality, vcov = "hc1")
@@ -260,11 +264,14 @@ dbreg = function(
   compress_nmax = 1e6,
   cluster = NULL,
   ssc = c("full", "nested"),
-  query_only = FALSE,
+  sql_only = FALSE,
   data_only = FALSE,
   drop_missings = TRUE,
-  verbose = TRUE
+  verbose = getOption("dbreg.verbose", FALSE),
+  ...
 ) {
+
+  verbose = isTRUE(verbose)
   ssc = match.arg(ssc)
   # Parse vcov: can be string or formula (for clustering)
   # Check formula first before any string operations
@@ -291,6 +298,15 @@ dbreg = function(
   strategy = match.arg(strategy)
   if (strategy == "within") strategy = "demean"  # alias
 
+  # superseded args handled through ...
+  dots = list(...)
+  if (length(dots)) {
+    if (!is.null(dots[["query_only"]]) && !identical(sql_only, dots[["query_only"]])) {
+      sql_only = dots[["query_only"]]
+      warning("The `query_only` argument has been superseded by `sql_only` and will be deprecated in a future `dbreg` release.\n")
+    }
+  }
+
   # Process and validate inputs
   inputs = process_dbreg_inputs(
     fml = fml,
@@ -302,7 +318,7 @@ dbreg = function(
     cluster = cluster,
     ssc = ssc,
     strategy = strategy,
-    query_only = query_only,
+    sql_only = sql_only,
     data_only = data_only,
     compress_ratio = compress_ratio,
     compress_nmax = compress_nmax,
@@ -343,7 +359,7 @@ process_dbreg_inputs = function(
   cluster,
   ssc,
   strategy,
-  query_only,
+  sql_only,
   data_only,
   compress_ratio,
   compress_nmax,
@@ -414,7 +430,7 @@ process_dbreg_inputs = function(
   }
 
   xvars = all.vars(formula(fml, lhs = 0, rhs = 1))
-  fes = if (length(fml)[2] > 1) {
+  fe = if (length(fml)[2] > 1) {
     all.vars(formula(fml, lhs = 0, rhs = 2))
   } else {
     NULL
@@ -446,7 +462,7 @@ process_dbreg_inputs = function(
   # compression ratio sanity check
   if (is.null(compress_ratio)) {
     # Stricter compress_ratio logic for 1 and 2 FE cases
-    compress_ratio = if (length(fes) %in% 1:2) 0.6 else 0.01
+    compress_ratio = if (length(fe) %in% 1:2) 0.6 else 0.01
   } else if (!(is.numeric(compress_ratio) && compress_ratio >= 0 && compress_ratio <= 1)) {
     stop("Argument `compress_ratio` ratio must be a numeric in the range [0, 1]\n.")
   }
@@ -463,10 +479,10 @@ process_dbreg_inputs = function(
     AND {paste(xvars, collapse = ' IS NOT NULL AND ')} IS NOT NULL
     "
     )
-    if (!is.null(fes)) {
+    if (!is.null(fe)) {
       from_statement = glue("
       {from_statement}
-      AND {paste(fes, collapse = ' IS NOT NULL AND ')} IS NOT NULL
+      AND {paste(fe, collapse = ' IS NOT NULL AND ')} IS NOT NULL
       ")
     }
   }
@@ -475,7 +491,7 @@ process_dbreg_inputs = function(
     fml = fml,
     yvar = yvar,
     xvars = xvars,
-    fes = fes,
+    fe = fe,
     conn = conn,
     from_statement = from_statement,
     data = data,
@@ -483,7 +499,7 @@ process_dbreg_inputs = function(
     cluster_var = cluster_var,
     ssc = ssc,
     strategy = strategy,
-    query_only = query_only,
+    sql_only = sql_only,
     data_only = data_only,
     compress_ratio = compress_ratio,
     compress_nmax = compress_nmax,
@@ -559,7 +575,7 @@ sql_count = function(conn, alias, expr = "*", distinct = FALSE) {
 choose_strategy = function(inputs) {
   # Extract values
   strategy = inputs$strategy
-  fes = inputs$fes
+  fe = inputs$fe
   verbose = inputs$verbose
   any_continuous = inputs$any_continuous
   compress_ratio = inputs$compress_ratio
@@ -573,10 +589,10 @@ choose_strategy = function(inputs) {
     conn = inputs$conn
     verbose = inputs$verbose
     xvars = inputs$xvars
-    fes = inputs$fes
+    fe = inputs$fe
     from_statement = inputs$from_statement
 
-    key_cols = c(xvars, fes)
+    key_cols = c(xvars, fe)
     if (!length(key_cols)) {
       return(1)
     }
@@ -597,9 +613,9 @@ choose_strategy = function(inputs) {
       dbGetQuery(conn, sql)$g
     }
 
-    if (length(fes)) {
+    if (length(fe)) {
       # count unique FE groups (may be single or multi-column)
-      n_groups_fe = tryCatch(count_distinct_tuples(fes), error = function(e) {
+      n_groups_fe = tryCatch(count_distinct_tuples(fe), error = function(e) {
         NA_integer_
       })
     } else {
@@ -618,14 +634,14 @@ choose_strategy = function(inputs) {
         "data has ",
         format(total_n, big.mark = ","), " rows"
       )
-      if (length(fes) && !is.na(n_groups_fe)) {
+      if (length(fe) && !is.na(n_groups_fe)) {
         data_msg = paste0(
           data_msg,
           " with ",
-          length(fes), " FE ",
+          length(fe), " FE ",
           "(", format(n_groups_fe, big.mark = ","), " unique groups)"
         )
-      } else if (length(fes) == 0) {
+      } else if (length(fe) == 0) {
         data_msg = paste0(data_msg, " with 0 FE")
       }
       message(data_msg)
@@ -672,7 +688,7 @@ choose_strategy = function(inputs) {
       }
     }
 
-    if (length(fes) == 0) {
+    if (length(fe) == 0) {
       if (verbose) {
         if (any_continuous) {
           message("        - continuous variables detected")
@@ -683,11 +699,11 @@ choose_strategy = function(inputs) {
       } else {
         chosen_strategy = "compress"
       }
-    } else if (length(fes) %in% c(1, 2)) {
+    } else if (length(fe) %in% c(1, 2)) {
       if (fail_compress_ratio || fail_compress_nmax) {
         # For 2-way FE, check balance
-        if (length(fes) == 2) {
-          fe_expr = paste(fes, collapse = ", ")
+        if (length(fe) == 2) {
+          fe_expr = paste(fe, collapse = ", ")
           balance_sql = glue(
             "SELECT COUNT(DISTINCT cnt) AS n FROM (SELECT COUNT(*) AS cnt {from_statement} GROUP BY {fe_expr}) t"
           )
@@ -734,19 +750,19 @@ choose_strategy = function(inputs) {
   }
 
   # Guard unsupported combos
-  if (chosen_strategy == "moments" && length(fes) > 0) {
+  if (chosen_strategy == "moments" && length(fe) > 0) {
     warning(
       "[dbreg] FE present; moments (no-FE) not applicable. Using compress."
     )
     chosen_strategy = "compress"
   }
   if (chosen_strategy == "demean") {
-    if (!(length(fes) %in% c(1, 2))) {
+    if (!(length(fe) %in% c(1, 2))) {
       warning("[dbreg] demean requires <= 2 FEs. Using compress.")
       chosen_strategy = "compress"
-    } else if (verbose && length(fes) == 2) {
+    } else if (verbose && length(fe) == 2) {
       # For 2-way FE, check balance; just a warning since user has explicitly selected into demean
-      fe_expr = paste(fes, collapse = ", ")
+      fe_expr = paste(fe, collapse = ", ")
       balance_sql = glue(
         "SELECT COUNT(DISTINCT cnt) AS n FROM (SELECT COUNT(*) AS cnt {from_statement} GROUP BY {fe_expr}) t"
       )
@@ -796,7 +812,7 @@ execute_moments_strategy = function(inputs) {
     "\nFROM base"
   )
 
-  if (inputs$query_only) {
+  if (inputs$sql_only) {
     return(moments_sql)
   }
   if (inputs$verbose) {
@@ -898,7 +914,7 @@ execute_moments_strategy = function(inputs) {
     fml = inputs$fml,
     yvar = inputs$yvar,
     xvars = inputs$xvars,
-    fes = NULL,
+    fe = NULL,
     query_string = moments_sql,
     nobs = 1L,
     nobs_orig = n_total,
@@ -917,9 +933,9 @@ execute_moments_strategy = function(inputs) {
 execute_demean_strategy = function(inputs) {
   all_vars = c(inputs$yvar, inputs$xvars)
   
-  if (length(inputs$fes) == 1) {
+  if (length(inputs$fe) == 1) {
     # Single FE: simple within-group demeaning
-    fe1 = inputs$fes[1]
+    fe1 = inputs$fe[1]
 
     means_cols = paste(
       sprintf("AVG(%s) AS %s_mean", all_vars, all_vars),
@@ -975,8 +991,8 @@ execute_demean_strategy = function(inputs) {
     )
   } else {
     # Two FE: double demeaning
-    fe1 = inputs$fes[1]
-    fe2 = inputs$fes[2]
+    fe1 = inputs$fe[1]
+    fe2 = inputs$fe[2]
 
     unit_means_cols = paste(
       sprintf("AVG(%s) AS %s_u", all_vars, all_vars),
@@ -1126,7 +1142,7 @@ execute_demean_strategy = function(inputs) {
     demean_sql = gsub("FLOAT", "REAL", demean_sql, fixed = TRUE)
   }
 
-  if (inputs$query_only) {
+  if (inputs$sql_only) {
     return(demean_sql)
   }
 
@@ -1203,7 +1219,7 @@ execute_demean_strategy = function(inputs) {
     # For ssc = "nested", exclude nested FE levels from K
     if (inputs$ssc == "nested") {
       nested_levels = count_nested_fe_levels(
-        inputs$conn, inputs$from_statement, inputs$fes, inputs$cluster_var
+        inputs$conn, inputs$from_statement, inputs$fe, inputs$cluster_var
       )
       n_params_cluster = p + df_fe - nested_levels
     }
@@ -1230,7 +1246,7 @@ execute_demean_strategy = function(inputs) {
     fml = inputs$fml,
     yvar = inputs$yvar,
     xvars = inputs$xvars,
-    fes = inputs$fes,
+    fe = inputs$fe,
     query_string = demean_sql,
     nobs = 1L,
     nobs_orig = n_total,
@@ -1251,10 +1267,10 @@ execute_demean_strategy = function(inputs) {
 execute_mundlak_strategy = function(inputs) {
   xvars = inputs$xvars
   yvar = inputs$yvar
-  fes = inputs$fes
-  n_fes = length(fes)
+  fe = inputs$fe
+  n_fe = length(fe)
 
-  if (n_fes == 0) {
+  if (n_fe == 0) {
     stop("mundlak strategy requires at least one fixed effect")
   }
 
@@ -1263,8 +1279,8 @@ execute_mundlak_strategy = function(inputs) {
   join_parts = character(0)
   xbar_all = character(0)
 
-  for (k in seq_along(fes)) {
-    fe_k = fes[k]
+  for (k in seq_along(fe)) {
+    fe_k = fe[k]
     suffix = paste0("_bar_", fe_k)
     xbar_k = paste0(xvars, suffix)
     xbar_all = c(xbar_all, xbar_k)
@@ -1282,8 +1298,8 @@ execute_mundlak_strategy = function(inputs) {
 
   # Select columns for augmented table
   aug_select_parts = "b.*"
-  for (k in seq_along(fes)) {
-    suffix = paste0("_bar_", fes[k])
+  for (k in seq_along(fe)) {
+    suffix = paste0("_bar_", fe[k])
     xbar_k = paste0(xvars, suffix)
     aug_select_parts = c(aug_select_parts, paste0("m", k, ".", xbar_k))
   }
@@ -1295,8 +1311,8 @@ execute_mundlak_strategy = function(inputs) {
   # Build moment terms
   moment_terms = c(
     sql_count(inputs$conn, "n_total"),
-    if (n_fes >= 1) sql_count(inputs$conn, "n_fe1", fes[1], distinct = TRUE) else "1 AS n_fe1",
-    if (n_fes >= 2) sql_count(inputs$conn, "n_fe2", fes[2], distinct = TRUE) else "1 AS n_fe2",
+    if (n_fe >= 1) sql_count(inputs$conn, "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
+    if (n_fe >= 2) sql_count(inputs$conn, "n_fe2", fe[2], distinct = TRUE) else "1 AS n_fe2",
     sprintf("SUM(CAST(%s AS FLOAT)) AS sum_y", yvar),
     sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_y_sq", yvar, yvar)
   )
@@ -1341,7 +1357,7 @@ execute_mundlak_strategy = function(inputs) {
     mundlak_sql = gsub("FLOAT", "REAL", mundlak_sql, fixed = TRUE)
   }
 
-  if (inputs$query_only) {
+  if (inputs$sql_only) {
     return(mundlak_sql)
   }
 
@@ -1452,7 +1468,7 @@ execute_mundlak_strategy = function(inputs) {
     fml = inputs$fml,
     yvar = yvar,
     xvars = xvars,
-    fes = fes,
+    fe = fe,
     query_string = mundlak_sql,
     nobs = 1L,
     nobs_orig = n_total,
@@ -1473,7 +1489,7 @@ execute_compress_strategy = function(inputs) {
     from_statement = glue("FROM (SELECT * {from_statement})")
   }
 
-  group_cols = c(inputs$xvars, inputs$fes)
+  group_cols = c(inputs$xvars, inputs$fe)
   group_cols_sql = paste(group_cols, collapse = ", ")
   query_string = paste0(
     "WITH cte AS (
@@ -1502,7 +1518,7 @@ execute_compress_strategy = function(inputs) {
     FROM cte"
   )
 
-  if (inputs$query_only) {
+  if (inputs$sql_only) {
     return(query_string)
   }
   if (inputs$verbose) {
@@ -1523,8 +1539,8 @@ execute_compress_strategy = function(inputs) {
     ))
   }
 
-  if (length(inputs$fes)) {
-    for (f in inputs$fes) {
+  if (length(inputs$fe)) {
+    for (f in inputs$fe) {
       compressed_dat[[f]] = factor(compressed_dat[[f]])
     }
   }
@@ -1533,7 +1549,7 @@ execute_compress_strategy = function(inputs) {
   }
 
   X = sparse.model.matrix(
-    reformulate(c(inputs$xvars, inputs$fes)),
+    reformulate(c(inputs$xvars, inputs$fe)),
     compressed_dat
   )
   if (ncol(X) == 0) {
@@ -1584,7 +1600,7 @@ execute_compress_strategy = function(inputs) {
     # For ssc = "nested", exclude nested FE levels from K
     if (inputs$ssc == "nested") {
       nested_levels = count_nested_fe_levels(
-        inputs$conn, from_statement, inputs$fes, inputs$cluster_var
+        inputs$conn, from_statement, inputs$fe, inputs$cluster_var
       )
       n_params_cluster = ncol(X) - nested_levels
     }
@@ -1615,7 +1631,7 @@ execute_compress_strategy = function(inputs) {
       fml = inputs$fml,
       yvar = inputs$yvar,
       xvars = inputs$xvars,
-      fes = inputs$fes,
+      fe = inputs$fe,
       query_string = query_string,
       nobs = nobs_comp,
       nobs_orig = nobs_orig,
@@ -1651,27 +1667,27 @@ solve_with_fallback = function(XtX, Xty) {
 #' the cluster variable (i.e., each FE value belongs to exactly one cluster).
 #' 
 #' @keywords internal
-count_nested_fe_levels = function(conn, from_statement, fes, cluster_var) {
-  if (is.null(fes) || length(fes) == 0 || is.null(cluster_var)) {
+count_nested_fe_levels = function(conn, from_statement, fe, cluster_var) {
+  if (is.null(fe) || length(fe) == 0 || is.null(cluster_var)) {
     return(0L)
   }
   
   nested_levels = 0L
-  for (fe in fes) {
+  for (f in fe) {
     # Check if FE is nested: each FE value should map to exactly one cluster
     # If any FE value spans multiple clusters, it's not nested
     nested_sql = glue(
       "SELECT 1 FROM (SELECT * {from_statement}) t ",
-      "GROUP BY {fe} ",
+      "GROUP BY {f} ",
       "HAVING COUNT(DISTINCT {cluster_var}) > 1 ",
       "LIMIT 1"
     )
     result = tryCatch(dbGetQuery(conn, nested_sql), error = function(e) NULL)
     
     if (is.null(result) || nrow(result) == 0) {
-      # FE is nested - count its levels
+      # FE is nested; count its levels
       count_sql = glue(
-        "SELECT COUNT(DISTINCT {fe}) AS n FROM (SELECT * {from_statement}) t"
+        "SELECT COUNT(DISTINCT {f}) AS n FROM (SELECT * {from_statement}) t"
       )
       n_levels = tryCatch(dbGetQuery(conn, count_sql)$n, error = function(e) 0L)
       nested_levels = nested_levels + n_levels
@@ -2036,7 +2052,7 @@ gen_coeftable = function(betahat, vcov_mat, df_residual) {
 #' Finalize dbreg result object
 #' @keywords internal
 finalize_dbreg_result = function(result, inputs, chosen_strategy) {
-  if (inputs$query_only) {
+  if (inputs$sql_only) {
     cat(result)
     return(invisible(result))
   }

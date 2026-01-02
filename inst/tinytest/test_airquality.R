@@ -10,7 +10,7 @@ names(dict_db) = c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
 
 # Simple regression without fixed effects
 
-aq_dbreg = dbreg(Temp ~ Wind, data = airquality, verbose = FALSE)$coeftable
+aq_dbreg = dbreg(Temp ~ Wind, data = airquality)$coeftable
 aq_lm = coef(summary(lm(Temp ~ Wind, data = airquality)))
 
 for (i in seq_along(dict_db)) {
@@ -26,8 +26,7 @@ for (i in seq_along(dict_db)) {
 aq_fe1_demean = dbreg(
   Temp ~ Wind | Month,
   data = airquality,
-  strategy = "demean",
-  verbose = FALSE
+  strategy = "demean"
 )$coeftable
 
 aq_fe1_feols = feols(
@@ -50,8 +49,7 @@ for (i in seq_along(dict_db)) {
 aq_fe1_within = dbreg(
   Temp ~ Wind | Month,
   data = airquality,
-  strategy = "within",
-  verbose = FALSE
+  strategy = "within"
 )$coeftable
 
 for (i in seq_along(dict_db)) {
@@ -67,8 +65,7 @@ for (i in seq_along(dict_db)) {
 
 aq_dbreg_multi = dbreg(
   Temp ~ Wind + Ozone,
-  data = airquality,
-  verbose = FALSE
+  data = airquality
 )$coeftable
 aq_lm_multi = coef(summary(lm(
   Temp ~ Wind + Ozone,

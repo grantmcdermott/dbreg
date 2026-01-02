@@ -16,10 +16,11 @@ dbreg(
   compress_nmax = 1e+06,
   cluster = NULL,
   ssc = c("full", "nested"),
-  query_only = FALSE,
+  sql_only = FALSE,
   data_only = FALSE,
   drop_missings = TRUE,
-  verbose = TRUE
+  verbose = getOption("dbreg.verbose", FALSE),
+  ...
 )
 }
 \arguments{
@@ -101,7 +102,7 @@ This distinction only matters for small samples. For large datasets
 (\code{dbreg}'s target use case), the difference is negligible and hence we
 default to the simple \code{"full"} option.}
 
-\item{query_only}{Logical indicating whether only the underlying compression
+\item{sql_only}{Logical indicating whether only the underlying compression
 SQL query should be returned (i.e., no computation will be performed).
 Default is \code{FALSE}.}
 
@@ -116,11 +117,16 @@ unless you are absolutely sure that your data have no missings and you wish
 to skip some internal checks. (Even then, it probably isn't worth it.)}
 
 \item{verbose}{Logical. Print auto strategy and progress messages to the
-console? Defaults to \code{TRUE}.}
+console? Defaults to \code{FALSE}. This can be overridden for a single call
+by supplying \code{verbose = TRUE}, or set globally via
+\code{options(dbreg.verbose = TRUE)}.}
+
+\item{...}{Additional arguments. Currently ignored, except to handle
+superseded arguments for backwards compatibility.}
 }
 \value{
 A list of class "dbreg" containing various slots, including a table
-of coefficients (which the associated print method will display).
+of coefficients (which the associated \code{print} method will display).
 }
 \description{
 Leverages the power of databases to run regressions on very large datasets,
@@ -241,7 +247,7 @@ coef(lm(Temp ~ Wind + factor(Month), data = airquality))
 
 # aside: dbreg's default print method hides the "nuisance" coefficients
 # like the intercept and fixed effect(s). But we can grab them if we want.
-print(mod, fes = TRUE)
+print(mod, fe = TRUE)
 
 # "robust" SEs can also be computed using a sufficient statistics approach
 dbreg(Temp ~ Wind | Month, data = airquality, vcov = "hc1")

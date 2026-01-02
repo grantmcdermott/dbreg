@@ -57,7 +57,7 @@ mod = dbreg(Temp ~ Wind | Month, data = airquality, verbose = FALSE)
 
 # coefficients
 coef(mod)
-coef(mod, fes = TRUE)  # include fixed effects
+coef(mod, fe = TRUE)  # include fixed effects
 
 # confidence intervals
 confint(mod)
