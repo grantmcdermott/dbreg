@@ -280,10 +280,7 @@ dbbinsreg = function(
   # Set up database connection if needed
   conn_managed = FALSE
   if (is.null(conn)) {
-    if (!requireNamespace("duckdb", quietly = TRUE)) {
-      stop("Package 'duckdb' required when conn is NULL")
-    }
-    conn = DBI::dbConnect(duckdb::duckdb())
+    conn = dbConnect(duckdb())
     conn_managed = TRUE
   }
   
@@ -294,8 +291,8 @@ dbbinsreg = function(
   
   # Cleanup function
   cleanup = function() {
-    if (conn_managed && DBI::dbIsValid(conn)) {
-      DBI::dbDisconnect(conn, shutdown = TRUE)
+    if (conn_managed && dbIsValid(conn)) {
+      dbDisconnect(conn, shutdown = TRUE)
     }
   }
   on.exit(cleanup(), add = TRUE)
