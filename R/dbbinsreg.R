@@ -35,9 +35,9 @@
 #' @param binspos Bin positioning method. One of either `"qs"` (quantile-spaced,
 #'   equal-count bins, the default), `"es"` (evenly-spaced, equal-width bins),
 #'   or a numeric vector of knot positions for manual specification.
-#' @param sample_frac Numeric in the range `(0,1]`. Controls the random sampling
+#' @param randcut Numeric in the range `(0,1]`. Controls the random sampling
 #'   fraction for bin boundary computation on large datasets. If `NULL` (the
-#'   default), then sampling is automatic: `0.1` (10%) for datasets exceeding 1
+#'   default), then sampling is automatic: `0.01` (1%) for datasets exceeding 1
 #'   million rows and `1` (100%) otherwise. Note that sampling is only used for
 #'   computing the bin boundaries, since this requires an expensive ranking
 #'   operation. The subsequent, primary regression operations use all of the
@@ -183,7 +183,7 @@ dbbinsreg = function(
   linegrid = 20,
   nbins = 20,
   binspos = "qs",
-  sample_frac = NULL,
+  randcut = NULL,
   ci = TRUE,
   cb = FALSE,
   vcov = NULL,
@@ -285,10 +285,10 @@ dbbinsreg = function(
   }
   linegrid = as.integer(linegrid)
   
-  # Validate sample_frac (NULL is allowed for auto behavior)
-  if (!is.null(sample_frac)) {
-    if (!is.numeric(sample_frac) || length(sample_frac) != 1 || sample_frac <= 0 || sample_frac > 1) {
-      stop("sample_frac must be NULL or a numeric value between 0 and 1")
+  # Validate randcut (NULL is allowed for auto behavior)
+  if (!is.null(randcut)) {
+    if (!is.numeric(randcut) || length(randcut) != 1 || randcut <= 0 || randcut > 1) {
+      stop("randcut must be NULL or a numeric value between 0 and 1")
     }
   }
   
@@ -426,10 +426,10 @@ dbbinsreg = function(
   # -------------------------------------------------------------------------
   # SAMPLING: Compute breaks from sample if dataset is large
   # -------------------------------------------------------------------------
-  # Auto behavior (sample_frac = NULL): 
-  #   - If >1M rows: sample 10% for bin boundary computation
+  # Auto behavior (randcut = NULL): 
+  #   - If >1M rows: sample 1% for bin boundary computation
   #   - Otherwise: use all data
-  # If user provides explicit sample_frac, use that regardless of row count.
+  # If user provides explicit randcut, use that regardless of row count.
   # This avoids expensive NTILE() or min/max scans on very large datasets.
   
   # Get backend for SQL dialect
@@ -447,24 +447,24 @@ dbbinsreg = function(
     ")
     n_rows = dbGetQuery(conn, count_sql)$n
     
-    # Determine effective sample_frac
-    if (is.null(sample_frac)) {
-      # Auto: 10% if >1M rows, 100% otherwise
-      effective_sample_frac = if (n_rows > 1e6) 0.1 else 1
+    # Determine effective randcut
+    if (is.null(randcut)) {
+      # Auto: 1% if >1M rows, 100% otherwise
+      effective_randcut = if (n_rows > 1e6) 0.01 else 1
     } else {
       # User override
-      effective_sample_frac = sample_frac
+      effective_randcut = randcut
     }
     
     # Sample if fraction < 1
-    if (effective_sample_frac < 1) {
+    if (effective_randcut < 1) {
       if (verbose) {
         message(sprintf("Dataset has %.1fM rows, computing breaks from %.0f%% sample...", 
-                       n_rows / 1e6, effective_sample_frac * 100))
+                       n_rows / 1e6, effective_randcut * 100))
       }
       
       # Sample data for break computation using direct SQL
-      sample_size = max(10000L, ceiling(n_rows * effective_sample_frac))  # at least 10k rows
+      sample_size = max(10000L, ceiling(n_rows * effective_randcut))  # at least 10k rows
       random_expr = dbbinsreg_sql_random(backend)
       
       # Build sample query (backend-specific for LIMIT/TOP)

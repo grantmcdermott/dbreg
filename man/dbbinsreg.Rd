@@ -65,7 +65,7 @@ or a numeric vector of knot positions for manual specification.}
 
 \item{sample_frac}{Numeric in the range \verb{(0,1]}. Controls the random sampling
 fraction for bin boundary computation on large datasets. If \code{NULL} (the
-default), then sampling is automatic: \code{0.1} (10\%) for datasets exceeding 1
+default), then sampling is automatic: \code{0.01} (1\%) for datasets exceeding 1
 million rows and \code{1} (100\%) otherwise. Note that sampling is only used for
 computing the bin boundaries, since this requires an expensive ranking
 operation. The subsequent, primary regression operations use all of the
