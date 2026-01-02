@@ -49,9 +49,11 @@ Imports:
   stats,
   tinyplot
 Suggests:
+  binsreg,
   here,
   fixest (>= 0.13.0),
   knitr,
+  MASS,
   quarto,
   tinytest
 Enhances:

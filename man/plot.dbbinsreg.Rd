@@ -5,9 +5,9 @@
 \alias{tinyplot.dbbinsreg}
 \title{Plot method for dbbinsreg objects}
 \usage{
-\method{plot}{dbbinsreg}(x, type = NULL, ci = TRUE, line = TRUE, ...)
+\method{plot}{dbbinsreg}(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...)
 
-tinyplot.dbbinsreg(x, type = NULL, ci = TRUE, line = TRUE, ...)
+tinyplot.dbbinsreg(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...)
 }
 \arguments{
 \item{x}{A \code{dbbinsreg} object}
@@ -18,13 +18,17 @@ confidence intervals).}
 
 \item{ci}{Logical. Show confidence intervals for dots? Default is \code{TRUE.}}
 
+\item{cb}{Logical. Show confidence bands as a ribbon? Default is \code{TRUE} if
+available in the object.}
+
 \item{line}{Logical. Show the line overlay if available? Default is \code{TRUE.}}
 
 \item{...}{Additional arguments passed to \verb{\code{\link[tinyplot]{tinyplot}}, e.g. }theme\verb{, }main`, etc.}
 }
 \description{
 Visualizes binned regression results from \code{\link{dbbinsreg}}.
-Plots dots at bin means with optional confidence intervals, and optionally
-overlays a smooth line if computed. Uses tinyplot for rendering but works
-with both \code{plot()} and \code{tinyplot()} generics.
+Plots dots at bin means with optional confidence intervals and/or
+confidence bands, and optionally overlays a smooth line if computed.
+Uses tinyplot for rendering but works with both \code{plot()} and
+\code{tinyplot()} generics.
 }

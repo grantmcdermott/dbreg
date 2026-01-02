@@ -4,7 +4,15 @@
 \alias{build_dbbinsreg_output}
 \title{Build dbbinsreg output list (binsreg-compatible format)}
 \usage{
-build_dbbinsreg_output(inputs, fit, geo, eval_fn, se_fn = NULL, knots = NULL)
+build_dbbinsreg_output(
+  inputs,
+  fit,
+  geo,
+  eval_fn,
+  se_fn = NULL,
+  knots = NULL,
+  V_beta = NULL
+)
 }
 \arguments{
 \item{inputs}{List of input parameters from dbbinsreg()}

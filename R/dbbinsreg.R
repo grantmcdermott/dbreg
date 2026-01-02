@@ -15,6 +15,9 @@
 #'   - `y ~ x + w1 + w2 | fe`: binscatter with controls and fixed effects
 #' @param data A data source: R dataframe, database table name (character), or
 #'   a lazy table object (e.g., from `dplyr::tbl()`) pointing to a database table.
+#' @param path Character string giving a path to data file(s) on disk. This is
+#'   an alias for `data` for consistency with [dbreg()]. Can include file globbing
+#'   for Hive-partitioned datasets, e.g. `"read_parquet('mydata/**/*.parquet')"`.
 #' @param dots A vector `c(p, s)` specifying the polynomial degree `p` and smoothness
 #'   `s` for the dots (point estimates at bin means). Default is `c(0, 0)` for
 #'   canonical binscatter (bin means). Set to `NULL` or `FALSE` to suppress dots.
@@ -35,10 +38,16 @@
 #'   Sampling only affects bin boundary computation; the regression uses all data.
 #' @param ci Logical. Calculate standard errors and confidence intervals for dots?
 #'   Default is TRUE.
+#' @param cb Logical. Calculate simultaneous confidence bands using simulation?
+#'   Default is FALSE. Requires the MASS package.
 #' @param vcov Character string or formula for standard errors. Options are
-#'   "HC1" (default, heteroskedasticity-robust, matches binsreg), "iid", or a
-#'   clustering formula like ~cluster_var.
-#' @param level Confidence level as a percentage (e.g., 95 for 95% CI). Default is 95.
+#'   `"HC1"` (default, heteroskedasticity-robust, matches
+#'   \code{\link[binsreg]{binsreg}}), `"iid"`, or a one-sided formula for
+#'    clustered standard errors (e.g., `~cluster_var`).
+#' @param level Numeric in the range `[0,1]`, giving the confidence level for
+#' the confidence levels and/or bands. Default is `0.95`.
+#' @param nsims Number of simulation draws for confidence band computation.
+#'   Default is 500. Only used when `cb = TRUE`.
 #' @param strategy Acceleration strategy passed to dbreg when smoothness is 0.
 #'   Options are "auto" (default), "compress", or "scan". This parameter is
 #'   ignored when `s` (smoothness parameter in `dots` or `lines`) > 0. See \code{\link{dbreg}} for details.
@@ -78,6 +87,26 @@
 #' Unlike binsreg, dbbinsreg executes entirely in SQL, making it suitable for large
 #' databases that cannot fit in memory.
 #'
+#' ## Confidence intervals vs confidence bands
+#'
+#' When `ci=TRUE` (default), pointwise confidence intervals are computed at each
+#' bin mean using standard asymptotic theory. When `cb=TRUE`, simultaneous
+#' confidence bands are computed using a simulation-based sup-t procedure:
+#' \enumerate{
+#'   \item Draw `nsims` samples from the asymptotic distribution of the estimator
+#'   \item Compute the supremum of the t-statistics across all bins for each draw
+#'   \item Use the (1-alpha) quantile of these suprema as the critical value
+#' }
+#'
+#' The confidence band is wider than pointwise CIs and provides simultaneous
+#' coverage: with (1-alpha) probability, the entire true function lies within
+#' the band. This is useful for making statements about the overall shape of
+#' the relationship rather than individual point estimates.
+#'
+#' Note: Unlike binsreg which evaluates CB on a fine grid within each bin,
+#' dbbinsreg computes CB only at bin means (same points as CI). This is simpler
+#' and sufficient for most applications.
+#'
 #' ## Note on quantile bin boundaries
 #'
 #' When using quantile-spaced bins (`binspos="qs"`), dbbinsreg uses SQL's `NTILE()`
@@ -115,7 +144,8 @@
 #' }
 dbbinsreg = function(
   fml,
-  data,
+  data = NULL,
+  path = NULL,
   dots = c(0, 0),
   line = NULL,
   linegrid = 20,
@@ -123,12 +153,19 @@ dbbinsreg = function(
   binspos = "qs",
   sample_frac = NULL,
   ci = TRUE,
+  cb = FALSE,
   vcov = NULL,
-  level = 95,
+  level = 0.95,
+  nsims = 500,
   strategy = "auto",
   conn = NULL,
   verbose = getOption("dbreg.verbose", FALSE)
 ) {
+  
+  # Handle path as alias for data (for consistency with dbreg)
+  if (is.null(data) && !is.null(path)) {
+    data = path
+  }
   
   # -------------------------------------------------------------------------
   # Process binsreg-style arguments: dots, line, binspos
@@ -217,12 +254,12 @@ dbbinsreg = function(
     }
   }
   
-  # Validate level (now as percentage, e.g., 95 for 95% CI)
-  if (!is.numeric(level) || length(level) != 1 || level <= 0 || level >= 100) {
-    stop("level must be a numeric value between 0 and 100 (e.g., 95 for 95% CI)")
+  # Validate level (as decimal in [0,1], e.g., 0.95 for 95% CI)
+  if (!is.numeric(level) || length(level) != 1 || level <= 0 || level >= 1) {
+    stop("level must be a numeric value between 0 and 1 (e.g., 0.95 for 95% CI)")
   }
   # Convert to alpha for internal use
-  alpha = 1 - level / 100
+  alpha = 1 - level
   
   # Handle vcov / ci interaction
   # Default to HC1 (heteroskedasticity-robust) to match binsreg package
@@ -449,6 +486,8 @@ dbbinsreg = function(
     partition_method = partition_method,
     breaks = breaks,
     ci = ci,
+    cb = cb,
+    nsims = nsims,
     vcov = vcov,
     level = alpha,  # Internal: use alpha (0.05), not level (95)
     strategy = strategy,
@@ -1351,7 +1390,7 @@ evaluate_spline_at_bins = function(fit, geo, knots, degree, smooth, basis_names,
   } else NULL
   
   # Use the unified output builder
-  build_dbbinsreg_output(inputs, fit, geo, eval_fn, se_fn, knots = knots)
+  build_dbbinsreg_output(inputs, fit, geo, eval_fn, se_fn, knots = knots, V_beta = V_beta)
 }
 
 
@@ -1524,7 +1563,7 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
   }
   
   # Use the new unified output builder
-  build_dbbinsreg_output(inputs, fit, geo, eval_fn, se_fn)
+  build_dbbinsreg_output(inputs, fit, geo, eval_fn, se_fn, V_beta = V_beta)
 }
 
 
@@ -1571,7 +1610,7 @@ lagrange_interp_3pt = function(x_seq, x_pts, y_pts) {
 #'   - opt: list of options (dots, line, nbins, binspos, etc.)
 #' 
 #' @keywords internal
-build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots = NULL) {
+build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots = NULL, V_beta = NULL) {
   
   B = nrow(geo)
   level = inputs$level  # This is alpha (e.g., 0.05)
@@ -1596,13 +1635,32 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
       upr = rep(NA_real_, B)
     }
     
+    # Compute confidence band if requested
+    if (isTRUE(inputs$cb) && !is.null(V_beta) && !all(is.na(se_dots))) {
+      if (!requireNamespace("MASS", quietly = TRUE)) {
+        stop("Package 'MASS' is required for confidence bands. Please install it.")
+      }
+      nsims = inputs$nsims
+      # Simulate from N(0, V_beta) and compute sup-t critical value
+      draws = MASS::mvrnorm(nsims, mu = rep(0, B), Sigma = V_beta[1:B, 1:B])
+      sup_t = apply(abs(draws) / se_dots, 1, max)
+      crit_cb = stats::quantile(sup_t, 1 - inputs$level)
+      cb_lwr = fit_dots - crit_cb * se_dots
+      cb_upr = fit_dots + crit_cb * se_dots
+    } else {
+      cb_lwr = rep(NA_real_, B)
+      cb_upr = rep(NA_real_, B)
+    }
+    
     data_dots = data.frame(
       x = x_mean,
       bin = geo$bin,
       fit = fit_dots,
       se = se_dots,
       lwr = lwr,
-      upr = upr
+      upr = upr,
+      cb_lwr = cb_lwr,
+      cb_upr = cb_upr
     )
     rownames(data_dots) = NULL
   } else {
@@ -1655,8 +1713,9 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
     x_var = inputs$x_name,
     y_var = inputs$y_name,
     formula = inputs$formula,
-    level = (1 - level) * 100,  # Convert back to percentage for display
+    level = (1 - level) * 100,  # Convert alpha back to percentage for display
     ci = inputs$ci,
+    cb = inputs$cb,
     vcov = inputs$vcov
   )
   

@@ -6,7 +6,8 @@
 \usage{
 dbbinsreg(
   fml,
-  data,
+  data = NULL,
+  path = NULL,
   dots = c(0, 0),
   line = NULL,
   linegrid = 20,
@@ -14,8 +15,10 @@ dbbinsreg(
   binspos = "qs",
   sample_frac = NULL,
   ci = TRUE,
+  cb = FALSE,
   vcov = NULL,
-  level = 95,
+  level = 0.95,
+  nsims = 500,
   strategy = "auto",
   conn = NULL,
   verbose = getOption("dbreg.verbose", FALSE)
@@ -34,6 +37,10 @@ are controls. Fixed effects go after \code{|}. Examples:
 
 \item{data}{A data source: R dataframe, database table name (character), or
 a lazy table object (e.g., from \code{dplyr::tbl()}) pointing to a database table.}
+
+\item{path}{Character string giving a path to data file(s) on disk. This is
+an alias for \code{data} for consistency with \code{\link[=dbreg]{dbreg()}}. Can include file globbing
+for Hive-partitioned datasets, e.g. \code{"read_parquet('mydata/**/*.parquet')"}.}
 
 \item{dots}{A vector \code{c(p, s)} specifying the polynomial degree \code{p} and smoothness
 \code{s} for the dots (point estimates at bin means). Default is \code{c(0, 0)} for
@@ -62,11 +69,19 @@ Sampling only affects bin boundary computation; the regression uses all data.}
 \item{ci}{Logical. Calculate standard errors and confidence intervals for dots?
 Default is TRUE.}
 
-\item{vcov}{Character string or formula for standard errors. Options are
-"HC1" (default, heteroskedasticity-robust, matches binsreg), "iid", or a
-clustering formula like ~cluster_var.}
+\item{cb}{Logical. Calculate simultaneous confidence bands using simulation?
+Default is FALSE. Requires the MASS package.}
 
-\item{level}{Confidence level as a percentage (e.g., 95 for 95\% CI). Default is 95.}
+\item{vcov}{Character string or formula for standard errors. Options are
+\code{"HC1"} (default, heteroskedasticity-robust, matches
+\code{\link[binsreg]{binsreg}}), \code{"iid"}, or a one-sided formula for
+clustered standard errors (e.g., \code{~cluster_var}).}
+
+\item{level}{Numeric in the range \verb{[0,1]}, giving the confidence level for
+the confidence levels and/or bands. Default is \code{0.95}.}
+
+\item{nsims}{Number of simulation draws for confidence band computation.
+Default is 500. Only used when \code{cb = TRUE}.}
 
 \item{strategy}{Acceleration strategy passed to dbreg when smoothness is 0.
 Options are "auto" (default), "compress", or "scan". This parameter is
@@ -115,6 +130,27 @@ Key parameter mappings:
 
 Unlike binsreg, dbbinsreg executes entirely in SQL, making it suitable for large
 databases that cannot fit in memory.
+}
+
+\subsection{Confidence intervals vs confidence bands}{
+
+When \code{ci=TRUE} (default), pointwise confidence intervals are computed at each
+bin mean using standard asymptotic theory. When \code{cb=TRUE}, simultaneous
+confidence bands are computed using a simulation-based sup-t procedure:
+\enumerate{
+\item Draw \code{nsims} samples from the asymptotic distribution of the estimator
+\item Compute the supremum of the t-statistics across all bins for each draw
+\item Use the (1-alpha) quantile of these suprema as the critical value
+}
+
+The confidence band is wider than pointwise CIs and provides simultaneous
+coverage: with (1-alpha) probability, the entire true function lies within
+the band. This is useful for making statements about the overall shape of
+the relationship rather than individual point estimates.
+
+Note: Unlike binsreg which evaluates CB on a fine grid within each bin,
+dbbinsreg computes CB only at bin means (same points as CI). This is simpler
+and sufficient for most applications.
 }
 
 \subsection{Note on quantile bin boundaries}{
