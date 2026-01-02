@@ -10,7 +10,8 @@
 #' 
 #' @param x A `dbbinsreg` object
 #' @param type The type of plot. If `NULL` (the default), then the type will be
-#' inferred based on the underlying object (e.g, `"errorbar"` for)
+#' inferred based on the underlying object (e.g, `"pointrange"` for points with
+#' confidence intervals).
 #' @param ci Logical. Show confidence intervals for dots? Default is `TRUE.`
 #' @param line Logical. Show the line overlay if available? Default is `TRUE.`
 #' @param ... Additional arguments passed to `\code{\link[tinyplot]{tinyplot}},
@@ -21,14 +22,14 @@ plot.dbbinsreg = function(x, type = NULL, ci = TRUE, line = TRUE, ...) {
   opt = x$opt
   x_var = opt$x_var
   y_var = opt$y_var
-  
+
   # Start with dots (the main binscatter points)
   if (!is.null(x$data.dots)) {
     dots = x$data.dots
 
-    # If CI requested and available, use errorbar
+    # If CI requested and available, use pointrange
     if (ci && all(c("lwr", "upr") %in% names(dots)) && !all(is.na(dots$lwr))) {
-      if (is.null(type)) type = "errorbar"
+      if (is.null(type)) type = "pointrange"
       tinyplot::tinyplot(
         fit ~ x,
         data = dots,

@@ -13,7 +13,8 @@ tinyplot.dbbinsreg(x, type = NULL, ci = TRUE, line = TRUE, ...)
 \item{x}{A \code{dbbinsreg} object}
 
 \item{type}{The type of plot. If \code{NULL} (the default), then the type will be
-inferred based on the underlying object (e.g, \code{"errorbar"} for)}
+inferred based on the underlying object (e.g, \code{"pointrange"} for points with
+confidence intervals).}
 
 \item{ci}{Logical. Show confidence intervals for dots? Default is \code{TRUE.}}
 
