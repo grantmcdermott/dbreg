@@ -2,16 +2,26 @@
 #' @export
 generics::tidy
 
-#' tidy `dbreg` objects
-#'
+#' Tidiers for `dbreg` objects
+#' @description Provides \code{broom::tidy} and \code{broom::glance} methods for
+#' "dbreg" objects. 
 #' @importFrom generics tidy
 #' @importFrom stats confint
-#' @param x a model of class `dbreg` produced by the [dbreg()] function
+#' @param x a model of class `dbreg` produced by the \code{\link[dbreg]{dbreg}}
+#' function.
 #' @param conf.int Logical indicating whether to include confidence intervals.
-#'   Default is `FALSE`.
+#' Default is `FALSE`.
 #' @param conf.level Confidence level for intervals. Default is 0.95.
 #' @param fe Should the fixed effects be tidied too? Default is `FALSE`.
-#' @param ... Additional arguments to tidying method.
+#' @param ... Additional arguments to tidying method. Currently unused except to
+#' handle superseded arguments.
+#' @examples
+#' mod = dbreg(Temp ~ Wind | Month, data = airquality)
+#' tidy(mod, conf.int = TRUE)
+#' tidy(mod, conf.int = TRUE, fe = TRUE)
+#' glance(mod)
+#' @name tidiers
+#' @rdname tidiers
 #' @export
 tidy.dbreg = function(x, conf.int = FALSE, conf.level = 0.95, fe = FALSE, ...) {
   # superseded args handled through ...
@@ -44,11 +54,8 @@ tidy.dbreg = function(x, conf.int = FALSE, conf.level = 0.95, fe = FALSE, ...) {
 #' @export
 generics::glance
 
-#' glance `dbreg` objects
-#'
 #' @importFrom generics glance
-#' @param x a model of class `dbreg` produced by the [dbreg()] function
-#' @param ... Additional arguments to glancing method.
+#' @rdname tidiers
 #' @export
 glance.dbreg = function(x, ...) {
   gof_vals = gof(x)

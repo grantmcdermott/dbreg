@@ -3,6 +3,11 @@
 #' @param fe Should the fixed effects be displayed? Default is `FALSE`.
 #' @param ... Other arguments passed to \code{\link[base]{print}}. Currently
 #' unused, except to capture superseded arguments.
+#' @examples
+#' mod = dbreg(Temp ~ Wind | Month, data = airquality)
+#' # mod # same as below
+#' print(mod)
+#' print(mod, fe = TRUE)  # include fixed effects
 #' @export
 print.dbreg = function(x, fe = FALSE, ...) {
   

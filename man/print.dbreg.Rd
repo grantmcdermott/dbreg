@@ -17,3 +17,9 @@ unused, except to capture superseded arguments.}
 \description{
 Print method for dbreg objects
 }
+\examples{
+mod = dbreg(Temp ~ Wind | Month, data = airquality)
+# mod # same as below
+print(mod)
+print(mod, fe = TRUE)  # include fixed effects
+}

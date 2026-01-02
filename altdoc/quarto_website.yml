@@ -1,0 +1,78 @@
+project:
+  type: website
+  output-dir: ../docs/
+
+# Note: freeze functionality can be set at a project level or for individual .qmd files
+# execute:
+#   freeze: false
+
+website:
+  title: "$ALTDOC_PACKAGE_NAME"
+  site-url: https://grantmcdermott.com/dbreg/
+  # code-links: true
+  navbar:
+    search: true
+    left:
+      - text: Get started
+        file: vignettes/intro.qmd
+      - text: About
+        menu:
+        - text: News
+          file: $ALTDOC_NEWS
+        - text: Citation
+          file: $ALTDOC_CITATION
+        - text: License
+          file: $ALTDOC_LICENSE
+      - text: Reference
+        file: man/dbreg.qmd
+    right:
+      - icon: github
+        href: $ALTDOC_PACKAGE_URL_GITHUB
+        aria-label: $ALTDOC_PACKAGE_NAME GitHub
+        target: _blank
+      - icon: bluesky
+        href: https://bsky.app/profile/gmcd.bsky.social
+        aria-label: "@gmcd.bsky.social"
+        target: _blank
+      - icon: mastodon
+        href: https://mastodon.social/@gmcd
+        aria-label: "@gmcd@mastodon.social"
+        target: _blank
+  sidebar:
+    - id: documentation
+      title: Reference
+      style: floating
+      collapse-level: 2
+      contents:
+        - section: "Main functions"
+          contents:
+            - text: dbreg
+              file: man/dbreg.qmd
+        - section: "utilities"
+          contents:
+            - text: gof
+              file: man/gof.qmd
+        - section: "Base methods"
+          contents:
+            - text: coef.dbreg
+              file: man/coef.dbreg.qmd
+            - text: confint.dbreg
+              file: man/confint.dbreg.qmd
+            - text: predict.dbreg
+              file: man/predict.dbreg.qmd
+            - text: print.dbreg
+              file: man/print.dbreg.qmd
+            - text: vcov.dbreg
+              file: man/vcov.dbreg.qmd
+        - section: "Other methods"
+          contents:
+            - text: glance.dbreg
+              file: man/tidiers.qmd
+            - text: tidy.dbreg
+              file: man/tidiers.qmd
+format:
+  html:
+    toc: true
+    # code-link: true
+    theme: cosmo
+#     number-sections: false

@@ -1,0 +1,15 @@
+---
+title: "Introduction to dbreg"
+format: html
+engine: knitr
+vignette: >
+  %\VignetteIndexEntry{Introduction to dbreg}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+_COMING SOON._
+
+In the meantime, please take a look at the README examples. The `?dbreg`
+helpfile also contains a lot of useful information, especially concerning the
+various [acceleration strategies](../man/dbreg.html#acceleration-strategies).
