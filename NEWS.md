@@ -1,6 +1,13 @@
 # News
 
+_This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg/NEWS.html)._
+
 ## dev version
+
+Website
+
+- We finally have a package website:
+[grantmcdermott.com/dbreg](https://grantmcdermott.com/dbreg/index.html) 🎉
 
 Breaking changes
 
