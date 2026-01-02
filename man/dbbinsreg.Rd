@@ -132,7 +132,9 @@ The \code{dbbinsreg} function is deeply inspired by the \pkg{binsreg}
 package (Cattaneo et. al., 2024). The main difference is that
 \code{dbbinsreg} performs most of its computation on a database backend,
 employing various acceration strategies, which makes it particularly suitable
-for large datasets.
+for large datasets (which may not fit in memory). At the same time, the
+database backend introduces its own set of tradeoffs. We cover the most
+important points of similarity and difference below.
 \subsection{API}{
 
 We aim to mimic the \code{\link[binsreg]{binsreg}} API as much as possible.
@@ -151,6 +153,11 @@ Key parameter mappings include:
 \item \code{"es"}: Evenly-spaced (equal width)
 }
 }
+
+\strong{Important:} Unlike \code{\link[binsreg]{binsreg}}, \code{dbbinsreg} does
+not automatically select the IMSE-optimal number of bins. Users must specify
+\code{nbins} manually. For guidance on bin selection, see
+\code{\link[binsreg]{binsregselect}} or Cattaneo et al. (2024).
 }
 
 \subsection{Confidence intervals vs confidence bands}{

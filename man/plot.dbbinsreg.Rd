@@ -7,7 +7,7 @@
 \usage{
 \method{plot}{dbbinsreg}(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...)
 
-tinyplot.dbbinsreg(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...)
+\method{tinyplot}{dbbinsreg}(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...)
 }
 \arguments{
 \item{x}{A \code{dbbinsreg} object}
