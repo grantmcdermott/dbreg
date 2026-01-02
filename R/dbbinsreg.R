@@ -16,30 +16,34 @@
 #' @param data A data source: R dataframe, database table name (character), or
 #'   a lazy table object (e.g., from `dplyr::tbl()`) pointing to a database table.
 #' @param path Character string giving a path to data file(s) on disk. This is
-#'   an alias for `data` for consistency with [dbreg()]. Can include file globbing
-#'   for Hive-partitioned datasets, e.g. `"read_parquet('mydata/**/*.parquet')"`.
-#' @param dots A vector `c(p, s)` specifying the polynomial degree `p` and smoothness
-#'   `s` for the dots (point estimates at bin means). Default is `c(0, 0)` for
-#'   canonical binscatter (bin means). Set to `NULL` or `FALSE` to suppress dots.
-#'   The smoothness `s` must satisfy `s <= p`.
-#' @param line A vector `c(p, s)` specifying the polynomial degree `p` and smoothness
-#'   `s` for the line (evaluated on a grid within bins). Default is `NULL` (no line).
-#'   Set to `TRUE` for `c(0, 0)` or a vector like `c(1, 1)` for piecewise linear
-#'   with continuity constraints. The smoothness `s` must satisfy `s <= p`.
+#'   an alias for `data` for consistency with \code{\link{dbreg}}. Can include
+#'   file globbing for Hive-partitioned datasets, e.g.
+#'   `"read_parquet('mydata/**/*.parquet')"`.
+#' @param dots A vector `c(p, s)` specifying the polynomial degree \eqn{p} and
+#'   smoothness \eqn{s} for the dots (point estimates at bin means). Default is
+#'   `c(0, 0)` for canonical binscatter (bin means). Set to `NULL` or `FALSE` to
+#'   suppress dots. The smoothness `s` must satisfy `s <= p`.
+#' @param line A vector `c(p, s)` specifying the polynomial degree \eqn{p} and
+#'   smoothness \eqn{s} for the line (evaluated on a grid within bins). Default
+#'   is `NULL` (no line). Set to `TRUE` for `c(0, 0)` or a vector like `c(1, 1)`
+#'   for piecewise linear with continuity constraints. The smoothness \eqn{s}
+#'   must satisfy `s <= p`.
 #' @param linegrid Number of evaluation points per bin for the line. Default is 20.
 #' @param nbins Integer number of bins. Default is 20.
-#' @param binspos Bin positioning method: "qs" (quantile-spaced, equal-count bins,
-#'   the default), "es" (evenly-spaced, equal-width bins), or a numeric vector of
-#'   knot positions for manual specification.
-#' @param sample_frac Numeric between 0 and 1, or NULL (default). Controls
-#'   sampling for bin boundary computation on large datasets. If NULL, sampling
-#'   is automatic: 10% for datasets exceeding 1 million rows, 100% otherwise.
-#'   Set explicitly to override (e.g., 1 to always use all data, 0.05 for 5%).
-#'   Sampling only affects bin boundary computation; the regression uses all data.
+#' @param binspos Bin positioning method. One of either `"qs"` (quantile-spaced,
+#'   equal-count bins, the default), `"es"` (evenly-spaced, equal-width bins),
+#'   or a numeric vector of knot positions for manual specification.
+#' @param sample_frac Numeric in the range `(0,1]`. Controls the random sampling
+#'   fraction for bin boundary computation on large datasets. If `NULL` (the
+#'   default), then sampling is automatic: `0.1` (10%) for datasets exceeding 1
+#'   million rows and `1` (100%) otherwise. Note that sampling is only used for
+#'   computing the bin boundaries, since this requires an expensive ranking
+#'   operation. The subsequent, primary regression operations use all of the
+#'   data.
 #' @param ci Logical. Calculate standard errors and confidence intervals for dots?
-#'   Default is TRUE.
+#'   Default is `TRUE`.
 #' @param cb Logical. Calculate simultaneous confidence bands using simulation?
-#'   Default is FALSE. Requires the MASS package.
+#'   Default is `FALSE`.
 #' @param vcov Character string or formula for standard errors. Options are
 #'   `"HC1"` (default, heteroskedasticity-robust, matches
 #'   \code{\link[binsreg]{binsreg}}), `"iid"`, or a one-sided formula for
@@ -48,12 +52,13 @@
 #' the confidence levels and/or bands. Default is `0.95`.
 #' @param nsims Number of simulation draws for confidence band computation.
 #'   Default is 500. Only used when `cb = TRUE`.
-#' @param strategy Acceleration strategy passed to dbreg when smoothness is 0.
-#'   Options are "auto" (default), "compress", or "scan". This parameter is
-#'   ignored when `s` (smoothness parameter in `dots` or `lines`) > 0. See \code{\link{dbreg}} for details.
-#' @param conn Database connection. If NULL (default), an ephemeral DuckDB
+#' @param strategy Acceleration strategy passed to \code{\link{dbreg}} when
+#'   smoothness is zero. Options are `"auto"` (default), `"compress"`, or
+#'   `"scan"`. This parameter is ignored when `s` (smoothness parameter in
+#'   `dots` or `lines`) > 0. See \code{\link{dbreg}} for details.
+#' @param conn Database connection. If `NULL` (default), an ephemeral DuckDB
 #'   connection will be created.
-#' @param verbose Logical. Logical. Print auto strategy and progress messages to the
+#' @param verbose Logical. Print auto strategy and progress messages to the
 #'   console? Defaults to `FALSE`. This can be overridden for a single call
 #'   by supplying `verbose = TRUE`, or set globally via
 #'   `options(dbreg.verbose = TRUE)`.
@@ -66,7 +71,7 @@
 #'     `bin`, `fit`. Only present if `line` is specified.}
 #'   \item{data.bin}{Data frame with bin geometry: `bin.id`, `left.endpoint`,
 #'     `right.endpoint`.}
-#'   \item{model}{The fitted dbreg model object (for dots).}
+#'   \item{model}{The fitted `dbreg` model object (for dots).}
 #'   \item{opt}{List of options used: `dots`, `line`, `nbins`, `binspos`, etc.}
 #' }
 #'
@@ -76,45 +81,48 @@
 #' This function aims to provide an API similar to the \pkg{binsreg} package.
 #' Key parameter mappings:
 #' \itemize{
-#'   \item `dots=c(0,0)`: Canonical binscatter (bin means), equivalent to binsreg default
-#'   \item `dots=c(p,0)`: Piecewise polynomial of degree p, no smoothness constraints
-#'   \item `dots=c(p,s)`: Piecewise polynomial with s smoothness constraints at knots
-#'   \item `line=c(p,s)`: Same polynomial evaluated on a grid for smooth visualization
-#'   \item `binspos="qs"`: Quantile-spaced bins (binsreg default)
-#'   \item `binspos="es"`: Evenly-spaced bins
+#'   \item `dots = c(0,0)`: Canonical binscatter (bin means), equivalent to binsreg default
+#'   \item `dots = c(p,0)`: Piecewise polynomial of degree \eqn{p}, no smoothness constraints
+#'   \item `dots = c(p,s)`: Piecewise polynomial with \eqn{s} smoothness constraints at knots
+#'   \item `line = c(p,s)`: Same polynomial evaluated on a grid for smooth visualization
+#'   \item `binspos = "qs"`: Quantile-spaced bins (\code{\link[binsreg]{binsreg}} default)
+#'   \item `binspos = "es"`: Evenly-spaced bins
 #' }
 #'
-#' Unlike binsreg, dbbinsreg executes entirely in SQL, making it suitable for large
-#' databases that cannot fit in memory.
+#' Unlike \code{\link[binsreg]{binsreg}}, \code{dbbinsreg} executes entirely in
+#' SQL, making it suitable for large databases that cannot fit in memory.
 #'
 #' ## Confidence intervals vs confidence bands
 #'
-#' When `ci=TRUE` (default), pointwise confidence intervals are computed at each
-#' bin mean using standard asymptotic theory. When `cb=TRUE`, simultaneous
-#' confidence bands are computed using a simulation-based sup-t procedure:
+#' When `ci = TRUE` (default), pointwise confidence intervals (CIs) are computed
+#' at each bin mean using standard asymptotic theory. When `cb = TRUE`,
+#' simultaneous confidence bands (CBs) are computed using a simulation-based
+#' sup-\eqn{t} procedure:
 #' \enumerate{
 #'   \item Draw `nsims` samples from the asymptotic distribution of the estimator
-#'   \item Compute the supremum of the t-statistics across all bins for each draw
-#'   \item Use the (1-alpha) quantile of these suprema as the critical value
+#'   \item Compute the supremum of the \eqn{t}-statistics across all bins for each draw
+#'   \item Use the (\eqn{1-\alpha}) quantile of these suprema as the critical value
 #' }
 #'
 #' The confidence band is wider than pointwise CIs and provides simultaneous
-#' coverage: with (1-alpha) probability, the entire true function lies within
-#' the band. This is useful for making statements about the overall shape of
-#' the relationship rather than individual point estimates.
+#' coverage: with (\eqn{1-\alpha}) probability, the entire true function lies
+#' within the band. This is useful for making statements about the overall shape
+#' of the relationship rather than individual point estimates.
 #'
-#' Note: Unlike binsreg which evaluates CB on a fine grid within each bin,
-#' dbbinsreg computes CB only at bin means (same points as CI). This is simpler
-#' and sufficient for most applications.
+#' Note: Unlike \code{\link[binsreg]{binsreg}}, which evaluates CB on a fine
+#' grid within each bin, `dbbinsreg` computes CB only at bin means (same points
+#' as CI). This is much simpler for our backend SQL implementation and should be
+#' sufficient for most applications.
 #'
 #' ## Note on quantile bin boundaries
 #'
-#' When using quantile-spaced bins (`binspos="qs"`), dbbinsreg uses SQL's `NTILE()`
-#' window function, while binsreg uses R's `quantile()` with
-#' `type=2`. These algorithms have slightly different tie-breaking behavior,
-#' which can cause small differences in bin assignments at boundaries. In
-#' practice, differences are typically <1% and become negligible with larger
-#' datasets. To match binsreg exactly, compute quantile breaks on a subset 
+#' When using quantile-spaced bins (`binspos = "qs"`), `dbbinsreg` uses SQL's
+#' `NTILE()` window function, while \code{\link[binsreg]{binsreg}} uses R's
+#' \code{\link[stats]{quantile}} with `type = 2`. These algorithms have slightly
+#' different tie-breaking behavior, which can cause small differences in bin
+#' assignments at boundaries. In practice, differences are typically <1% and
+#' become negligible with larger datasets. To match
+#' \code{\link[binsreg]{binsreg}} exactly, compute quantile breaks on a subset
 #' of data in R and pass them via the `binspos` argument as a numeric vector.
 #'
 #' @references
@@ -1637,9 +1645,6 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
     
     # Compute confidence band if requested
     if (isTRUE(inputs$cb) && !is.null(V_beta) && !all(is.na(se_dots))) {
-      if (!requireNamespace("MASS", quietly = TRUE)) {
-        stop("Package 'MASS' is required for confidence bands. Please install it.")
-      }
       nsims = inputs$nsims
       # Simulate from N(0, V_beta) and compute sup-t critical value
       draws = MASS::mvrnorm(nsims, mu = rep(0, B), Sigma = V_beta[1:B, 1:B])

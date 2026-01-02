@@ -45,6 +45,7 @@ Imports:
   Formula,
   generics,
   glue,
+  MASS,
   Matrix,
   stats,
   tinyplot
@@ -53,7 +54,6 @@ Suggests:
   here,
   fixest (>= 0.13.0),
   knitr,
-  MASS,
   quarto,
   tinytest
 Enhances:
