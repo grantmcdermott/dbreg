@@ -207,7 +207,7 @@ print.dbbinsreg = function(x, ...) {
   # Show data.line preview if present
   if (!is.null(x$data.line)) {
     cat("\n$data.line:\n")
-    print(head(x$data.line, 10), ...)
+    print(utils::head(x$data.line, 10), ...)
     if (nrow(x$data.line) > 10) {
       cat(sprintf("... %d more rows\n", nrow(x$data.line) - 10))
     }

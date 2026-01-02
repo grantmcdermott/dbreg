@@ -15,20 +15,10 @@
 #' @export
 plot.dbbinsreg = function(x, y = NULL, ci = TRUE, line = TRUE, ...) {
   
-  # Check for tinyplot
-  if (!requireNamespace("tinyplot", quietly = TRUE)) {
-    stop("The plot.dbbinsreg method requires the tinyplot package.\n",
-         "Install it with: install.packages('tinyplot')",
-         call. = FALSE)
-  }
-  
   # Extract metadata
   opt = x$opt
   x_var = opt$x_var
   y_var = opt$y_var
-  
-  # Set clean theme
-  tinyplot::tinytheme("clean")
   
   # Start with dots (the main binscatter points)
   if (!is.null(x$data.dots)) {

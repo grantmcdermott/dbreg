@@ -46,7 +46,8 @@ Imports:
   generics,
   glue,
   Matrix,
-  stats
+  stats,
+  tinyplot
 Suggests:
   here,
   fixest (>= 0.13.0),

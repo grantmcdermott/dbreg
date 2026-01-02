@@ -44,7 +44,10 @@
 #'   ignored when `s` (smoothness parameter in `dots` or `lines`) > 0. See \code{\link{dbreg}} for details.
 #' @param conn Database connection. If NULL (default), an ephemeral DuckDB
 #'   connection will be created.
-#' @param verbose Logical. Print progress messages? Default is TRUE.
+#' @param verbose Logical. Logical. Print auto strategy and progress messages to the
+#'   console? Defaults to `FALSE`. This can be overridden for a single call
+#'   by supplying `verbose = TRUE`, or set globally via
+#'   `options(dbreg.verbose = TRUE)`.
 #'
 #' @return A list of class "dbbinsreg" containing:
 #' \describe{
@@ -89,6 +92,7 @@
 #' Cattaneo, M. D., R. K. Crump, M. H. Farrell, and Y. Feng (2024).
 #' On Binscatter. \emph{American Economic Review}, 114(5): 1488-1514.
 #'
+#' @importFrom stats quantile
 #' @export
 #' @examples
 #' \dontrun{
@@ -123,7 +127,7 @@ dbbinsreg = function(
   level = 95,
   strategy = "auto",
   conn = NULL,
-  verbose = TRUE
+  verbose = getOption("dbreg.verbose", FALSE)
 ) {
   
   # -------------------------------------------------------------------------
@@ -236,15 +240,8 @@ dbbinsreg = function(
   }
   
   # Parse formula using Formula package (same pattern as dbreg)
-  if (!requireNamespace("Formula", quietly = TRUE)) {
-    stop(
-      "The dbbinsreg() function requires the Formula package.\n",
-      "Install it with: install.packages('Formula')",
-      call. = FALSE
-    )
-  }
   
-  fml = Formula::Formula(fml)
+  fml = Formula(fml)
   
   # Extract y variable (LHS)
   y_name = all.vars(formula(fml, lhs = 1, rhs = 0))
@@ -714,7 +711,7 @@ create_binned_data = function(inputs) {
   
   # Detect backend for SQL compatibility
   # SQL Server doesn't support LEAST() or LN(), so we adapt
-  bd = dbreg:::detect_backend(conn)
+  bd = detect_backend(conn)
   is_sql_server = bd$name == "sqlserver"
   
   # Backend-specific function names

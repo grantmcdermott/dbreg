@@ -18,7 +18,7 @@ dbbinsreg(
   level = 95,
   strategy = "auto",
   conn = NULL,
-  verbose = TRUE
+  verbose = getOption("dbreg.verbose", FALSE)
 )
 }
 \arguments{
@@ -75,7 +75,10 @@ ignored when \code{s} (smoothness parameter in \code{dots} or \code{lines}) > 0.
 \item{conn}{Database connection. If NULL (default), an ephemeral DuckDB
 connection will be created.}
 
-\item{verbose}{Logical. Print progress messages? Default is TRUE.}
+\item{verbose}{Logical. Logical. Print auto strategy and progress messages to the
+console? Defaults to \code{FALSE}. This can be overridden for a single call
+by supplying \code{verbose = TRUE}, or set globally via
+\code{options(dbreg.verbose = TRUE)}.}
 }
 \value{
 A list of class "dbbinsreg" containing:
