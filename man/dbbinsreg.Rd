@@ -170,10 +170,15 @@ coverage: with (\eqn{1-\alpha}) probability, the entire true function lies
 within the band. This is useful for making statements about the overall shape
 of the relationship rather than individual point estimates.
 
-Caveat: Unlike \code{\link[binsreg]{binsreg}}, which evaluates CB on a fine
+There are two important caveats, regarding \code{dbbinsreg}'s CB support:
+\itemize{
+\item Unlike \code{\link[binsreg]{binsreg}}, which evaluates CB on a fine
 grid within each bin, \code{dbbinsreg} computes CB only at bin means (same points
 as CI). This is much simpler for our backend SQL implementation and should be
 sufficient for most applications.
+\item CBs are currently only supported for unconstrained estimation (smoothness
+\code{s = 0}). When \code{cb = TRUE} with \code{s > 0}, a warning is issued and CB is skipped.
+}
 }
 
 \subsection{Note on quantile bin boundaries}{

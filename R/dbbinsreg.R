@@ -123,10 +123,13 @@
 #' within the band. This is useful for making statements about the overall shape
 #' of the relationship rather than individual point estimates.
 #'
-#' Caveat: Unlike \code{\link[binsreg]{binsreg}}, which evaluates CB on a fine
+#' There are two important caveats, regarding \code{dbbinsreg}'s CB support:
+#' - Unlike \code{\link[binsreg]{binsreg}}, which evaluates CB on a fine
 #' grid within each bin, `dbbinsreg` computes CB only at bin means (same points
 #' as CI). This is much simpler for our backend SQL implementation and should be
 #' sufficient for most applications.
+#' - CBs are currently only supported for unconstrained estimation (smoothness
+#' `s = 0`). When `cb = TRUE` with `s > 0`, a warning is issued and CB is skipped.
 #'
 #' ## Note on quantile bin boundaries
 #'
@@ -1299,6 +1302,12 @@ execute_constrained_binsreg = function(inputs) {
     cat("[dbbinsreg] Fitting regression spline \n")
   }
   
+  # Warn if CB requested but not supported for constrained estimation
+
+  if (isTRUE(inputs$cb)) {
+    warning("Confidence bands (cb) not yet supported for constrained estimation (smoothness > 0). Ignoring cb = TRUE.")
+  }
+  
   # Step 5: Run regression via dbreg
   # Pass the table name as `table` argument
   fit = dbreg(
@@ -1421,7 +1430,8 @@ evaluate_spline_at_bins = function(fit, geo, knots, degree, smooth, basis_names,
   } else NULL
   
   # Use the unified output builder
-  build_dbbinsreg_output(inputs, fit, geo, eval_fn, se_fn, knots = knots, V_beta = V_beta)
+  # Note: CB not yet supported for constrained spline estimation (would need delta method)
+  build_dbbinsreg_output(inputs, fit, geo, eval_fn, se_fn, knots = knots, V_beta = NULL)
 }
 
 
@@ -1676,20 +1686,24 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
       cb_lwr = fit_dots - crit_cb * se_dots
       cb_upr = fit_dots + crit_cb * se_dots
     } else {
-      cb_lwr = rep(NA_real_, B)
-      cb_upr = rep(NA_real_, B)
+      cb_lwr = NULL
+      cb_upr = NULL
     }
     
     data_dots = data.frame(
       x = x_mean,
       bin = geo$bin,
-      fit = fit_dots,
-      se = se_dots,
-      lwr = lwr,
-      upr = upr,
-      cb_lwr = cb_lwr,
-      cb_upr = cb_upr
+      fit = fit_dots
     )
+    if (!is.null(se_fn) && isTRUE(inputs$ci)) {
+      data_dots$se = se_dots
+      data_dots$lwr = lwr
+      data_dots$upr = upr
+    }
+    if (!is.null(cb_lwr)) {
+      data_dots$cb_lwr = cb_lwr
+      data_dots$cb_upr = cb_upr
+    }
     rownames(data_dots) = NULL
   } else {
     data_dots = NULL
