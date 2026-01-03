@@ -27,11 +27,12 @@ z = qnorm(0.975)  # For back-calculating SEs from CI width
 
 # Helper to run binsreg without plotting.
 # binsreg plots by default and noplot=TRUE skips populating data.plot,
-# so we suppress the plot device instead.
+# so we suppress the plot device instead. We also suppress warnings about
+# nbins vs IMSE-optimal choice since we're testing with fixed nbins.
 run_binsreg = function(...) {
   pdf(NULL)
   on.exit(dev.off())
-  binsreg(...)
+  suppressWarnings(binsreg(...))
 }
 
 
