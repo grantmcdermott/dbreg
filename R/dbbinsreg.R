@@ -547,7 +547,7 @@ dbbinsreg = function(
     cb = cb,
     nsims = nsims,
     vcov = vcov,
-    level = alpha,  # Internal: use alpha (0.05), not level (95)
+    alpha = alpha,  # Internal: use alpha (0.05) for calculations
     strategy = strategy,
     verbose = verbose,
     formula = as.formula(formula_str),
@@ -1687,8 +1687,9 @@ lagrange_interp_3pt = function(x_seq, x_pts, y_pts) {
 build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots = NULL, V_beta = NULL) {
   
   B = nrow(geo)
-  level = inputs$level  # This is alpha (e.g., 0.05)
-  crit_val = stats::qnorm(1 - level / 2)
+  alpha = inputs$alpha
+  df = fit$df_residual
+  crit_val = stats::qt(1 - alpha / 2, df = df)
   linegrid = inputs$linegrid
   
   # -------------------------------------------------------------------------
@@ -1715,7 +1716,7 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
       # Simulate from N(0, V_beta) and compute sup-t critical value
       draws = MASS::mvrnorm(nsims, mu = rep(0, B), Sigma = V_beta[1:B, 1:B])
       sup_t = apply(abs(draws) / se_dots, 1, max)
-      crit_cb = stats::quantile(sup_t, 1 - inputs$level)
+      crit_cb = stats::quantile(sup_t, 1 - inputs$alpha)
       cb_lwr = fit_dots - crit_cb * se_dots
       cb_upr = fit_dots + crit_cb * se_dots
     } else {
@@ -1788,7 +1789,7 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
     x_var = inputs$x_name,
     y_var = inputs$y_name,
     formula = inputs$formula,
-    level = (1 - level) * 100,  # Convert alpha back to percentage for display
+    level = (1 - alpha) * 100,  # Convert back to percentage for display
     ci = inputs$ci,
     cb = inputs$cb,
     vcov = inputs$vcov
