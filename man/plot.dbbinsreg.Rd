@@ -23,7 +23,7 @@ available in the object.}
 
 \item{line}{Logical. Show the line overlay if available? Default is \code{TRUE.}}
 
-\item{...}{Additional arguments passed to \verb{\code{\link[tinyplot]{tinyplot}}, e.g. }theme\verb{, }main`, etc.}
+\item{...}{Additional arguments passed to \verb{\code{\link[tinyplot]{tinyplot}}, e.g. }theme\verb{, }main\verb{, }file`, etc.}
 }
 \description{
 Visualizes binned regression results from \code{\link{dbbinsreg}}.

@@ -21,6 +21,7 @@ dbbinsreg(
   nsims = 500,
   strategy = "auto",
   conn = NULL,
+  plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
   dots = NULL
 )
@@ -96,6 +97,9 @@ smoothness is zero. Options are \code{"auto"} (default), \code{"compress"}, or
 \item{conn}{Database connection. If \code{NULL} (default), an ephemeral DuckDB
 connection will be created.}
 
+\item{plot}{Logical. If \code{TRUE} (default), a plot is produced as a side effect.
+Set to \code{FALSE} to suppress plotting.}
+
 \item{verbose}{Logical. Print auto strategy and progress messages to the
 console? Defaults to \code{FALSE}. This can be overridden for a single call
 by supplying \code{verbose = TRUE}, or set globally via
@@ -118,6 +122,8 @@ if \code{cb=TRUE}, then includes the columns: \code{cb_lwr} and \code{cb_upr}.}
 \item{model}{The fitted \code{dbreg} model object (for points).}
 \item{opt}{List of options used: \code{points}, \code{line}, \code{nbins}, \code{binspos}, etc.}
 }
+If \code{plot = TRUE} (the default), a binscatter plot is also produced as a
+side effect. See \code{\link{plot.dbbinsreg}} for plot customization.
 }
 \description{
 Performs binned regression entirely in SQL, returning plot-ready data with
@@ -224,4 +230,9 @@ dbbinsreg(weight ~ Time | Diet, cw, nbins = 10, points = c(1, 0))
 \references{
 Cattaneo, M. D., R. K. Crump, M. H. Farrell, and Y. Feng (2024).
 On Binscatter. \emph{American Economic Review}, 114(5): 1488-1514.
+}
+\seealso{
+\code{\link{plot.dbbinsreg}} for plot customization,
+\code{\link{dbreg}} for the underlying regression engine,
+\code{\link[binsreg]{binsreg}} for the original implementation.
 }

@@ -1,4 +1,4 @@
-#' Run a binscatter regression on a database backend
+#' Run a binscatter regression on a database backend and plot the result
 #'
 #' @md
 #' @description Performs binned regression entirely in SQL, returning plot-ready data with
@@ -42,6 +42,8 @@
 #'   computing the bin boundaries, since this requires an expensive ranking
 #'   operation. The subsequent, primary regression operations use all of the
 #'   data.
+#' @param plot Logical. If `TRUE` (the default), then a plot is automatically
+#' produced alongside the return `dbbinsreg` data object.
 #' @param ci Logical. Calculate standard errors and confidence intervals for points?
 #'   Default is `TRUE`.
 #' @param cb Logical. Calculate simultaneous confidence bands using simulation?
@@ -64,6 +66,8 @@
 #'   console? Defaults to `FALSE`. This can be overridden for a single call
 #'   by supplying `verbose = TRUE`, or set globally via
 #'   `options(dbreg.verbose = TRUE)`.
+#' @param plot Logical. If `TRUE` (default), a plot is produced as a side effect.
+#'   Set to `FALSE` to suppress plotting.
 #'
 #' @return A list of class "dbbinsreg" containing:
 #' \describe{
@@ -78,6 +82,8 @@
 #'   \item{model}{The fitted `dbreg` model object (for points).}
 #'   \item{opt}{List of options used: `points`, `line`, `nbins`, `binspos`, etc.}
 #' }
+#' If `plot = TRUE` (the default), a binscatter plot is also produced as a
+#' side effect. See \code{\link{plot.dbbinsreg}} for plot customization.
 #' 
 #' @section Comparison with binsreg:
 #' 
@@ -153,6 +159,9 @@
 #' Cattaneo, M. D., R. K. Crump, M. H. Farrell, and Y. Feng (2024).
 #' On Binscatter. \emph{American Economic Review}, 114(5): 1488-1514.
 #'
+#' @seealso \code{\link{plot.dbbinsreg}} for plot customization,
+#'   \code{\link{dbreg}} for the underlying regression engine,
+#'   \code{\link[binsreg]{binsreg}} for the original implementation.
 #' @importFrom stats quantile
 #' @export
 #' @examples
@@ -191,6 +200,7 @@ dbbinsreg = function(
   nsims = 500,
   strategy = "auto",
   conn = NULL,
+  plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
   dots = NULL
 ) {
@@ -537,7 +547,8 @@ dbbinsreg = function(
     linegrid = linegrid,
     points_on = points_on,
     line_on = line_on,
-    binspos = binspos
+    binspos = binspos,
+    plot = plot
   )
   
   # -------------------------------------------------------------------------
@@ -564,6 +575,11 @@ dbbinsreg = function(
     } else {
       result = execute_constrained_binsreg(inputs)
     }
+  }
+  
+  # Plot if requested
+  if (isTRUE(inputs$plot)) {
+    plot(result)
   }
   
   return(result)
@@ -1785,5 +1801,10 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
   }
   
   class(result) = "dbbinsreg"
+
+  if (isTRUE(plot)) {
+    plot(result)
+  }
+
   return(result)
 }
