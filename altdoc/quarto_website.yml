@@ -48,6 +48,8 @@ website:
           contents:
             - text: dbreg
               file: man/dbreg.qmd
+            - text: dbbinsreg
+              file: man/dbbinsreg.qmd
         - section: "utilities"
           contents:
             - text: gof
@@ -64,6 +66,8 @@ website:
               file: man/print.dbreg.qmd
             - text: vcov.dbreg
               file: man/vcov.dbreg.qmd
+            - text: plot.dbbinsreg
+              file: man/plot.dbbinsreg.qmd
         - section: "Other methods"
           contents:
             - text: glance.dbreg

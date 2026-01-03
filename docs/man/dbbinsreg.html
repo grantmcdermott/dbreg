@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
-<title>dbreg – dbreg</title>
+<title>dbbinsreg – dbreg</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -205,7 +205,7 @@ window.Quarto = {
       <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
-        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/dbreg.html">Main functions</a></li><li class="breadcrumb-item"><a href="../man/dbreg.html">dbreg</a></li></ol></nav>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/dbreg.html">Main functions</a></li><li class="breadcrumb-item"><a href="../man/dbbinsreg.html">dbbinsreg</a></li></ol></nav>
         <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
         </a>
     </div>
@@ -232,13 +232,13 @@ window.Quarto = {
       <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="../man/dbreg.html" class="sidebar-item-text sidebar-link active">
+  <a href="../man/dbreg.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">dbreg</span></a>
   </div>
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="../man/dbbinsreg.html" class="sidebar-item-text sidebar-link">
+  <a href="../man/dbbinsreg.html" class="sidebar-item-text sidebar-link active">
  <span class="menu-text">dbbinsreg</span></a>
   </div>
 </li>
@@ -341,13 +341,13 @@ window.Quarto = {
     <h2 id="toc-title">On this page</h2>
    
   <ul>
-  <li><a href="#run-a-regression-on-a-database-backend" id="toc-run-a-regression-on-a-database-backend" class="nav-link active" data-scroll-target="#run-a-regression-on-a-database-backend">Run a regression on a database backend</a>
+  <li><a href="#run-a-binscatter-regression-on-a-database-backend-and-plot-the-result" id="toc-run-a-binscatter-regression-on-a-database-backend-and-plot-the-result" class="nav-link active" data-scroll-target="#run-a-binscatter-regression-on-a-database-backend-and-plot-the-result">Run a binscatter regression on a database backend and plot the result</a>
   <ul class="collapse">
   <li><a href="#description" id="toc-description" class="nav-link" data-scroll-target="#description">Description</a></li>
   <li><a href="#usage" id="toc-usage" class="nav-link" data-scroll-target="#usage">Usage</a></li>
   <li><a href="#arguments" id="toc-arguments" class="nav-link" data-scroll-target="#arguments">Arguments</a></li>
   <li><a href="#value" id="toc-value" class="nav-link" data-scroll-target="#value">Value</a></li>
-  <li><a href="#acceleration-strategies" id="toc-acceleration-strategies" class="nav-link" data-scroll-target="#acceleration-strategies">Acceleration Strategies</a></li>
+  <li><a href="#comparison-with-binsreg" id="toc-comparison-with-binsreg" class="nav-link" data-scroll-target="#comparison-with-binsreg">Comparison with binsreg</a></li>
   <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references">References</a></li>
   <li><a href="#see-also" id="toc-see-also" class="nav-link" data-scroll-target="#see-also">See Also</a></li>
   <li><a href="#examples" id="toc-examples" class="nav-link" data-scroll-target="#examples">Examples</a></li>
@@ -356,36 +356,39 @@ window.Quarto = {
 </nav>
     </div>
 <!-- main -->
-<main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/dbreg.html">Main functions</a></li><li class="breadcrumb-item"><a href="../man/dbreg.html">dbreg</a></li></ol></nav></header>
+<main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/dbreg.html">Main functions</a></li><li class="breadcrumb-item"><a href="../man/dbbinsreg.html">dbbinsreg</a></li></ol></nav></header>
 
 
 
 
-<section id="run-a-regression-on-a-database-backend" class="level2 unnumbered">
-<h2 class="unnumbered anchored" data-anchor-id="run-a-regression-on-a-database-backend">Run a regression on a database backend</h2>
+<section id="run-a-binscatter-regression-on-a-database-backend-and-plot-the-result" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="run-a-binscatter-regression-on-a-database-backend-and-plot-the-result">Run a binscatter regression on a database backend and plot the result</h2>
 <section id="description" class="level3">
 <h3 class="anchored" data-anchor-id="description">Description</h3>
-<p>Leverages the power of databases to run regressions on very large datasets, which may not fit into R’s memory. Various acceleration strategies allow for highly efficient computation, while robust standard errors are computed from sufficient statistics.</p>
+<p>Performs binned regression entirely in SQL, returning plot-ready data with estimated bin means or piecewise polynomial fits. The API is designed to be compatible with the <span class="pkg">binsreg</span> package by Cattaneo, Crump, Farrell, and Feng (2024). Supports unconditional and conditional models (with controls and/or fixed effects).</p>
 </section>
 <section id="usage" class="level3">
 <h3 class="anchored" data-anchor-id="usage">Usage</h3>
-<pre><code class="language-R">dbreg(
+<pre><code class="language-R">dbbinsreg(
   fml,
-  conn = NULL,
-  table = NULL,
   data = NULL,
   path = NULL,
-  vcov = c("iid", "hc1"),
-  strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
-  compress_ratio = NULL,
-  compress_nmax = 1e+06,
-  cluster = NULL,
-  ssc = c("full", "nested"),
-  sql_only = FALSE,
-  data_only = FALSE,
-  drop_missings = TRUE,
+  points = c(0, 0),
+  line = NULL,
+  linegrid = 20,
+  nbins = 20,
+  binspos = "qs",
+  randcut = NULL,
+  ci = TRUE,
+  cb = FALSE,
+  vcov = NULL,
+  level = 0.95,
+  nsims = 500,
+  strategy = "auto",
+  conn = NULL,
+  plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
-  ...
+  dots = NULL
 )
 </code></pre>
 </section>
@@ -397,34 +400,101 @@ window.Quarto = {
 <code id="fml">fml</code>
 </td>
 <td>
-A <code>formula</code> representing the relation to be estimated. Fixed effects should be included after a pipe, e.g <code>fml = y ~ x1 + x2 | fe1 + f2</code>. Currently, only simple additive terms are supported (i.e., no interaction terms, transformations or literals).
-</td>
-</tr>
-<tr>
-<td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="conn">conn</code>
-</td>
-<td>
-Database connection, e.g.&nbsp;created with <code>dbConnect</code>. Can be either persistent (disk-backed) or ephemeral (in-memory). If no connection is provided, then an ephemeral <code>duckdb</code> connection will be created automatically and closed before the function exits. Note that a persistent (disk-backed) database connection is required for larger-than-RAM datasets in order to take advantage of out-of-core functionality like streaming (where supported).
-</td>
-</tr>
-<tr>
-<td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="table">table</code>, <code id="data">data</code>, <code id="path">path</code>
-</td>
-<td>
-<p>Mutually exclusive arguments for specifying the data table (object) to be queried. In order of precedence:</p>
+<p>A <code>formula</code> representing the binscatter relation. The first variable on the RHS is the running variable; additional variables are controls. Fixed effects go after <code>|</code>. Examples:</p>
 <ul>
 <li>
-<p><code>table</code>: Character string giving the name of the data table in an existing (open) database connection.</p>
+<p><code>y ~ x</code>: simple binscatter</p>
 </li>
 <li>
-<p><code>data</code>: R dataframe that can be copied over to <code>conn</code> as a temporary table for querying via the DuckDB query engine. Ignored if <code>table</code> is provided.</p>
+<p><code>y ~ x + w1 + w2</code>: binscatter with controls</p>
 </li>
 <li>
-<p><code>path</code>: Character string giving a path to the data file(s) on disk, which will be read into <code>conn</code>. Internally, this string is passed to the <code>FROM</code> query statement, so could (should) include file globbing for Hive-partitioned datasets, e.g.&nbsp;<code>“mydata/**/.*parquet”</code>. For more precision, however, it is recommended to pass the desired database reader function as part of this string, e.g.&nbsp;<code>“read_parquet(’mydata/**/*.parquet’)“</code> for DuckDB; note the use of single quotes. Ignored if either <code>table</code> or <code>data</code> is provided.</p>
+<p><code>y ~ x | fe</code>: binscatter with fixed effects</p>
+</li>
+<li>
+<p><code>y ~ x + w1 + w2 | fe</code>: binscatter with controls and fixed effects</p>
 </li>
 </ul>
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="data">data</code>
+</td>
+<td>
+A data source: R dataframe, database table name (character), or a lazy table object (e.g., from <code>dplyr::tbl()</code>) pointing to a database table.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="path">path</code>
+</td>
+<td>
+Character string giving a path to data file(s) on disk. This is an alias for <code>data</code> for consistency with <code>dbreg</code>. Can include file globbing for Hive-partitioned datasets, e.g. <code>“read_parquet(’mydata/**/*.parquet’)“</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="points">points</code>
+</td>
+<td>
+A vector <code>c(p, s)</code> specifying the polynomial degree <span class="math inline">\(p\)</span> and smoothness <span class="math inline">\(s\)</span> for the points (point estimates at bin means). Default is <code>c(0, 0)</code> for canonical binscatter (bin means). Set to <code>NULL</code> or <code>FALSE</code> to suppress points. The smoothness <code>s</code> must satisfy <code>s &lt;= p</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="line">line</code>
+</td>
+<td>
+A vector <code>c(p, s)</code> specifying the polynomial degree <span class="math inline">\(p\)</span> and smoothness <span class="math inline">\(s\)</span> for the line (evaluated on a grid within bins). Default is <code>NULL</code> (no line). Set to <code>TRUE</code> for <code>c(0, 0)</code> or a vector like <code>c(1, 1)</code> for piecewise linear with continuity constraints. The smoothness <span class="math inline">\(s\)</span> must satisfy <code>s &lt;= p</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="linegrid">linegrid</code>
+</td>
+<td>
+Number of evaluation points per bin for the line. Default is 20.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="nbins">nbins</code>
+</td>
+<td>
+Integer number of bins. Default is 20.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="binspos">binspos</code>
+</td>
+<td>
+Bin positioning method. One of either <code>“qs”</code> (quantile-spaced, equal-count bins, the default), <code>“es”</code> (evenly-spaced, equal-width bins), or a numeric vector of knot positions for manual specification.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="randcut">randcut</code>
+</td>
+<td>
+Numeric in the range <code style="white-space: pre;">(0,1]</code>. Controls the random sampling fraction for bin boundary computation on large datasets. If <code>NULL</code> (the default), then sampling is automatic: <code>0.01</code> (1%) for datasets exceeding 1 million rows and <code>1</code> (100%) otherwise. Note that sampling is only used for computing the bin boundaries, since this requires an expensive ranking operation. The subsequent, primary regression operations use all of the data.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="ci">ci</code>
+</td>
+<td>
+Logical. Calculate standard errors and confidence intervals for points? Default is <code>TRUE</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="cb">cb</code>
+</td>
+<td>
+Logical. Calculate simultaneous confidence bands using simulation? Default is <code>FALSE</code>.
 </td>
 </tr>
 <tr>
@@ -432,7 +502,23 @@ Database connection, e.g.&nbsp;created with <code>dbConnect</code>. Can be eithe
 <code id="vcov">vcov</code>
 </td>
 <td>
-Character string or formula denoting the desired type of variance- covariance correction / standard errors. Options are <code>“iid”</code> (default), <code>“hc1”</code> (heteroskedasticity-consistent), or a one-sided formula like <code>~cluster_var</code> for cluster-robust standard errors. Note that <code>“hc1”</code> and clustered SEs require a second pass over the data unless <code>strategy = “compress”</code> to construct the residuals.
+Character string or formula for standard errors. Options are <code>“HC1”</code> (default, heteroskedasticity-robust, matches <code>binsreg</code>), <code>“iid”</code>, or a one-sided formula for clustered standard errors (e.g., <code>~cluster_var</code>).
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="level">level</code>
+</td>
+<td>
+Numeric in the range <code style="white-space: pre;">[0,1]</code>, giving the confidence level for the confidence levels and/or bands. Default is <code>0.95</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="nsims">nsims</code>
+</td>
+<td>
+Number of simulation draws for confidence band computation. Default is 500. Only used when <code>cb = TRUE</code>.
 </td>
 </tr>
 <tr>
@@ -440,64 +526,23 @@ Character string or formula denoting the desired type of variance- covariance co
 <code id="strategy">strategy</code>
 </td>
 <td>
-Character string indicating the preferred acceleration strategy. The default <code>“auto”</code> will pick an optimal strategy based on internal heuristics. Users can also override with one of the following explicit strategies: <code>“compress”</code>, <code>“demean”</code> (alias: <code>“within”</code>), <code>“mundlak”</code>, or <code>“moments”</code>. See the Acceleration Strategies section below for details.
+Acceleration strategy passed to <code>dbreg</code> when smoothness is zero. Options are <code>“auto”</code> (default), <code>“compress”</code>, or <code>“scan”</code>. This parameter is ignored when <code>s</code> (smoothness parameter in <code>points</code> or <code>lines</code>) &gt; 0. See <code>dbreg</code> for details.
 </td>
 </tr>
 <tr>
 <td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="compress_ratio">compress_ratio</code>, <code id="compress_nmax">compress_nmax</code>
+<code id="conn">conn</code>
 </td>
 <td>
-<p>Numeric(s). Parameters that help to determine the acceleration <code>strategy</code> under the default <code>“auto”</code> option.</p>
-<ul>
-<li>
-<p><code>compress_ratio</code> defines the compression ratio threshold, i.e.&nbsp;numeric in the range <code style="white-space: pre;">[0,1]</code> defining the minimum acceptable compressed versus the original data size. Default value of <code>NULL</code> means that the threshold will be automatically determined based on some internal heuristic (e.g., 0.01 for models without fixed effects).</p>
-</li>
-<li>
-<p><code>compress_nmax</code> defines the maximum allowable size (in rows) of the compressed dataset that can be serialized into R. Pays heed to the idea that big data serialization can be costly (esp.&nbsp;for remote databases), even if we have achieved good compression on top of the original dataset. Default value is 1e6 (i.e., a million rows).</p>
-</li>
-</ul>
-See the Acceleration Strategies section below for further details.
+Database connection. If <code>NULL</code> (default), an ephemeral DuckDB connection will be created.
 </td>
 </tr>
 <tr>
 <td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="cluster">cluster</code>
+<code id="plot">plot</code>
 </td>
 <td>
-Optional. Provides an alternative way to specify cluster-robust standard errors (i.e., instead of <code>vcov = ~cluster_var</code>). Either a one-sided formula (e.g., <code>~firm</code>) or character string giving the variable name. Only single-variable clustering is currently supported.
-</td>
-</tr>
-<tr>
-<td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="ssc">ssc</code>
-</td>
-<td>
-Character string controlling the small-sample correction for clustered standard errors. Options are <code>“full”</code> (default) or <code>“nested”</code>. With <code>“full”</code>, all parameters (including fixed effect dummies) are counted in K for the CR1 correction. With <code>“nested”</code>, fixed effects that are nested within the cluster variable are excluded from K, matching the default behavior of <code>fixest::feols</code>. Only applies to <code>“compress”</code> and <code>“demean”</code> strategies (Mundlak uses explicit group mean regressors, not FE dummies). This distinction only matters for small samples. For large datasets (<code>dbreg</code>’s target use case), the difference is negligible and hence we default to the simple <code>“full”</code> option.
-</td>
-</tr>
-<tr>
-<td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="sql_only">sql_only</code>
-</td>
-<td>
-Logical indicating whether only the underlying compression SQL query should be returned (i.e., no computation will be performed). Default is <code>FALSE</code>.
-</td>
-</tr>
-<tr>
-<td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="data_only">data_only</code>
-</td>
-<td>
-Logical indicating whether only the compressed dataset should be returned (i.e., no regression is run). Default is <code>FALSE</code>.
-</td>
-</tr>
-<tr>
-<td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="drop_missings">drop_missings</code>
-</td>
-<td>
-Logical indicating whether incomplete cases (i.e., rows where any of the dependent, independent or FE variables are missing) should be dropped. The default is <code>TRUE</code>, according with standard regression software. It is <em>strongly</em> recommended not to change this value unless you are absolutely sure that your data have no missings and you wish to skip some internal checks. (Even then, it probably isn’t worth it.)
+Logical. If <code>TRUE</code> (default), a plot is produced as a side effect. Set to <code>FALSE</code> to suppress plotting.
 </td>
 </tr>
 <tr>
@@ -510,199 +555,458 @@ Logical. Print auto strategy and progress messages to the console? Defaults to <
 </tr>
 <tr>
 <td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="...">…</code>
+<code id="dots">dots</code>
 </td>
 <td>
-Additional arguments. Currently ignored, except to handle superseded arguments for backwards compatibility.
+Alias for <code>points</code> for <code>binsreg</code> compatibility. If not <code>NULL</code>, overrides the <code>points</code> argument.
 </td>
 </tr>
 </tbody></table>
 </section>
 <section id="value" class="level3">
 <h3 class="anchored" data-anchor-id="value">Value</h3>
-<p>A list of class "dbreg" containing various slots, including a table of coefficients (which the associated <code>print</code> method will display).</p>
+<p>A list of class "dbbinsreg" containing:</p>
+<dl>
+<dt>
+points
+</dt>
+<dd>
+Data frame of the point estimates (one row per bin): <code>x</code> (bin mean), <code>bin</code>, and <code>fit</code> (fitted value). If <code>ci=TRUE</code> in the original call, then also includes the columns: <code>se</code>, <code>lwr</code>, and <code>upr</code>. Similarly, if <code>cb=TRUE</code>, then includes the columns: <code>cb_lwr</code> and <code>cb_upr</code>.
+</dd>
+<dt>
+line
+</dt>
+<dd>
+Data frame of the line estimates (multiple rows per bin): <code>x</code>, <code>bin</code>, <code>fit</code>. Only present if <code>line</code> is specified.
+</dd>
+<dt>
+bins
+</dt>
+<dd>
+Data frame with bin boundaries: <code>id</code> (bin number), <code>left</code> (left endpoint), <code>right</code> (right endpoint).
+</dd>
+<dt>
+model
+</dt>
+<dd>
+The fitted <code>dbreg</code> model object (for points).
+</dd>
+<dt>
+opt
+</dt>
+<dd>
+List of options used: <code>points</code>, <code>line</code>, <code>nbins</code>, <code>binspos</code>, etc.
+</dd>
+</dl>
+<p>If <code>plot = TRUE</code> (the default), a binscatter plot is also produced as a side effect. See <code>plot.dbbinsreg</code> for plot customization.</p>
 </section>
-<section id="acceleration-strategies" class="level3">
-<h3 class="anchored" data-anchor-id="acceleration-strategies">Acceleration Strategies</h3>
-<p><code>dbreg</code> offers four primary acceleration strategies for estimating regression results from simplified data representations. Below we use the shorthand Y (outcome), X (explanatory variables), and FE (fixed effects) for exposition purposes:</p>
+<section id="comparison-with-binsreg" class="level3">
+<h3 class="anchored" data-anchor-id="comparison-with-binsreg">Comparison with binsreg</h3>
+<p>The <code>dbbinsreg</code> function is deeply inspired by the <span class="pkg">binsreg</span> package (Cattaneo et. al., 2024). The main difference is that <code>dbbinsreg</code> performs most of its computation on a database backend, employing various acceration strategies, which makes it particularly suitable for large datasets (which may not fit in memory). At the same time, the database backend introduces its own set of tradeoffs. We cover the most important points of similarity and difference below.</p>
+<h4 class="anchored">
+API
+</h4>
+<p>We aim to mimic the <code>binsreg</code> API as much as possible. Key parameter mappings include:</p>
+<ul>
+<li>
+<p><code>points</code> (alias <code>dots</code>): Point estimates at bin means</p>
+<ul>
+<li>
+<p><code>c(0,0)</code>: Canonical binscatter (bin means)</p>
+</li>
+<li>
+<p><code>c(p,0)</code>: Piecewise polynomial of degree <span class="math inline">\(p\)</span>, no smoothness</p>
+</li>
+<li>
+<p><code>c(p,s)</code>: Piecewise polynomial with <span class="math inline">\(s\)</span> smoothness constraints</p>
+</li>
+</ul>
+</li>
+<li>
+<p><code>line</code>: Same as <code>points</code> but evaluated on a finer grid for smooth visualization</p>
+</li>
+<li>
+<p><code>binspos</code>: Bin positioning</p>
+<ul>
+<li>
+<p><code>“qs”</code>: Quantile-spaced (equal count)</p>
+</li>
+<li>
+<p><code>“es”</code>: Evenly-spaced (equal width)</p>
+</li>
+</ul>
+</li>
+</ul>
+<p><strong>Important:</strong> Unlike <code>binsreg</code>, <code>dbbinsreg</code> does not automatically select the IMSE-optimal number of bins. Users must specify <code>nbins</code> manually. For guidance on bin selection, see <code>binsregselect</code> or Cattaneo et al.&nbsp;(2024).</p>
+<h4 class="anchored">
+Confidence intervals vs confidence bands
+</h4>
+<p>When <code>ci = TRUE</code> (default), pointwise confidence intervals (CIs) are computed at each bin mean using standard asymptotic theory. When <code>cb = TRUE</code>, simultaneous confidence bands (CBs) are computed using a simulation-based sup-<span class="math inline">\(t\)</span> procedure:</p>
 <ol>
 <li>
-<p><code>“compress”</code>: compresses the data via a <code style="white-space: pre;">GROUP BY</code> operation (using X and the FE as groups), before running weighted least squares on this much smaller dataset:</p>
-<p style="text-align: center;">
-</p><p><span class="math inline">\(\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c\)</span></p>
-<p>where <span class="math inline">\(W = \text{diag}(n_g)\)</span> are the group frequencies. This procedure follows Wang et al.&nbsp;(2021).</p>
+<p>Draw <code>nsims</code> samples from the asymptotic distribution of the estimator</p>
 </li>
 <li>
-<p><code>“moments”</code>: computes sufficient statistics (<span class="math inline">\(X'X, X'y\)</span>) directly via SQL aggregation, returning a single-row result. This solves the standard OLS normal equations <span class="math inline">\(\hat{\beta} = (X'X)^{-1}X'y\)</span>. Limited to cases without FE.</p>
+<p>Compute the supremum of the <span class="math inline">\(t\)</span>-statistics across all bins for each draw</p>
 </li>
 <li>
-<p><code>“demean”</code> (alias <code>“within”</code>): subtracts group-level means from both Y and X before computing sufficient statistics (per the <code>“moments”</code> strategy). For example, given unit <span class="math inline">\(i\)</span> and time <span class="math inline">\(t\)</span> FE, we apply double demeaning:</p>
-<p style="text-align: center;">
-</p><p><span class="math inline">\(\ddot{Y}_{it} = \beta \ddot{X}_{it} + \varepsilon_{it}\)</span></p>
-<p>where <span class="math inline">\(\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}\)</span>. This (single-pass) within transformation is algebraically equivalent to the fixed effects projection—i.e., Frisch-Waugh-Lovell partialling out—in the presence of a single FE. It is also identical for the two-way FE (TWFE) case if your panel is balanced. For unbalanced two-way panels, however, the double demeaning strategy is not algebraically equivalent to the fixed effects projection and therefore does not recover the exact TWFE coefficients. Moreover, note that this <code>“demean”</code> strategy permits at most two FE.</p>
-</li>
-<li>
-<p><code>“mundlak”</code>: a generalized Mundlak (1978), or correlated random effects (CRE) estimator that regresses Y on X plus group means of X:</p>
-<p style="text-align: center;">
-</p><p><span class="math inline">\(Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}\)</span></p>
-<p style="text-align: center;">
-</p><p><span class="math inline">\(Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_{i} + \delta \bar{X}_{t} + \varepsilon_{it} \quad \text{(two-way, etc.)}\)</span></p>
-<p>Unlike <code>“demean”</code>, Y is not transformed, so predictions are on the original scale. Supports any number of FE and works correctly for any panel structure (balanced or unbalanced). However, note that CRE is a <em>different model</em> from FE: while coefficients are asymptotically equivalent under certain assumptions, they will generally differ in finite samples.</p>
+<p>Use the (<span class="math inline">\(1-\alpha\)</span>) quantile of these suprema as the critical value</p>
 </li>
 </ol>
-<p>The relative efficiency of each of these strategies depends on the size and structure of the data, as well the number of unique regressors and FE. For (quote unquote) "standard" cases, the <code>“compress”</code> strategy can yield remarkable performance gains and should justifiably be viewed as a good default. However, the compression approach tends to be less efficient for true panels (repeated cross-sections over time), where N &gt;&gt; T. In such cases, it can be more efficient to use a demeaning strategy that first controls for (e.g.&nbsp;subtracts) group means, before computing sufficient statistics on the aggregated data. The reason for this is that time and unit FE are typically high dimensional, but covariate averages are not; see Arkhangelsky &amp; Imbens (2024).</p>
-<p>However, the demeaning approaches invite tradeoffs of their own. For example, the double demeaning transformation of the <code>“demean”</code> strategy does not obtain exact TWFE results in unbalanced panels, and it is also limited to at most two FE. Conversely, the <code>“mundlak”</code> (CRE) strategy obtains consistent coefficients regardless of panel structure and FE count, but at the "cost" of recovering a different estimand. (It is a different model to TWFE, after all.) See Wooldridge (2025) for an extended discussion of these issues.</p>
-<p>Users should weigh these tradeoffs when choosing their acceleration strategy. Summarising, we can provide a few guiding principles. <code>“compress”</code> is a good default that guarantees the "exact" FE estimates and is usually very efficient (barring data I/O costs and high FE dimensionality). <code>“mundlak”</code> is another efficient alternative provided that the CRE estimand is acceptable (don’t be alarmed if your coefficients are not identical). Finally, the <code>“demean”</code> and <code>“moments”</code> strategies are great for particular use cases (i.e., balanced panels and cases without FE, respectively).</p>
-<p>If this all sounds like too much to think about, don’t fret. The good news is that <code>dbreg</code> can do a lot (all?) of the deciding for you. Specifically, it will invoke an <code>“auto”</code> heuristic behind the scenes if a user does not provide an explicit acceleration strategy. Working through the heuristic logic does impose some additional overhead, but this should be negligible in most cases (certainly compared to the overall time savings). The <code>“auto”</code> heuristic is as follows:</p>
+<p>The confidence band is wider than pointwise CIs and provides simultaneous coverage: with (<span class="math inline">\(1-\alpha\)</span>) probability, the entire true function lies within the band. This is useful for making statements about the overall shape of the relationship rather than individual point estimates.</p>
+<p>There are two important caveats, regarding <code>dbbinsreg</code>’s CB support:</p>
 <ul>
 <li>
-<p>IF no FE AND (any continuous regressor OR poor compression ratio OR too big compressed data) THEN <code>“moments”</code>.</p>
+<p>Unlike <code>binsreg</code>, which evaluates CB on a fine grid within each bin, <code>dbbinsreg</code> computes CB only at bin means (same points as CI). This is much simpler for our backend SQL implementation and should be sufficient for most applications.</p>
 </li>
 <li>
-<p>ELSE IF 1 FE AND (poor compression ratio OR too big compressed data) THEN <code>“demean”</code>.</p>
-</li>
-<li>
-<p>ELSE IF 2 FE AND (poor compression ratio OR too big compressed data):</p>
-<ul>
-<li>
-<p>IF balanced panel THEN <code>“demean”</code>.</p>
-</li>
-<li>
-<p>ELSE error (exact TWFE infeasible; user must explicitly choose <code>“compress”</code> or <code>“mundlak”</code>).</p>
+<p>CBs are currently only supported for unconstrained estimation (smoothness <code>s = 0</code>). When <code>cb = TRUE</code> with <code>s &gt; 0</code>, a warning is issued and CB is skipped.</p>
 </li>
 </ul>
-</li>
-<li>
-<p>ELSE THEN <code>“compress”</code>.</p>
-</li>
-</ul>
-<p><em>Tip: set <code>dbreg(…, verbose = TRUE)</code> to print information about the auto strategy decision criteria.</em></p>
+<h4 class="anchored">
+Note on quantile bin boundaries
+</h4>
+<p>When using quantile-spaced bins (<code>binspos = “qs”</code>), <code>dbbinsreg</code> uses SQL’s <code>NTILE()</code> window function, while <code>binsreg</code> uses R’s <code>quantile</code> with <code>type = 2</code>. These algorithms have slightly different tie-breaking behavior, which can cause small differences in bin assignments at boundaries. In practice, differences are typically &lt;1% and become negligible with larger datasets. To match <code>binsreg</code> exactly, compute quantile breaks on a subset of data in R and pass them via the <code>binspos</code> argument as a numeric vector.</p>
 </section>
 <section id="references" class="level3">
 <h3 class="anchored" data-anchor-id="references">References</h3>
-<p>Arkhangelsky, D. &amp; Imbens, G. (2024) <cite>Fixed Effects and the Generalized Mundlak Estimator</cite>. The Review of Economic Studies, 91(5), pp.&nbsp;2545–2571. Available: https://doi.org/10.1093/restud/rdad089</p>
-<p>Mundlak, Y. (1978) <cite>On the Pooling of Time Series and Cross Section Data</cite>. Econometrica, 46(1), pp.&nbsp;69–85. Available: https://doi.org/10.2307/1913646</p>
-<p>Wong, J., Forsell, E., Lewis, R., Mao, T., &amp; Wardrop, M. (2021). <cite>You Only Compress Once: Optimal Data Compression for Estimating Linear Models.</cite> arXiv preprint arXiv:2102.11297. Available: https://doi.org/10.48550/arXiv.2102.11297</p>
-<p>Wooldridge, J.M. (2025) <cite>Two-way fixed effects, the two-way mundlak regression, and difference-in-differences estimators</cite>. Empirical Economics, 69, pp.&nbsp;2545–2587. Available: https://doi.org/10.1007/s00181-025-02807-z</p>
+<p>Cattaneo, M. D., R. K. Crump, M. H. Farrell, and Y. Feng (2024). On Binscatter. <em>American Economic Review</em>, 114(5): 1488-1514.</p>
 </section>
 <section id="see-also" class="level3">
 <h3 class="anchored" data-anchor-id="see-also">See Also</h3>
-<p><code>dbConnect</code> for creating database connections, <code>duckdb</code> for DuckDB-specific connections</p>
+<p><code>plot.dbbinsreg</code> for plot customization, <code>dbreg</code> for the underlying regression engine, <code>binsreg</code> for the original implementation.</p>
 </section>
 <section id="examples" class="level3">
 <h3 class="anchored" data-anchor-id="examples">Examples</h3>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(<span class="st">"dbreg"</span>)</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">#</span></span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="do">## Small dataset ----</span></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co"># dbreg is primarily intended for use against big datasets/databases. But it</span></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co"># also works with small in-memory datasets, which lets us demo the syntax...</span></span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co"># auto strategy defaults to "compress" in this case</span></span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>(<span class="at">mod =</span> <span class="fu">dbreg</span>(Temp <span class="sc">~</span> Wind <span class="sc">|</span> Month, <span class="at">data =</span> airquality))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output cell-output-stdout">
-<pre><code>Compressed OLS estimation, Dep. Var.: Temp 
-Observations.: 153 (original) | 88 (compressed) 
-Standard Errors: IID 
-      Estimate Std. Error t value   Pr(&gt;|t|)    
-Wind -0.743388   0.148791 -4.9962 1.6384e-06 ***
----
-Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-RMSE: 6.1                 Adj. R2: 0.574411</code></pre>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>aq <span class="ot">=</span> <span class="fu">na.omit</span>(airquality)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Canonical binscatter: bin means (default)</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Same result as lm</span></span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">coef</span>(<span class="fu">lm</span>(Temp <span class="sc">~</span> Wind <span class="sc">+</span> <span class="fu">factor</span>(Month), <span class="at">data =</span> airquality))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output cell-output-stdout">
-<pre><code>   (Intercept)           Wind factor(Month)6 factor(Month)7 factor(Month)8 
-     74.188474      -0.743388      12.543643      16.362079      16.316286 
-factor(Month)9 
-     10.279216 </code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># aside: dbreg's default print method hides the "nuisance" coefficients</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># like the intercept and fixed effect(s). But we can grab them if we want.</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(mod, <span class="at">fe =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Compressed OLS estimation, Dep. Var.: Temp 
-Observations.: 153 (original) | 88 (compressed) 
-Standard Errors: IID 
-             Estimate Std. Error  t value   Pr(&gt;|t|)    
-(Intercept) 74.188474   2.054401 36.11198  &lt; 2.2e-16 ***
-Wind        -0.743388   0.148791 -4.99620 1.6384e-06 ***
-Month6      12.543643   1.594253  7.86804 7.1848e-13 ***
-Month7      16.362079   1.618341 10.11040  &lt; 2.2e-16 ***
-Month8      16.316286   1.623923 10.04745  &lt; 2.2e-16 ***
-Month9      10.279216   1.595936  6.44087 1.5903e-09 ***
----
-Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-RMSE: 6.1                 Adj. R2: 0.574411</code></pre>
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 81.91667 2.322756 77.36415 86.46919
+2   5.909091   2 81.45455 2.901243 75.76821 87.14088
+3   8.818182   3 80.81818 3.741960 73.48408 88.15229
+4  12.181818   4 78.18182 2.020872 74.22098 82.14265
+5  15.181818   5 73.18182 2.250524 68.77087 77.59276
+6  17.636364   6 73.72727 2.782110 68.27444 79.18011
+7  19.818182   7 73.72727 2.227290 69.36186 78.09268
+8  22.727273   8 71.45455 2.607774 66.34340 76.56569
+9  26.545455   9 80.00000 3.070484 73.98196 86.01804
+10 29.909091  10 83.09091 2.639247 77.91808 88.26374
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># "robust" SEs can also be computed using a sufficient statistics approach</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(Temp <span class="sc">~</span> Wind <span class="sc">|</span> Month, <span class="at">data =</span> airquality, <span class="at">vcov =</span> <span class="st">"hc1"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># For plot customization, rather save the object and then pass additonal args</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># to (tiny)plot.dbbinsreg.</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>bs <span class="ot">=</span> <span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>)</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(bs, <span class="at">theme =</span> <span class="st">"clean"</span>, <span class="at">main =</span> <span class="st">"A simple binscatter example"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># You can also set a global (tiny)plot theme</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>tinyplot<span class="sc">::</span><span class="fu">tinytheme</span>(<span class="st">"classic"</span>)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"># With fixed effects (month)</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day <span class="sc">|</span> Month, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">0</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Compressed OLS estimation, Dep. Var.: Temp 
-Observations.: 153 (original) | 88 (compressed) 
-Standard Errors: Heteroskedasticity-robust 
-      Estimate Std. Error  t value   Pr(&gt;|t|)    
-Wind -0.743388    0.16158 -4.60073 9.0198e-06 ***
----
-Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-RMSE: 6.1                 Adj. R2: 0.574411</code></pre>
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day | Month 
+points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 70.88804 2.182569 66.61029 75.16580
+2   5.909091   2 70.39021 2.213368 66.05208 74.72833
+3   8.818182   3 69.13248 2.435088 64.35979 73.90516
+4  12.181818   4 66.81101 1.702468 63.47423 70.14779
+5  15.181818   5 63.01962 1.455175 60.16753 65.87171
+6  17.636364   6 61.76573 1.977505 57.88989 65.64156
+7  19.818182   7 62.32584 1.964435 58.47562 66.17606
+8  22.727273   8 62.50096 2.015101 58.55143 66.45049
+9  26.545455   9 66.44527 2.375186 61.78999 71.10055
+10 29.909091  10 71.99245 2.558594 66.97770 77.00721
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(Temp <span class="sc">~</span> Wind <span class="sc">|</span> Month, <span class="at">data =</span> airquality, <span class="at">vcov =</span> <span class="sc">~</span>Month)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear, no smoothness</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">0</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Compressed OLS estimation, Dep. Var.: Temp 
-Observations.: 153 (original) | 88 (compressed) 
-Standard Errors: Clustered (5 clusters) 
-      Estimate Std. Error  t value  Pr(&gt;|t|)    
-Wind -0.743388   0.221804 -3.35155 0.0010217 ** 
----
-Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-RMSE: 6.1                 Adj. R2: 0.574411</code></pre>
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(1,0) | line = NULL | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 81.91667 2.436430 77.14135 86.69198
+2   5.909091   2 81.45455 3.053205 75.47037 87.43872
+3   8.818182   3 80.81818 3.937325 73.10117 88.53520
+4  12.181818   4 78.18182 1.990395 74.28072 82.08292
+5  15.181818   5 73.18182 2.332957 68.60931 77.75433
+6  17.636364   6 73.72727 2.833616 68.17349 79.28106
+7  19.818182   7 73.72727 2.345673 69.12984 78.32471
+8  22.727273   8 71.45455 2.648688 66.26321 76.64588
+9  26.545455   9 80.00000 3.144001 73.83787 86.16213
+10 29.909091  10 83.09091 2.778260 77.64562 88.53620
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># other strategies</span></span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(Temp <span class="sc">~</span> Wind <span class="sc">|</span> Month, <span class="at">data =</span> airquality, <span class="at">strategy =</span> <span class="st">"demean"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear with continuity (instead of quadratic; safer for small data)</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Demeaned OLS estimation, Dep. Var.: Temp 
-Observations.: 153 
-Standard Errors: IID 
-      Estimate Std. Error t value   Pr(&gt;|t|)    
-Wind -0.743388   0.148791 -4.9962 1.6384e-06 ***
----
-Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-RMSE: 6.1                 Adj. R2: 0.116084</code></pre>
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(1,1) | line = NULL | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 81.73218 2.443702 76.94261 86.52175
+2   5.909091   2 81.29629 2.427346 76.53878 86.05380
+3   8.818182   3 81.51998 2.606491 76.41135 86.62861
+4  12.181818   4 77.21513 1.804141 73.67908 80.75118
+5  15.181818   5 73.36807 1.893065 69.65773 77.07841
+6  17.636364   6 73.86786 1.762112 70.41419 77.32154
+7  19.818182   7 73.19849 1.994094 69.29014 77.10684
+8  22.727273   8 72.52329 2.204387 68.20277 76.84381
+9  26.545455   9 79.85019 2.549773 74.85273 84.84766
+10 29.909091  10 82.99832 2.565857 77.96933 88.02730
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(Temp <span class="sc">~</span> Wind <span class="sc">|</span> Month, <span class="at">data =</span> airquality, <span class="at">strategy =</span> <span class="st">"mundlak"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With line overlay for smooth visualization</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>), <span class="at">line =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-5.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
 <div class="cell-output cell-output-stdout">
-<pre><code>One-way Mundlak OLS estimation, Dep. Var.: Temp 
-Observations.: 153 
-Standard Errors: IID 
-      Estimate Std. Error  t value   Pr(&gt;|t|)    
-Wind -0.743389   0.153267 -4.85028 3.0557e-06 ***
----
-Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-RMSE: 6.3                 Adj. R2: 0.548417</code></pre>
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(1,1) | line = c(1,1) | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 81.73218 2.443702 76.94261 86.52175
+2   5.909091   2 81.29629 2.427346 76.53878 86.05380
+3   8.818182   3 81.51998 2.606491 76.41135 86.62861
+4  12.181818   4 77.21513 1.804141 73.67908 80.75118
+5  15.181818   5 73.36807 1.893065 69.65773 77.07841
+6  17.636364   6 73.86786 1.762112 70.41419 77.32154
+7  19.818182   7 73.19849 1.994094 69.29014 77.10684
+8  22.727273   8 72.52329 2.204387 68.20277 76.84381
+9  26.545455   9 79.85019 2.549773 74.85273 84.84766
+10 29.909091  10 82.99832 2.565857 77.96933 88.02730
+
+$line:
+          x bin      fit
+1  1.000000   1 81.13391
+2  1.105263   1 81.19689
+3  1.210526   1 81.25986
+4  1.315789   1 81.32284
+5  1.421053   1 81.38581
+6  1.526316   1 81.44879
+7  1.631579   1 81.51176
+8  1.736842   1 81.57474
+9  1.842105   1 81.63771
+10 1.947368   1 81.70069
+... 190 more rows
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(Temp <span class="sc">~</span> Wind, <span class="at">data =</span> airquality, <span class="at">strategy =</span> <span class="st">"moments"</span>) <span class="co"># no FEs</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Different line smoothness to points</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>), <span class="at">line =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-6.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Moments-based OLS estimation, Dep. Var.: Temp 
-Observations.: 153 
-Standard Errors: IID 
-            Estimate Std. Error  t value   Pr(&gt;|t|)    
-(Intercept) 90.13487   2.052185 43.92140  &lt; 2.2e-16 ***
-Wind        -1.23048   0.194363 -6.33084 2.6416e-09 ***
----
-Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-RMSE: 8.4                 Adj. R2: 0.204519</code></pre>
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(1,1) | line = c(2,1) | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 81.73218 2.443702 76.94261 86.52175
+2   5.909091   2 81.29629 2.427346 76.53878 86.05380
+3   8.818182   3 81.51998 2.606491 76.41135 86.62861
+4  12.181818   4 77.21513 1.804141 73.67908 80.75118
+5  15.181818   5 73.36807 1.893065 69.65773 77.07841
+6  17.636364   6 73.86786 1.762112 70.41419 77.32154
+7  19.818182   7 73.19849 1.994094 69.29014 77.10684
+8  22.727273   8 72.52329 2.204387 68.20277 76.84381
+9  26.545455   9 79.85019 2.549773 74.85273 84.84766
+10 29.909091  10 82.99832 2.565857 77.96933 88.02730
+
+$line:
+          x bin      fit
+1  1.000000   1 80.75000
+2  1.105263   1 81.06307
+3  1.210526   1 81.34582
+4  1.315789   1 81.59825
+5  1.421053   1 81.82036
+6  1.526316   1 82.01215
+7  1.631579   1 82.17362
+8  1.736842   1 82.30477
+9  1.842105   1 82.40560
+10 1.947368   1 82.47611
+... 190 more rows
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co">#</span></span>
-<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="do">## Big dataset ----</span></span>
-<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a><span class="co"># For a more compelling and appropriate dbreg use-case, i.e. regression on a</span></span>
-<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a><span class="co"># big (~180 million row) dataset of Hive-partioned parquet files, see the</span></span>
-<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a><span class="co"># package website:</span></span>
-<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a><span class="co"># https://github.com/grantmcdermott/dbreg?tab=readme-ov-file#quickstart</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With uniform confidence bands</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">cb =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-7.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr   cb_lwr   cb_upr
+1   2.000000   1 81.91667 2.322756 77.36415 86.46919 72.89523 90.93810
+2   5.909091   2 81.45455 2.901243 75.76821 87.14088 70.18630 92.72279
+3   8.818182   3 80.81818 3.741960 73.48408 88.15229 66.28465 95.35171
+4  12.181818   4 78.18182 2.020872 74.22098 82.14265 70.33288 86.03076
+5  15.181818   5 73.18182 2.250524 68.77087 77.59276 64.44093 81.92271
+6  17.636364   6 73.72727 2.782110 68.27444 79.18011 62.92174 84.53281
+7  19.818182   7 73.72727 2.227290 69.36186 78.09268 65.07662 82.37792
+8  22.727273   8 71.45455 2.607774 66.34340 76.56569 61.32612 81.58297
+9  26.545455   9 80.00000 3.070484 73.98196 86.01804 68.07444 91.92556
+10 29.909091  10 83.09091 2.639247 77.91808 88.26374 72.84024 93.34158
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Reset the global (tiny)plot theme to user defaults</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>tinyplot<span class="sc">::</span><span class="fu">tinytheme</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 
 
