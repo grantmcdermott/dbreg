@@ -371,6 +371,8 @@ window.Quarto = {
 <h3 class="anchored" data-anchor-id="usage">Usage</h3>
 <pre><code class="language-R">dbbinsreg(
   fml,
+  conn = NULL,
+  table = NULL,
   data = NULL,
   path = NULL,
   points = c(0, 0),
@@ -385,7 +387,6 @@ window.Quarto = {
   level = 0.95,
   nsims = 500,
   strategy = "auto",
-  conn = NULL,
   plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
   dots = NULL
@@ -419,18 +420,29 @@ window.Quarto = {
 </tr>
 <tr>
 <td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="data">data</code>
+<code id="conn">conn</code>
 </td>
 <td>
-A data source: R dataframe, database table name (character), or a lazy table object (e.g., from <code>dplyr::tbl()</code>) pointing to a database table.
+Database connection, e.g.&nbsp;created with <code>dbConnect</code>. Can be either persistent (disk-backed) or ephemeral (in-memory). If no connection is provided, then an ephemeral <code>duckdb</code> connection will be created automatically and closed before the function exits. Note that a persistent (disk-backed) database connection is required for larger-than-RAM datasets in order to take advantage of out-of-core functionality like streaming (where supported).
 </td>
 </tr>
 <tr>
 <td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="path">path</code>
+<code id="table">table</code>, <code id="data">data</code>, <code id="path">path</code>
 </td>
 <td>
-Character string giving a path to data file(s) on disk. This is an alias for <code>data</code> for consistency with <code>dbreg</code>. Can include file globbing for Hive-partitioned datasets, e.g. <code>“read_parquet(’mydata/**/*.parquet’)“</code>.
+<p>Mutually exclusive arguments for specifying the data table (object) to be queried. In order of precedence:</p>
+<ul>
+<li>
+<p><code>table</code>: Character string giving the name of the data table in an existing (open) database connection.</p>
+</li>
+<li>
+<p><code>data</code>: R dataframe that can be copied over to <code>conn</code> as a temporary table for querying via the DuckDB query engine. Ignored if <code>table</code> is provided.</p>
+</li>
+<li>
+<p><code>path</code>: Character string giving a path to the data file(s) on disk, which will be read into <code>conn</code>. Internally, this string is passed to the <code>FROM</code> query statement, so could (should) include file globbing for Hive-partitioned datasets, e.g.&nbsp;<code>“mydata/**/.*parquet”</code>. For more precision, however, it is recommended to pass the desired database reader function as part of this string, e.g.&nbsp;<code>“read_parquet(’mydata/**/*.parquet’)“</code> for DuckDB; note the use of single quotes. Ignored if either <code>table</code> or <code>data</code> is provided.</p>
+</li>
+</ul>
 </td>
 </tr>
 <tr>
@@ -527,14 +539,6 @@ Number of simulation draws for confidence band computation. Default is 500. Only
 </td>
 <td>
 Acceleration strategy passed to <code>dbreg</code> when smoothness is zero. Options are <code>“auto”</code> (default), <code>“compress”</code>, or <code>“scan”</code>. This parameter is ignored when <code>s</code> (smoothness parameter in <code>points</code> or <code>lines</code>) &gt; 0. See <code>dbreg</code> for details.
-</td>
-</tr>
-<tr>
-<td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="conn">conn</code>
-</td>
-<td>
-Database connection. If <code>NULL</code> (default), an ephemeral DuckDB connection will be created.
 </td>
 </tr>
 <tr>
@@ -981,16 +985,16 @@ N = 111 | level = 95%
 
 $points:
            x bin      fit       se      lwr      upr   cb_lwr   cb_upr
-1   2.000000   1 81.91667 2.322756 77.36415 86.46919 72.89523 90.93810
-2   5.909091   2 81.45455 2.901243 75.76821 87.14088 70.18630 92.72279
-3   8.818182   3 80.81818 3.741960 73.48408 88.15229 66.28465 95.35171
-4  12.181818   4 78.18182 2.020872 74.22098 82.14265 70.33288 86.03076
-5  15.181818   5 73.18182 2.250524 68.77087 77.59276 64.44093 81.92271
-6  17.636364   6 73.72727 2.782110 68.27444 79.18011 62.92174 84.53281
-7  19.818182   7 73.72727 2.227290 69.36186 78.09268 65.07662 82.37792
-8  22.727273   8 71.45455 2.607774 66.34340 76.56569 61.32612 81.58297
-9  26.545455   9 80.00000 3.070484 73.98196 86.01804 68.07444 91.92556
-10 29.909091  10 83.09091 2.639247 77.91808 88.26374 72.84024 93.34158
+1   2.000000   1 81.91667 2.322756 77.36415 86.46919 72.34536 91.48797
+2   5.909091   2 81.45455 2.901243 75.76821 87.14088 69.49949 93.40960
+3   8.818182   3 80.81818 3.741960 73.48408 88.15229 65.39881 96.23755
+4  12.181818   4 78.18182 2.020872 74.22098 82.14265 69.85448 86.50916
+5  15.181818   5 73.18182 2.250524 68.77087 77.59276 63.90816 82.45548
+6  17.636364   6 73.72727 2.782110 68.27444 79.18011 62.26313 85.19142
+7  19.818182   7 73.72727 2.227290 69.36186 78.09268 64.54935 82.90519
+8  22.727273   8 71.45455 2.607774 66.34340 76.56569 60.70878 82.20031
+9  26.545455   9 80.00000 3.070484 73.98196 86.01804 67.34756 92.65244
+10 29.909091  10 83.09091 2.639247 77.91808 88.26374 72.21545 93.96637
 
 $bins:
    id left right

@@ -32,11 +32,12 @@ cleanup = function() {
 
 bins_qs = dbbinsreg(
   fare_amount ~ trip_distance,
-  "nyc_jan",
+  conn = con,
+  table = "nyc_jan",
   nbins = 20,
   points = c(0, 0),
   binspos = "qs",
-  conn = con,
+  plot = FALSE,
   verbose = FALSE
 )
 
@@ -55,11 +56,12 @@ cleanup()
 
 bins_es = dbbinsreg(
   fare_amount ~ trip_distance,
-  "nyc_jan",
+  conn = con,
+  table = "nyc_jan",
   nbins = 15,
   points = c(0, 0),
   binspos = "es",
-  conn = con,
+  plot = FALSE,
   verbose = FALSE
 )
 
@@ -73,10 +75,11 @@ cleanup()
 
 bins_ctrl = dbbinsreg(
   fare_amount ~ trip_distance + passenger_count,
-  "nyc_jan",
+  conn = con,
+  table = "nyc_jan",
   nbins = 10,
   points = c(0, 0),
-  conn = con,
+  plot = FALSE,
   verbose = FALSE
 )
 
@@ -88,10 +91,11 @@ cleanup()
 
 bins_linear = dbbinsreg(
   fare_amount ~ trip_distance,
-  "nyc_jan",
+  conn = con,
+  table = "nyc_jan",
   nbins = 10,
   points = c(1, 1),
-  conn = con,
+  plot = FALSE,
   verbose = FALSE
 )
 
@@ -104,11 +108,12 @@ cleanup()
 
 bins_mixed = dbbinsreg(
   fare_amount ~ trip_distance,
-  "nyc_jan",
+  conn = con,
+  table = "nyc_jan",
   nbins = 10,
   points = c(0, 0),
   line = c(1, 1),
-  conn = con,
+  plot = FALSE,
   verbose = FALSE
 )
 
@@ -122,11 +127,12 @@ cleanup()
 
 bins_ci = dbbinsreg(
   fare_amount ~ trip_distance,
-  "nyc_jan",
+  conn = con,
+  table = "nyc_jan",
   nbins = 10,
   points = c(0, 0),
   ci = TRUE,
-  conn = con,
+  plot = FALSE,
   verbose = FALSE
 )
 
@@ -143,10 +149,11 @@ cleanup()
 
 bins_fe = dbbinsreg(
   fare_amount ~ trip_distance | vendor_name,
-  "nyc_jan",
+  conn = con,
+  table = "nyc_jan",
   nbins = 10,
   points = c(0, 0),
-  conn = con,
+  plot = FALSE,
   verbose = FALSE
 )
 
@@ -157,11 +164,12 @@ cleanup()
 
 bins_quad = dbbinsreg(
   fare_amount ~ trip_distance,
-  "nyc_jan",
+  conn = con,
+  table = "nyc_jan",
   nbins = 8,
   points = c(2, 1),
   binspos = "qs",
-  conn = con,
+  plot = FALSE,
   verbose = FALSE
 )
 

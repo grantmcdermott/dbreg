@@ -13,12 +13,7 @@
 #'   - `y ~ x + w1 + w2`: binscatter with controls
 #'   - `y ~ x | fe`: binscatter with fixed effects
 #'   - `y ~ x + w1 + w2 | fe`: binscatter with controls and fixed effects
-#' @param data A data source: R dataframe, database table name (character), or
-#'   a lazy table object (e.g., from `dplyr::tbl()`) pointing to a database table.
-#' @param path Character string giving a path to data file(s) on disk. This is
-#'   an alias for `data` for consistency with \code{\link{dbreg}}. Can include
-#'   file globbing for Hive-partitioned datasets, e.g.
-#'   `"read_parquet('mydata/**/*.parquet')"`.
+#' @inheritParams dbreg
 #' @param points A vector `c(p, s)` specifying the polynomial degree \eqn{p} and
 #'   smoothness \eqn{s} for the points (point estimates at bin means). Default is
 #'   `c(0, 0)` for canonical binscatter (bin means). Set to `NULL` or `FALSE` to
@@ -61,12 +56,6 @@
 #'   smoothness is zero. Options are `"auto"` (default), `"compress"`, or
 #'   `"scan"`. This parameter is ignored when `s` (smoothness parameter in
 #'   `points` or `lines`) > 0. See \code{\link{dbreg}} for details.
-#' @param conn Database connection. If `NULL` (default), an ephemeral DuckDB
-#'   connection will be created.
-#' @param verbose Logical. Print auto strategy and progress messages to the
-#'   console? Defaults to `FALSE`. This can be overridden for a single call
-#'   by supplying `verbose = TRUE`, or set globally via
-#'   `options(dbreg.verbose = TRUE)`.
 #' @param plot Logical. If `TRUE` (default), a plot is produced as a side effect.
 #'   Set to `FALSE` to suppress plotting.
 #'
@@ -202,6 +191,8 @@
 #' @export
 dbbinsreg = function(
   fml,
+  conn = NULL,
+  table = NULL,
   data = NULL,
   path = NULL,
   points = c(0, 0),
@@ -216,7 +207,6 @@ dbbinsreg = function(
   level = 0.95,
   nsims = 500,
   strategy = "auto",
-  conn = NULL,
   plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
   dots = NULL
@@ -227,8 +217,11 @@ dbbinsreg = function(
     points = dots
   }
   
-  # Handle path as alias for data (for consistency with dbreg)
-  if (is.null(data) && !is.null(path)) {
+  # Handle data input precedence (matching dbreg): table > data > path
+  if (!is.null(table)) {
+    # table takes precedence - data source is table name in conn
+    data = table
+  } else if (is.null(data) && !is.null(path)) {
     data = path
   }
   

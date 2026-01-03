@@ -6,6 +6,8 @@
 \usage{
 dbbinsreg(
   fml,
+  conn = NULL,
+  table = NULL,
   data = NULL,
   path = NULL,
   points = c(0, 0),
@@ -20,7 +22,6 @@ dbbinsreg(
   level = 0.95,
   nsims = 500,
   strategy = "auto",
-  conn = NULL,
   plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
   dots = NULL
@@ -37,13 +38,31 @@ are controls. Fixed effects go after \code{|}. Examples:
 \item \code{y ~ x + w1 + w2 | fe}: binscatter with controls and fixed effects
 }}
 
-\item{data}{A data source: R dataframe, database table name (character), or
-a lazy table object (e.g., from \code{dplyr::tbl()}) pointing to a database table.}
+\item{conn}{Database connection, e.g. created with
+\code{\link[DBI]{dbConnect}}. Can be either persistent (disk-backed) or
+ephemeral (in-memory). If no connection is provided, then an ephemeral
+\code{\link[duckdb]{duckdb}} connection will be created automatically and
+closed before the function exits. Note that a persistent (disk-backed)
+database connection is required for larger-than-RAM datasets in order to take
+advantage of out-of-core functionality like streaming (where supported).}
 
-\item{path}{Character string giving a path to data file(s) on disk. This is
-an alias for \code{data} for consistency with \code{\link{dbreg}}. Can include
-file globbing for Hive-partitioned datasets, e.g.
-\code{"read_parquet('mydata/**/*.parquet')"}.}
+\item{table, data, path}{Mutually exclusive arguments for specifying the data
+table (object) to be queried. In order of precedence:
+\itemize{
+\item \code{table}: Character string giving the name of the data table in an
+existing (open) database connection.
+\item \code{data}: R dataframe that can be copied over to \code{conn} as a temporary
+table for querying via the DuckDB query engine. Ignored if \code{table} is
+provided.
+\item \code{path}: Character string giving a path to the data file(s) on disk, which
+will be read into \code{conn}. Internally, this string is passed to the \code{FROM}
+query statement, so could (should) include file globbing for
+Hive-partitioned datasets, e.g. \code{"mydata/**/.*parquet"}. For more precision,
+however, it is recommended to pass the desired database reader function as
+part of this string, e.g. \code{"read_parquet('mydata/**/*.parquet')"} for DuckDB;
+note the use of single quotes.
+Ignored if either \code{table} or \code{data} is provided.
+}}
 
 \item{points}{A vector \code{c(p, s)} specifying the polynomial degree \eqn{p} and
 smoothness \eqn{s} for the points (point estimates at bin means). Default is
@@ -93,9 +112,6 @@ Default is 500. Only used when \code{cb = TRUE}.}
 smoothness is zero. Options are \code{"auto"} (default), \code{"compress"}, or
 \code{"scan"}. This parameter is ignored when \code{s} (smoothness parameter in
 \code{points} or \code{lines}) > 0. See \code{\link{dbreg}} for details.}
-
-\item{conn}{Database connection. If \code{NULL} (default), an ephemeral DuckDB
-connection will be created.}
 
 \item{plot}{Logical. If \code{TRUE} (default), a plot is produced as a side effect.
 Set to \code{FALSE} to suppress plotting.}
