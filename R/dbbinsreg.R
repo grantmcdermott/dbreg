@@ -43,7 +43,8 @@
 #'   operation. The subsequent, primary regression operations use all of the
 #'   data.
 #' @param plot Logical. If `TRUE` (the default), then a plot is automatically
-#' produced alongside the return `dbbinsreg` data object.
+#'   produced alongside the return `dbbinsreg` data object; see
+#'   \code{\link{plot.dbbinsreg}}.
 #' @param ci Logical. Calculate standard errors and confidence intervals for points?
 #'   Default is `TRUE`.
 #' @param cb Logical. Calculate simultaneous confidence bands using simulation?
@@ -163,26 +164,42 @@
 #'   \code{\link{dbreg}} for the underlying regression engine,
 #'   \code{\link[binsreg]{binsreg}} for the original implementation.
 #' @importFrom stats quantile
-#' @export
 #' @examples
-#' \dontrun{
-#' cw = as.data.frame(ChickWeight)
+#' aq = na.omit(airquality)
 #' 
 #' # Canonical binscatter: bin means (default)
-#' dbbinsreg(weight ~ Time, cw, nbins = 10)
+#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10)
 #'
+#' # For plot customization, rather save the object and then pass additonal args
+#' # to (tiny)plot.dbbinsreg.
+#' bs = dbbinsreg(Temp ~ Day, data = aq, nbins = 10)
+#' plot(bs, theme = "clean", main = "A simple binscatter example")
+#' 
+#' # You can also set a global (tiny)plot theme
+#' tinyplot::tinytheme("classic")
+#' 
+#' # With fixed effects (month)
+#' dbbinsreg(Temp ~ Day | Month, data = aq, nbins = 10, points = c(0, 0))
+#' 
 #' # Piecewise linear, no smoothness
-#' dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(1, 0))
-#'
-#' # Piecewise quadratic with C1 continuity
-#' dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(2, 1))
-#'
+#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 0))
+#' 
+#' # Piecewise linear with continuity (instead of quadratic; safer for small data)
+#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1))
+#' 
 #' # With line overlay for smooth visualization
-#' dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(0, 0), line = c(1, 1))
-#'
-#' # With fixed effects (diet type)
-#' dbbinsreg(weight ~ Time | Diet, cw, nbins = 10, points = c(1, 0))
-#' }
+#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1), line = TRUE)
+#' 
+#' # Different line smoothness to points
+#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1), line = c(2, 1))
+#' 
+#' # With uniform confidence bands
+#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10, cb = TRUE)
+#' 
+#' # Reset the global (tiny)plot theme to user defaults
+#' tinyplot::tinytheme()
+#' 
+#' @export
 dbbinsreg = function(
   fml,
   data = NULL,

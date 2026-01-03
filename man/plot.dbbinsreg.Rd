@@ -32,3 +32,39 @@ confidence bands, and optionally overlays a smooth line if computed.
 Uses tinyplot for rendering but works with both \code{plot()} and
 \code{tinyplot()} generics.
 }
+\examples{
+aq = na.omit(airquality)
+
+# Canonical binscatter: bin means (default)
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10)
+
+# For plot customization, rather save the object and then pass additonal args
+# to (tiny)plot.dbbinsreg.
+bs = dbbinsreg(Temp ~ Day, data = aq, nbins = 10)
+plot(bs, theme = "clean", main = "A simple binscatter example")
+
+# You can also set a global (tiny)plot theme
+tinyplot::tinytheme("classic")
+
+# With fixed effects (month)
+dbbinsreg(Temp ~ Day | Month, data = aq, nbins = 10, points = c(0, 0))
+
+# Piecewise linear, no smoothness
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 0))
+
+# Piecewise linear with continuity (instead of quadratic; safer for small data)
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1))
+
+# With line overlay for smooth visualization
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1), line = TRUE)
+
+# Different line smoothness to points
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1), line = c(2, 1))
+
+# With uniform confidence bands
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10, cb = TRUE)
+
+# Reset the global (tiny)plot theme to user defaults
+tinyplot::tinytheme()
+
+}

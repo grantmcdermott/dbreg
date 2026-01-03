@@ -19,6 +19,7 @@
 #' @param line Logical. Show the line overlay if available? Default is `TRUE.`
 #' @param ... Additional arguments passed to `\code{\link[tinyplot]{tinyplot}},
 #' e.g. `theme`, `main`, `file`, etc.
+#' @inherit dbbinsreg examples
 #' @export
 plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...) {
   # Extract metadata

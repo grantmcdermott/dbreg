@@ -2,7 +2,7 @@
 % Please edit documentation in R/dbbinsreg.R
 \name{dbbinsreg}
 \alias{dbbinsreg}
-\title{Run a binscatter regression on a database backend}
+\title{Run a binscatter regression on a database backend and plot the result}
 \usage{
 dbbinsreg(
   fml,
@@ -208,24 +208,40 @@ of data in R and pass them via the \code{binspos} argument as a numeric vector.
 }
 
 \examples{
-\dontrun{
-cw = as.data.frame(ChickWeight)
+aq = na.omit(airquality)
 
 # Canonical binscatter: bin means (default)
-dbbinsreg(weight ~ Time, cw, nbins = 10)
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10)
+
+# For plot customization, rather save the object and then pass additonal args
+# to (tiny)plot.dbbinsreg.
+bs = dbbinsreg(Temp ~ Day, data = aq, nbins = 10)
+plot(bs, theme = "clean", main = "A simple binscatter example")
+
+# You can also set a global (tiny)plot theme
+tinyplot::tinytheme("classic")
+
+# With fixed effects (month)
+dbbinsreg(Temp ~ Day | Month, data = aq, nbins = 10, points = c(0, 0))
 
 # Piecewise linear, no smoothness
-dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(1, 0))
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 0))
 
-# Piecewise quadratic with C1 continuity
-dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(2, 1))
+# Piecewise linear with continuity (instead of quadratic; safer for small data)
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1))
 
 # With line overlay for smooth visualization
-dbbinsreg(weight ~ Time, cw, nbins = 10, points = c(0, 0), line = c(1, 1))
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1), line = TRUE)
 
-# With fixed effects (diet type)
-dbbinsreg(weight ~ Time | Diet, cw, nbins = 10, points = c(1, 0))
-}
+# Different line smoothness to points
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1), line = c(2, 1))
+
+# With uniform confidence bands
+dbbinsreg(Temp ~ Day, data = aq, nbins = 10, cb = TRUE)
+
+# Reset the global (tiny)plot theme to user defaults
+tinyplot::tinytheme()
+
 }
 \references{
 Cattaneo, M. D., R. K. Crump, M. H. Farrell, and Y. Feng (2024).
