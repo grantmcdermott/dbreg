@@ -23,16 +23,24 @@ df = data.frame(x = x, y = y)
 # Tolerance for fit comparisons (accounts for quantile algorithm difference)
 TOL_FIT = 0.05  # 5% relative tolerance
 TOL_SE = 0.01   # 1% absolute tolerance for SEs
+z = qnorm(0.975)  # For back-calculating SEs from CI width
+
+# Helper to run binsreg without plotting.
+# binsreg plots by default and noplot=TRUE skips populating data.plot,
+# so we suppress the plot device instead.
+run_binsreg = function(...) {
+  pdf(NULL)
+  on.exit(dev.off())
+  binsreg(...)
+}
 
 
 #
 ## Test 1: Canonical binscatter - points = c(0, 0) ----
 #
 
-pdf(NULL)
-br1 = binsreg(y, x, data = df, nbins = 10, dots = c(0, 0), line = NULL)
-dev.off()
-db1 = dbbinsreg(y ~ x, data = df, nbins = 10, points = c(0, 0), line = NULL, ci = FALSE, plot = FALSE, verbose = FALSE)
+br1 = run_binsreg(y, x, data = df, nbins = 10, dots = c(0, 0))
+db1 = dbbinsreg(y ~ x, data = df, nbins = 10, points = c(0, 0), ci = FALSE, plot = FALSE, verbose = FALSE)
 
 # Compare fits (allow for quantile algorithm differences)
 br1_fit = br1$data.plot[[1]]$data.dots$fit
@@ -46,10 +54,8 @@ expect_true(rel_diff1 < TOL_FIT,
 ## Test 2: Piecewise linear with continuity - points = c(1, 1) ----
 #
 
-pdf(NULL)
-br2 = binsreg(y, x, data = df, nbins = 10, dots = c(1, 1), line = NULL)
-dev.off()
-db2 = dbbinsreg(y ~ x, data = df, nbins = 10, points = c(1, 1), line = NULL, ci = FALSE, plot = FALSE, verbose = FALSE)
+br2 = run_binsreg(y, x, data = df, nbins = 10, dots = c(1, 1))
+db2 = dbbinsreg(y ~ x, data = df, nbins = 10, points = c(1, 1), ci = FALSE, plot = FALSE, verbose = FALSE)
 
 br2_fit = br2$data.plot[[1]]$data.dots$fit
 db2_fit = db2$points$fit
@@ -61,17 +67,11 @@ expect_true(rel_diff2 < TOL_FIT,
 #
 ## Test 3: HC1 standard errors match ----
 #
-# This was a bug fix: dbbinsreg now defaults to vcov="HC1" to match binsreg
 
-# binsreg requires noplot=FALSE to generate CI data
-pdf(NULL)
-br3 = binsreg(y, x, data = df, nbins = 10, dots = c(0, 0), ci = c(0, 0), vce = "HC1")
-dev.off()
-
+br3 = run_binsreg(y, x, data = df, nbins = 10, dots = c(0, 0), ci = c(0, 0), vce = "HC1")
 db3 = dbbinsreg(y ~ x, data = df, nbins = 10, points = c(0, 0), ci = TRUE, vcov = "HC1", plot = FALSE, verbose = FALSE)
 
 # Back-calculate binsreg SE from CI width
-z = qnorm(0.975)
 br3_ci = br3$data.plot[[1]]$data.ci
 br3_se = (br3_ci$ci.r - br3_ci$ci.l) / (2 * z)
 db3_se = db3$points$se
@@ -93,10 +93,7 @@ set.seed(42)
 y_het = 2 * x + rnorm(n, sd = 0.2 + 0.3 * x)  # Variance increases with x
 df_het = data.frame(x = x, y = y_het)
 
-pdf(NULL)
-br4 = binsreg(y_het, x, data = df_het, nbins = 10, dots = c(0, 0), ci = c(0, 0))
-dev.off()
-
+br4 = run_binsreg(y_het, x, data = df_het, nbins = 10, dots = c(0, 0), ci = c(0, 0))
 db4 = dbbinsreg(y ~ x, data = df_het, nbins = 10, points = c(0, 0), ci = TRUE, plot = FALSE, verbose = FALSE)
 
 br4_se = (br4$data.plot[[1]]$data.ci$ci.r - br4$data.plot[[1]]$data.ci$ci.l) / (2 * z)
@@ -127,9 +124,7 @@ df$w = rnorm(n)
 df$y_ctrl = df$y + 0.5 * df$w
 
 w_mat = as.matrix(df[, "w", drop = FALSE])
-pdf(NULL)
-br6 = binsreg(df$y_ctrl, df$x, w = w_mat, nbins = 10, dots = c(0, 0))
-dev.off()
+br6 = run_binsreg(df$y_ctrl, df$x, w = w_mat, nbins = 10, dots = c(0, 0))
 db6 = dbbinsreg(y_ctrl ~ x + w, data = df, nbins = 10, points = c(0, 0), ci = FALSE, plot = FALSE, verbose = FALSE)
 
 br6_fit = br6$data.plot[[1]]$data.dots$fit
