@@ -374,13 +374,18 @@ dbbinsreg = function(
   
   # Set up database connection if needed
   conn_managed = FALSE
+  is_duckdb = FALSE
   if (is.null(conn)) {
     conn = dbConnect(duckdb())
     conn_managed = TRUE
+    is_duckdb = TRUE
+  } else {
+    # Check if user-provided connection is DuckDB
+    backend_info = detect_backend(conn)
+    is_duckdb = (backend_info$name == "duckdb")
   }
   
   # Detect backend for SQL compatibility
-
   backend_info = detect_backend(conn)
   backend = backend_info$name
   
@@ -393,44 +398,33 @@ dbbinsreg = function(
   on.exit(cleanup(), add = TRUE)
   
   # Process data input
-  temp_tables = character()
+  registered_table = NULL  # DuckDB registered view (needs duckdb_unregister)
   
   if (is.character(data)) {
     # Table name provided
     table_name = data
-  } else if (inherits(data, "tbl_sql")) {
-    # dplyr tbl object - extract table name or use subquery
-    table_name = dbplyr::remote_name(data)
-    if (is.null(table_name)) {
-      # Create temp table from subquery using raw SQL
-      base_name = sprintf("__db_bins_%s_input", 
-                          gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-      table_name = dbbinsreg_temp_table_name(base_name, backend)
-      subquery_sql = as.character(dbplyr::sql_render(data))
-      dbbinsreg_create_temp_table_as(conn, table_name, subquery_sql, backend)
-      temp_tables = c(temp_tables, table_name)
-    }
   } else if (is.data.frame(data)) {
-    # Copy R dataframe to temp table
-    base_name = sprintf("__db_bins_%s_input", 
-                        gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-    table_name = dbbinsreg_temp_table_name(base_name, backend)
-    DBI::dbWriteTable(conn, table_name, data, temporary = TRUE)
-    temp_tables = c(temp_tables, table_name)
+    # Register R dataframe with DuckDB (zero-copy)
+    if (!is_duckdb) {
+      stop("In-memory data frames are only supported with DuckDB connections. ",
+           "Use `table` or `path` for other backends.")
+    }
+    table_name = sprintf("__dbbinsreg_%s", 
+                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+    duckdb_register(conn, table_name, data)
+    registered_table = table_name
   } else {
-    stop("data must be a dataframe, table name, or lazy table (e.g., from dplyr::tbl())")
+    stop("data must be a data frame or table name (character)")
   }
 
   
-  # Cleanup temp tables
-  cleanup_tables = function() {
-    if (length(temp_tables) > 0 && DBI::dbIsValid(conn)) {
-      for (tbl in temp_tables) {
-        try(DBI::dbRemoveTable(conn, tbl, fail_if_missing = FALSE), silent = TRUE)
-      }
+  # Cleanup registered table
+  cleanup_registered = function() {
+    if (!is.null(registered_table) && dbIsValid(conn)) {
+      try(duckdb_unregister(conn, registered_table), silent = TRUE)
     }
   }
-  on.exit(cleanup_tables(), add = TRUE)
+  on.exit(cleanup_registered(), add = TRUE)
   
   # Construct formula for display
   formula_str = if (!is.null(controls) && !is.null(fe)) {

@@ -212,7 +212,7 @@
 #' \code{\link[duckdb]{duckdb}} for DuckDB-specific connections
 #'
 #' @importFrom DBI dbConnect dbDisconnect dbExecute dbGetInfo dbGetQuery dbIsValid dbRemoveTable dbWriteTable
-#' @importFrom duckdb duckdb duckdb_register
+#' @importFrom duckdb duckdb duckdb_register duckdb_unregister
 #' @importFrom Formula Formula
 #' @importFrom Matrix chol2inv crossprod Diagonal sparse.model.matrix
 #' @importFrom stats aggregate as.formula formula pt reformulate setNames
