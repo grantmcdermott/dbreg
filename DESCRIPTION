@@ -13,18 +13,18 @@ Authors@R:
       comment = c(ORCID = "0000-0001-7883-8573")
     ),
     person(
+      given = "James",
+      famil = "Brand", 
+      email = "jamesbrandecon@gmail.com",
+      role = c("aut"),
+      comment = c(ORCID = "0000-0002-1663-5583")
+    ), 
+    person(
       given = "Apoorva",
       famil = "Lal", 
       email = "lal.apoorva@gmail.com",
       role = c("ctb"),
       comment = c(ORCID = "0000-0002-3697-614X")
-    ), 
-    person(
-      given = "James",
-      famil = "Brand", 
-      email = "jamesbrandecon@gmail.com",
-      role = c("ctb"),
-      comment = c(ORCID = "0000-0002-1663-5583")
     ), 
     person(
       given = "Laurent",
@@ -45,9 +45,12 @@ Imports:
   Formula,
   generics,
   glue,
+  MASS,
   Matrix,
-  stats
+  stats,
+  tinyplot
 Suggests:
+  binsreg,
   here,
   fixest (>= 0.13.0),
   knitr,

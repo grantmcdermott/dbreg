@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.25">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>dbbinsreg – dbreg</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-7b89279ff1a6dce999919e0e67d4d9ec.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-5b4ad623e5705c0698d39aec6f10cf02.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="nav-sidebar floating nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a href="../index.html" class="navbar-brand navbar-brand-logo">
+    </a>
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">dbreg</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="../vignettes/intro.html"> 
+<span class="menu-text">Get started</span></a>
+  </li>  
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-about" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">About</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-about">    
+        <li>
+    <a class="dropdown-item" href="../NEWS.html">
+ <span class="dropdown-text">News</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../CITATION.html">
+ <span class="dropdown-text">Citation</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../LICENSE.html">
+ <span class="dropdown-text">License</span></a>
+  </li>  
+    </ul>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link active" href="../man/dbreg.html" aria-current="page"> 
+<span class="menu-text">Reference</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://bsky.app/profile/gmcd.bsky.social" target="_blank"> <i class="bi bi-bluesky" role="img" aria-label="@gmcd.bsky.social">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://mastodon.social/@gmcd" target="_blank"> <i class="bi bi-mastodon" role="img" aria-label="@gmcd@mastodon.social">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/dbreg.html">Main functions</a></li><li class="breadcrumb-item"><a href="../man/dbbinsreg.html">dbbinsreg</a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header sidebar-header-stacked">
+      <a href="../index.html" class="sidebar-logo-link">
+      </a>
+      </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">Main functions</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/dbreg.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">dbreg</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/dbbinsreg.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text">dbbinsreg</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true">
+ <span class="menu-text">utilities</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/gof.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">gof</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true">
+ <span class="menu-text">Base methods</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/coef.dbreg.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">coef.dbreg</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/confint.dbreg.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">confint.dbreg</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/predict.dbreg.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">predict.dbreg</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/print.dbreg.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">print.dbreg</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/vcov.dbreg.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">vcov.dbreg</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/plot.dbbinsreg.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">plot.dbbinsreg</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true">
+ <span class="menu-text">Other methods</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/tidiers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">glance.dbreg</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/tidiers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">tidy.dbreg</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#run-a-binscatter-regression-on-a-database-backend-and-plot-the-result" id="toc-run-a-binscatter-regression-on-a-database-backend-and-plot-the-result" class="nav-link active" data-scroll-target="#run-a-binscatter-regression-on-a-database-backend-and-plot-the-result">Run a binscatter regression on a database backend and plot the result</a>
+  <ul class="collapse">
+  <li><a href="#description" id="toc-description" class="nav-link" data-scroll-target="#description">Description</a></li>
+  <li><a href="#usage" id="toc-usage" class="nav-link" data-scroll-target="#usage">Usage</a></li>
+  <li><a href="#arguments" id="toc-arguments" class="nav-link" data-scroll-target="#arguments">Arguments</a></li>
+  <li><a href="#value" id="toc-value" class="nav-link" data-scroll-target="#value">Value</a></li>
+  <li><a href="#comparison-with-binsreg" id="toc-comparison-with-binsreg" class="nav-link" data-scroll-target="#comparison-with-binsreg">Comparison with binsreg</a></li>
+  <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references">References</a></li>
+  <li><a href="#see-also" id="toc-see-also" class="nav-link" data-scroll-target="#see-also">See Also</a></li>
+  <li><a href="#examples" id="toc-examples" class="nav-link" data-scroll-target="#examples">Examples</a></li>
+  </ul></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/dbreg.html">Main functions</a></li><li class="breadcrumb-item"><a href="../man/dbbinsreg.html">dbbinsreg</a></li></ol></nav></header>
+
+
+
+
+<section id="run-a-binscatter-regression-on-a-database-backend-and-plot-the-result" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="run-a-binscatter-regression-on-a-database-backend-and-plot-the-result">Run a binscatter regression on a database backend and plot the result</h2>
+<section id="description" class="level3">
+<h3 class="anchored" data-anchor-id="description">Description</h3>
+<p>Performs binned regression entirely in SQL, returning plot-ready data with estimated bin means or piecewise polynomial fits. The API is designed to be compatible with the <span class="pkg">binsreg</span> package by Cattaneo, Crump, Farrell, and Feng (2024). Supports unconditional and conditional models (with controls and/or fixed effects).</p>
+</section>
+<section id="usage" class="level3">
+<h3 class="anchored" data-anchor-id="usage">Usage</h3>
+<pre><code class="language-R">dbbinsreg(
+  fml,
+  conn = NULL,
+  table = NULL,
+  data = NULL,
+  path = NULL,
+  points = c(0, 0),
+  line = NULL,
+  linegrid = 20,
+  nbins = 20,
+  binspos = "qs",
+  randcut = NULL,
+  ci = TRUE,
+  cb = FALSE,
+  vcov = NULL,
+  level = 0.95,
+  nsims = 500,
+  strategy = "auto",
+  plot = TRUE,
+  verbose = getOption("dbreg.verbose", FALSE),
+  dots = NULL
+)
+</code></pre>
+</section>
+<section id="arguments" class="level3">
+<h3 class="anchored" data-anchor-id="arguments">Arguments</h3>
+<table role="presentation">
+<tbody><tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="fml">fml</code>
+</td>
+<td>
+<p>A <code>formula</code> representing the binscatter relation. The first variable on the RHS is the running variable; additional variables are controls. Fixed effects go after <code>|</code>. Examples:</p>
+<ul>
+<li>
+<p><code>y ~ x</code>: simple binscatter</p>
+</li>
+<li>
+<p><code>y ~ x + w1 + w2</code>: binscatter with controls</p>
+</li>
+<li>
+<p><code>y ~ x | fe</code>: binscatter with fixed effects</p>
+</li>
+<li>
+<p><code>y ~ x + w1 + w2 | fe</code>: binscatter with controls and fixed effects</p>
+</li>
+</ul>
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="conn">conn</code>
+</td>
+<td>
+Database connection, e.g.&nbsp;created with <code>dbConnect</code>. Can be either persistent (disk-backed) or ephemeral (in-memory). If no connection is provided, then an ephemeral <code>duckdb</code> connection will be created automatically and closed before the function exits. Note that a persistent (disk-backed) database connection is required for larger-than-RAM datasets in order to take advantage of out-of-core functionality like streaming (where supported).
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="table">table</code>, <code id="data">data</code>, <code id="path">path</code>
+</td>
+<td>
+<p>Mutually exclusive arguments for specifying the data table (object) to be queried. In order of precedence:</p>
+<ul>
+<li>
+<p><code>table</code>: Character string giving the name of the data table in an existing (open) database connection.</p>
+</li>
+<li>
+<p><code>data</code>: R dataframe that can be copied over to <code>conn</code> as a temporary table for querying via the DuckDB query engine. Ignored if <code>table</code> is provided.</p>
+</li>
+<li>
+<p><code>path</code>: Character string giving a path to the data file(s) on disk, which will be read into <code>conn</code>. Internally, this string is passed to the <code>FROM</code> query statement, so could (should) include file globbing for Hive-partitioned datasets, e.g.&nbsp;<code>“mydata/**/.*parquet”</code>. For more precision, however, it is recommended to pass the desired database reader function as part of this string, e.g.&nbsp;<code>“read_parquet(’mydata/**/*.parquet’)“</code> for DuckDB; note the use of single quotes. Ignored if either <code>table</code> or <code>data</code> is provided.</p>
+</li>
+</ul>
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="points">points</code>
+</td>
+<td>
+A vector <code>c(p, s)</code> specifying the polynomial degree <span class="math inline">\(p\)</span> and smoothness <span class="math inline">\(s\)</span> for the points (point estimates at bin means). Default is <code>c(0, 0)</code> for canonical binscatter (bin means). Set to <code>NULL</code> or <code>FALSE</code> to suppress points. The smoothness <code>s</code> must satisfy <code>s &lt;= p</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="line">line</code>
+</td>
+<td>
+A vector <code>c(p, s)</code> specifying the polynomial degree <span class="math inline">\(p\)</span> and smoothness <span class="math inline">\(s\)</span> for the line (evaluated on a grid within bins). Default is <code>NULL</code> (no line). Set to <code>TRUE</code> for <code>c(0, 0)</code> or a vector like <code>c(1, 1)</code> for piecewise linear with continuity constraints. The smoothness <span class="math inline">\(s\)</span> must satisfy <code>s &lt;= p</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="linegrid">linegrid</code>
+</td>
+<td>
+Number of evaluation points per bin for the line. Default is 20.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="nbins">nbins</code>
+</td>
+<td>
+Integer number of bins. Default is 20.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="binspos">binspos</code>
+</td>
+<td>
+Bin positioning method. One of either <code>“qs”</code> (quantile-spaced, equal-count bins, the default), <code>“es”</code> (evenly-spaced, equal-width bins), or a numeric vector of knot positions for manual specification.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="randcut">randcut</code>
+</td>
+<td>
+Numeric in the range <code style="white-space: pre;">(0,1]</code>. Controls the random sampling fraction for bin boundary computation on large datasets. If <code>NULL</code> (the default), then sampling is automatic: <code>0.01</code> (1%) for datasets exceeding 1 million rows and <code>1</code> (100%) otherwise. Note that sampling is only used for computing the bin boundaries, since this requires an expensive ranking operation. The subsequent, primary regression operations use all of the data.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="ci">ci</code>
+</td>
+<td>
+Logical. Calculate standard errors and confidence intervals for points? Default is <code>TRUE</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="cb">cb</code>
+</td>
+<td>
+Logical. Calculate simultaneous confidence bands using simulation? Default is <code>FALSE</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="vcov">vcov</code>
+</td>
+<td>
+Character string or formula for standard errors. Options are <code>“HC1”</code> (default, heteroskedasticity-robust, matches <code>binsreg</code>), <code>“iid”</code>, or a one-sided formula for clustered standard errors (e.g., <code>~cluster_var</code>).
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="level">level</code>
+</td>
+<td>
+Numeric in the range <code style="white-space: pre;">[0,1]</code>, giving the confidence level for the confidence levels and/or bands. Default is <code>0.95</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="nsims">nsims</code>
+</td>
+<td>
+Number of simulation draws for confidence band computation. Default is 500. Only used when <code>cb = TRUE</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="strategy">strategy</code>
+</td>
+<td>
+Acceleration strategy passed to <code>dbreg</code> when smoothness is zero. Options are <code>“auto”</code> (default), <code>“compress”</code>, or <code>“scan”</code>. This parameter is ignored when <code>s</code> (smoothness parameter in <code>points</code> or <code>lines</code>) &gt; 0. See <code>dbreg</code> for details.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="plot">plot</code>
+</td>
+<td>
+Logical. If <code>TRUE</code> (default), a plot is produced as a side effect. Set to <code>FALSE</code> to suppress plotting.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="verbose">verbose</code>
+</td>
+<td>
+Logical. Print auto strategy and progress messages to the console? Defaults to <code>FALSE</code>. This can be overridden for a single call by supplying <code>verbose = TRUE</code>, or set globally via <code>options(dbreg.verbose = TRUE)</code>.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="dots">dots</code>
+</td>
+<td>
+Alias for <code>points</code> for <code>binsreg</code> compatibility. If not <code>NULL</code>, overrides the <code>points</code> argument.
+</td>
+</tr>
+</tbody></table>
+</section>
+<section id="value" class="level3">
+<h3 class="anchored" data-anchor-id="value">Value</h3>
+<p>A list of class "dbbinsreg" containing:</p>
+<dl>
+<dt>
+points
+</dt>
+<dd>
+Data frame of the point estimates (one row per bin): <code>x</code> (bin mean), <code>bin</code>, and <code>fit</code> (fitted value). If <code>ci=TRUE</code> in the original call, then also includes the columns: <code>se</code>, <code>lwr</code>, and <code>upr</code>. Similarly, if <code>cb=TRUE</code>, then includes the columns: <code>cb_lwr</code> and <code>cb_upr</code>.
+</dd>
+<dt>
+line
+</dt>
+<dd>
+Data frame of the line estimates (multiple rows per bin): <code>x</code>, <code>bin</code>, <code>fit</code>. Only present if <code>line</code> is specified.
+</dd>
+<dt>
+bins
+</dt>
+<dd>
+Data frame with bin boundaries: <code>id</code> (bin number), <code>left</code> (left endpoint), <code>right</code> (right endpoint).
+</dd>
+<dt>
+model
+</dt>
+<dd>
+The fitted <code>dbreg</code> model object (for points).
+</dd>
+<dt>
+opt
+</dt>
+<dd>
+List of options used: <code>points</code>, <code>line</code>, <code>nbins</code>, <code>binspos</code>, etc.
+</dd>
+</dl>
+<p>If <code>plot = TRUE</code> (the default), a binscatter plot is also produced as a side effect. See <code>plot.dbbinsreg</code> for plot customization.</p>
+</section>
+<section id="comparison-with-binsreg" class="level3">
+<h3 class="anchored" data-anchor-id="comparison-with-binsreg">Comparison with binsreg</h3>
+<p>The <code>dbbinsreg</code> function is deeply inspired by the <span class="pkg">binsreg</span> package (Cattaneo et. al., 2024). The main difference is that <code>dbbinsreg</code> performs most of its computation on a database backend, employing various acceration strategies, which makes it particularly suitable for large datasets (which may not fit in memory). At the same time, the database backend introduces its own set of tradeoffs. We cover the most important points of similarity and difference below.</p>
+<h4 class="anchored">
+API
+</h4>
+<p>We aim to mimic the <code>binsreg</code> API as much as possible. Key parameter mappings include:</p>
+<ul>
+<li>
+<p><code>points</code> (alias <code>dots</code>): Point estimates at bin means</p>
+<ul>
+<li>
+<p><code>c(0,0)</code>: Canonical binscatter (bin means)</p>
+</li>
+<li>
+<p><code>c(p,0)</code>: Piecewise polynomial of degree <span class="math inline">\(p\)</span>, no smoothness</p>
+</li>
+<li>
+<p><code>c(p,s)</code>: Piecewise polynomial with <span class="math inline">\(s\)</span> smoothness constraints</p>
+</li>
+</ul>
+</li>
+<li>
+<p><code>line</code>: Same as <code>points</code> but evaluated on a finer grid for smooth visualization</p>
+</li>
+<li>
+<p><code>binspos</code>: Bin positioning</p>
+<ul>
+<li>
+<p><code>“qs”</code>: Quantile-spaced (equal count)</p>
+</li>
+<li>
+<p><code>“es”</code>: Evenly-spaced (equal width)</p>
+</li>
+</ul>
+</li>
+</ul>
+<p><strong>Important:</strong> Unlike <code>binsreg</code>, <code>dbbinsreg</code> does not automatically select the IMSE-optimal number of bins. Users must specify <code>nbins</code> manually. For guidance on bin selection, see <code>binsregselect</code> or Cattaneo et al.&nbsp;(2024).</p>
+<h4 class="anchored">
+Confidence intervals vs confidence bands
+</h4>
+<p>When <code>ci = TRUE</code> (default), pointwise confidence intervals (CIs) are computed at each bin mean using standard asymptotic theory. When <code>cb = TRUE</code>, simultaneous confidence bands (CBs) are computed using a simulation-based sup-<span class="math inline">\(t\)</span> procedure:</p>
+<ol>
+<li>
+<p>Draw <code>nsims</code> samples from the asymptotic distribution of the estimator</p>
+</li>
+<li>
+<p>Compute the supremum of the <span class="math inline">\(t\)</span>-statistics across all bins for each draw</p>
+</li>
+<li>
+<p>Use the (<span class="math inline">\(1-\alpha\)</span>) quantile of these suprema as the critical value</p>
+</li>
+</ol>
+<p>The confidence band is wider than pointwise CIs and provides simultaneous coverage: with (<span class="math inline">\(1-\alpha\)</span>) probability, the entire true function lies within the band. This is useful for making statements about the overall shape of the relationship rather than individual point estimates.</p>
+<p>There are two important caveats, regarding <code>dbbinsreg</code>’s CB support:</p>
+<ul>
+<li>
+<p>Unlike <code>binsreg</code>, which evaluates CB on a fine grid within each bin, <code>dbbinsreg</code> computes CB only at bin means (same points as CI). This is much simpler for our backend SQL implementation and should be sufficient for most applications.</p>
+</li>
+<li>
+<p>CBs are currently only supported for unconstrained estimation (smoothness <code>s = 0</code>). When <code>cb = TRUE</code> with <code>s &gt; 0</code>, a warning is issued and CB is skipped.</p>
+</li>
+</ul>
+<h4 class="anchored">
+Note on quantile bin boundaries
+</h4>
+<p>When using quantile-spaced bins (<code>binspos = “qs”</code>), <code>dbbinsreg</code> uses SQL’s <code>NTILE()</code> window function, while <code>binsreg</code> uses R’s <code>quantile</code> with <code>type = 2</code>. These algorithms have slightly different tie-breaking behavior, which can cause small differences in bin assignments at boundaries. In practice, differences are typically &lt;1% and become negligible with larger datasets. To match <code>binsreg</code> exactly, compute quantile breaks on a subset of data in R and pass them via the <code>binspos</code> argument as a numeric vector.</p>
+</section>
+<section id="references" class="level3">
+<h3 class="anchored" data-anchor-id="references">References</h3>
+<p>Cattaneo, M. D., R. K. Crump, M. H. Farrell, and Y. Feng (2024). On Binscatter. <em>American Economic Review</em>, 114(5): 1488-1514.</p>
+</section>
+<section id="see-also" class="level3">
+<h3 class="anchored" data-anchor-id="see-also">See Also</h3>
+<p><code>plot.dbbinsreg</code> for plot customization, <code>dbreg</code> for the underlying regression engine, <code>binsreg</code> for the original implementation.</p>
+</section>
+<section id="examples" class="level3">
+<h3 class="anchored" data-anchor-id="examples">Examples</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(<span class="st">"dbreg"</span>)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>aq <span class="ot">=</span> <span class="fu">na.omit</span>(airquality)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Canonical binscatter: bin means (default)</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 81.91667 2.322756 77.36415 86.46919
+2   5.909091   2 81.45455 2.901243 75.76821 87.14088
+3   8.818182   3 80.81818 3.741960 73.48408 88.15229
+4  12.181818   4 78.18182 2.020872 74.22098 82.14265
+5  15.181818   5 73.18182 2.250524 68.77087 77.59276
+6  17.636364   6 73.72727 2.782110 68.27444 79.18011
+7  19.818182   7 73.72727 2.227290 69.36186 78.09268
+8  22.727273   8 71.45455 2.607774 66.34340 76.56569
+9  26.545455   9 80.00000 3.070484 73.98196 86.01804
+10 29.909091  10 83.09091 2.639247 77.91808 88.26374
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># For plot customization, rather save the object and then pass additonal args</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># to (tiny)plot.dbbinsreg.</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>bs <span class="ot">=</span> <span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>)</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(bs, <span class="at">theme =</span> <span class="st">"clean"</span>, <span class="at">main =</span> <span class="st">"A simple binscatter example"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># You can also set a global (tiny)plot theme</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>tinyplot<span class="sc">::</span><span class="fu">tinytheme</span>(<span class="st">"classic"</span>)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"># With fixed effects (month)</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day <span class="sc">|</span> Month, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">0</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day | Month 
+points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 70.88804 2.182569 66.61029 75.16580
+2   5.909091   2 70.39021 2.213368 66.05208 74.72833
+3   8.818182   3 69.13248 2.435088 64.35979 73.90516
+4  12.181818   4 66.81101 1.702468 63.47423 70.14779
+5  15.181818   5 63.01962 1.455175 60.16753 65.87171
+6  17.636364   6 61.76573 1.977505 57.88989 65.64156
+7  19.818182   7 62.32584 1.964435 58.47562 66.17606
+8  22.727273   8 62.50096 2.015101 58.55143 66.45049
+9  26.545455   9 66.44527 2.375186 61.78999 71.10055
+10 29.909091  10 71.99245 2.558594 66.97770 77.00721
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear, no smoothness</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">0</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(1,0) | line = NULL | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 81.91667 2.436430 77.14135 86.69198
+2   5.909091   2 81.45455 3.053205 75.47037 87.43872
+3   8.818182   3 80.81818 3.937325 73.10117 88.53520
+4  12.181818   4 78.18182 1.990395 74.28072 82.08292
+5  15.181818   5 73.18182 2.332957 68.60931 77.75433
+6  17.636364   6 73.72727 2.833616 68.17349 79.28106
+7  19.818182   7 73.72727 2.345673 69.12984 78.32471
+8  22.727273   8 71.45455 2.648688 66.26321 76.64588
+9  26.545455   9 80.00000 3.144001 73.83787 86.16213
+10 29.909091  10 83.09091 2.778260 77.64562 88.53620
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear with continuity (instead of quadratic; safer for small data)</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(1,1) | line = NULL | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 81.73218 2.443702 76.94261 86.52175
+2   5.909091   2 81.29629 2.427346 76.53878 86.05380
+3   8.818182   3 81.51998 2.606491 76.41135 86.62861
+4  12.181818   4 77.21513 1.804141 73.67908 80.75118
+5  15.181818   5 73.36807 1.893065 69.65773 77.07841
+6  17.636364   6 73.86786 1.762112 70.41419 77.32154
+7  19.818182   7 73.19849 1.994094 69.29014 77.10684
+8  22.727273   8 72.52329 2.204387 68.20277 76.84381
+9  26.545455   9 79.85019 2.549773 74.85273 84.84766
+10 29.909091  10 82.99832 2.565857 77.96933 88.02730
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With line overlay for smooth visualization</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>), <span class="at">line =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-5.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(1,1) | line = c(1,1) | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 81.73218 2.443702 76.94261 86.52175
+2   5.909091   2 81.29629 2.427346 76.53878 86.05380
+3   8.818182   3 81.51998 2.606491 76.41135 86.62861
+4  12.181818   4 77.21513 1.804141 73.67908 80.75118
+5  15.181818   5 73.36807 1.893065 69.65773 77.07841
+6  17.636364   6 73.86786 1.762112 70.41419 77.32154
+7  19.818182   7 73.19849 1.994094 69.29014 77.10684
+8  22.727273   8 72.52329 2.204387 68.20277 76.84381
+9  26.545455   9 79.85019 2.549773 74.85273 84.84766
+10 29.909091  10 82.99832 2.565857 77.96933 88.02730
+
+$line:
+          x bin      fit
+1  1.000000   1 81.13391
+2  1.105263   1 81.19689
+3  1.210526   1 81.25986
+4  1.315789   1 81.32284
+5  1.421053   1 81.38581
+6  1.526316   1 81.44879
+7  1.631579   1 81.51176
+8  1.736842   1 81.57474
+9  1.842105   1 81.63771
+10 1.947368   1 81.70069
+... 190 more rows
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Different line smoothness to points</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>), <span class="at">line =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-6.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(1,1) | line = c(2,1) | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr
+1   2.000000   1 81.73218 2.443702 76.94261 86.52175
+2   5.909091   2 81.29629 2.427346 76.53878 86.05380
+3   8.818182   3 81.51998 2.606491 76.41135 86.62861
+4  12.181818   4 77.21513 1.804141 73.67908 80.75118
+5  15.181818   5 73.36807 1.893065 69.65773 77.07841
+6  17.636364   6 73.86786 1.762112 70.41419 77.32154
+7  19.818182   7 73.19849 1.994094 69.29014 77.10684
+8  22.727273   8 72.52329 2.204387 68.20277 76.84381
+9  26.545455   9 79.85019 2.549773 74.85273 84.84766
+10 29.909091  10 82.99832 2.565857 77.96933 88.02730
+
+$line:
+          x bin      fit
+1  1.000000   1 80.75000
+2  1.105263   1 81.06307
+3  1.210526   1 81.34582
+4  1.315789   1 81.59825
+5  1.421053   1 81.82036
+6  1.526316   1 82.01215
+7  1.631579   1 82.17362
+8  1.736842   1 82.30477
+9  1.842105   1 82.40560
+10 1.947368   1 82.47611
+... 190 more rows
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With uniform confidence bands</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(Temp <span class="sc">~</span> Day, <span class="at">data =</span> aq, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">cb =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="dbbinsreg_files/figure-html/unnamed-chunk-1-7.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Database binned regression (binsreg-compatible)
+Formula: Temp ~ Day 
+points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+N = 111 | level = 95%
+
+$points:
+           x bin      fit       se      lwr      upr   cb_lwr   cb_upr
+1   2.000000   1 81.91667 2.322756 77.36415 86.46919 72.88444 90.94889
+2   5.909091   2 81.45455 2.901243 75.76821 87.14088 70.17283 92.73626
+3   8.818182   3 80.81818 3.741960 73.48408 88.15229 66.26727 95.36909
+4  12.181818   4 78.18182 2.020872 74.22098 82.14265 70.32350 86.04014
+5  15.181818   5 73.18182 2.250524 68.77087 77.59276 64.43048 81.93316
+6  17.636364   6 73.72727 2.782110 68.27444 79.18011 62.90882 84.54573
+7  19.818182   7 73.72727 2.227290 69.36186 78.09268 65.06628 82.38827
+8  22.727273   8 71.45455 2.607774 66.34340 76.56569 61.31401 81.59508
+9  26.545455   9 80.00000 3.070484 73.98196 86.01804 68.06018 91.93982
+10 29.909091  10 83.09091 2.639247 77.91808 88.26374 72.82799 93.35383
+
+$bins:
+   id left right
+1   1    1     3
+2   2    4     7
+3   3    8    10
+4   4   10    13
+5   5   14    16
+6   6   17    19
+7   7   19    21
+8   8   21    24
+9   9   25    28
+10 10   29    31</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Reset the global (tiny)plot theme to user defaults</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>tinyplot<span class="sc">::</span><span class="fu">tinytheme</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+
+
+</section>
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/grantmcdermott\.com\/dbreg\/");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

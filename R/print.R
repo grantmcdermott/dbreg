@@ -177,3 +177,46 @@ decimalFormat = function(x) {
 
   res
 }
+
+#' Print method for dbbinsreg objects (binsreg-compatible format)
+#' 
+#' @param x A dbbinsreg object
+#' @param ... Additional arguments passed to print
+#' @export
+print.dbbinsreg = function(x, ...) {
+  opt = x$opt
+  
+  # Header
+  cat("Database binned regression (binsreg-compatible)\n")
+  cat("Formula:", deparse(opt$formula), "\n")
+  
+  # Options line like binsreg
+  points_str = if (!is.null(opt$points)) paste0("c(", opt$points[1], ",", opt$points[2], ")") else "NULL"
+  line_str = if (!is.null(opt$line)) paste0("c(", opt$line[1], ",", opt$line[2], ")") else "NULL"
+  cat(sprintf("points = %s | line = %s | nbins = %d | binspos = '%s'\n", 
+              points_str, line_str, opt$nbins, opt$binspos))
+  cat(sprintf("N = %s | level = %d%%\n", 
+              prettyNum(opt$N, big.mark = ","), opt$level))
+  
+  # Show points
+  if (!is.null(x$points)) {
+    cat("\n$points:\n")
+    print(x$points, ...)
+  }
+  
+  # Show line preview if present
+  if (!is.null(x$line)) {
+    cat("\n$line:\n")
+    print(utils::head(x$line, 10), ...)
+    if (nrow(x$line) > 10) {
+      cat(sprintf("... %d more rows\n", nrow(x$line) - 10))
+    }
+  }
+  
+  # Show bins
+  cat("\n$bins:\n")
+  print(x$bins, ...)
+  
+  invisible(x)
+}
+

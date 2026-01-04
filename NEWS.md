@@ -32,7 +32,7 @@ Breaking changes
   - `query_only` -> `sql_only` (in `dbreg`)
   - `fes` -> `fe` (in `print.dbreg`, `coef.dbreg`, `confint.dbreg`, etc.)
 
-New features
+Major new features
 
 - We have added new/revised acceleration strategies. (#24)
   - The `"demean"` (alias `"within"`) strategy implements a (double) demeaning
@@ -59,6 +59,13 @@ New features
   Please note that these clustered SEs are computed _analytically_ (not
   bootstrapped) and should thus add minimal overhead to your regressions. See
   the updated README for examples. (#29)
+- Added support for binscatter regressions on database backends via the
+  `dbbinsreg()` function. This function attempts to mimic the main API of the
+  **binsreg** package (modulo some simplifications), but should be much faster
+  on big datasets. (#32)
+
+Other new features
+
 - The `"auto"` strategy logic now considers a `compress_nmax` threshold, which
   governs the maximum allowable size of the compressed data object (default
   threshold = 1 million rows). This additional guardrail is intended to avoid

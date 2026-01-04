@@ -35,7 +35,7 @@ expect_equal(ci90_db["dist_km", 1], ci90_fe[, 1], tolerance = 1e-4)
 expect_equal(ci90_db["dist_km", 2], ci90_fe[, 2], tolerance = 1e-4)
 
 # Test gof function
-gof_vals = dbreg:::gof(mod_db)
+gof_vals = gof(mod_db)
 fe_stats = fitstat(mod_fe, ~ r2 + ar2 + rmse, simplify = TRUE, verbose = FALSE)
 expect_equal(as.numeric(gof_vals["r2"]), as.numeric(fe_stats$r2), tolerance = 1e-6)
 expect_equal(as.numeric(gof_vals["adj_r2"]), as.numeric(fe_stats$ar2), tolerance = 1e-6)

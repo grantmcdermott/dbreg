@@ -2,7 +2,7 @@
 % Please edit documentation in R/dbreg.R
 \name{dbreg}
 \alias{dbreg}
-\title{Run a regression on a database backend.}
+\title{Run a regression on a database backend}
 \usage{
 dbreg(
   fml,
