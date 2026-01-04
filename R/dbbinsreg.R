@@ -791,17 +791,8 @@ create_binned_data = function(inputs) {
   fe = inputs$fe
   cluster_var = inputs$cluster_var
   
-  # Build column list
-  cols = c(y_name, x_name)
-  if (!is.null(controls)) {
-    cols = c(cols, controls)
-  }
-  if (!is.null(fe)) {
-    cols = c(cols, fe)
-  }
-  if (!is.null(cluster_var)) {
-    cols = c(cols, cluster_var)
-  }
+  # Build column list (deduplicated)
+  cols = unique(c(y_name, x_name, controls, fe, cluster_var))
   
   # Weight expression (no weights support for now)
   wt_expr = "1.0"
