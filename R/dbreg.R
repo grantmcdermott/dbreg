@@ -368,11 +368,27 @@ process_dbreg_inputs = function(
 ) {
   vcov_type_req = vcov
   cluster_var = cluster
+
   own_conn = FALSE
+
+  # If table is tbl_lazy and conn is NULL, try to infer conn from the table
+  if (is.null(conn) && inherits(table, "tbl_lazy")) {
+    inferred_con = tryCatch(dbplyr::remote_con(table), error = function(e) NULL)
+    if (!is.null(inferred_con) && DBI::dbIsValid(inferred_con)) {
+      conn = inferred_con
+    } else {
+      stop(
+        "Could not extract a valid database connection from the provided tbl_lazy. ",
+        "The connection may be closed or invalid. ",
+        "Either provide `conn` explicitly or ensure the tbl_lazy has an active connection."
+      )
+    }
+  }
+
+  # Create default connection if still NULL (for data.frame or path inputs)
   if (is.null(conn)) {
     conn = dbConnect(duckdb(), shutdown = TRUE)
     own_conn = TRUE
-    #  on.exit(try(dbDisconnect(conn), silent = TRUE), add = TRUE)
   }
 
   # FROM clause
@@ -381,7 +397,7 @@ process_dbreg_inputs = function(
       # Original behavior: table name
       from_statement = glue("FROM {table}")
     } else if (inherits(table, "tbl_lazy")) {
-      # lazy table: render SQL and try to extract connection
+      # lazy table: render SQL
       rendered_sql = tryCatch(dbplyr::sql_render(table), error = function(e) {
         NULL
       })
@@ -389,15 +405,12 @@ process_dbreg_inputs = function(
         stop("Failed to render SQL for provided tbl_lazy.")
       }
       from_statement = paste0("FROM (", rendered_sql, ") AS lazy_subquery")
-      if (is.null(conn)) {
-        # try to extract DBI connection from the tbl_lazy (tbl_dbi stores it at src$con)
-        if (!is.null(table$src) && !is.null(table$src$con)) {
-          conn = table$src$con
-        } else {
-          stop(
-            "`conn` is NULL and could not be extracted from the provided tbl_lazy. Provide `conn` explicitly."
-          )
-        }
+      # Connection should already be set (either explicitly or inferred above)
+      if (!DBI::dbIsValid(conn)) {
+        stop(
+          "Could not obtain a valid database connection. ",
+          "Either provide `conn` explicitly or ensure the tbl_lazy has an active connection."
+        )
       }
     } else {
       stop("`table` must be character or tbl_lazy object.")
