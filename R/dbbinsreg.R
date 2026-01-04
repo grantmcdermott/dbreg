@@ -1234,9 +1234,19 @@ execute_constrained_binsreg = function(inputs) {
   ")
   geo = dbGetQuery(conn, geo_sql)
   
+  # Update B to actual number of bins (some may be empty)
+  B = nrow(geo)
+  
   # Step 2: Extract interior knots from bin boundaries
   # Knots are at x_right[1], x_right[2], ..., x_right[B-1]
-  knots = geo$x_right[1:(B-1)]
+  knots = extract_knots(geo)
+  
+  # Safety check: remove any NA knots
+
+  if (any(is.na(knots))) {
+    warning("Some bin boundaries are NA; removing affected knots")
+    knots = knots[!is.na(knots)]
+  }
   
   if (inputs$verbose) {
     cat("[dbbinsreg] Using ", length(knots), " interior knots for spline basis\n", sep = "")
