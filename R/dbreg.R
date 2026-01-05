@@ -406,6 +406,8 @@ process_dbreg_inputs = function(
     if (!inherits(data, "data.frame")) {
       stop("`data` must be data.frame.")
     }
+    # Coerce to base data.frame (handles tibbles, data.tables, etc.)
+    data = as.data.frame(data)
     temp_name = sprintf("tmp_table_dbreg_%s", 
                        gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
     duckdb_register(conn, temp_name, data)
@@ -447,13 +449,16 @@ process_dbreg_inputs = function(
       return(NA)
     }
     xv = data[[v]]
+    if (is.factor(xv) || is.character(xv) || is.logical(xv)) {
+      return(FALSE)
+    }
     if (is.integer(xv)) {
       return(FALSE)
     }
     if (is.numeric(xv)) {
       return(length(unique(xv)) > min(50, 0.2 * length(xv)))
     }
-    TRUE
+    FALSE
   }
   any_continuous = if (!is.null(data)) {
     any(vapply(xvars, is_continuous, logical(1)))
