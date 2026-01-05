@@ -238,9 +238,10 @@ dbbinsreg = function(
   }
   
   # Validate strategy
+  strategy = match.arg(strategy)
   # FIXME: Only compress strategy works currently because bin indicators are
   # categorical. Could support moments/demean if we expand bins to dummy columns.
-  strategy = match.arg(strategy)
+  if (strategy == "auto") strategy = "compress"
   
   # Handle data input precedence (matching dbreg): table > data > path
   if (!is.null(table)) {
@@ -392,7 +393,8 @@ dbbinsreg = function(
   }
   
   # Warn if user sets strategy when `s` (smoothness) > 0 (it will be ignored)
-  if (smooth > 0 && strategy != "auto") {
+  # if (smooth > 0 && strategy != "auto") {
+  if (smooth > 0) {
     warning("'strategy' parameter is ignored when `s` (smoothness) > 0 (constrained estimation)", 
             call. = FALSE)
   }
