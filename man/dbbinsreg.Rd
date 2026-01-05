@@ -21,7 +21,7 @@ dbbinsreg(
   vcov = NULL,
   level = 0.95,
   nsims = 500,
-  strategy = "auto",
+  strategy = c("auto", "compress"),
   plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
   dots = NULL
@@ -108,10 +108,11 @@ the confidence levels and/or bands. Default is \code{0.95}.}
 \item{nsims}{Number of simulation draws for confidence band computation.
 Default is 500. Only used when \code{cb = TRUE}.}
 
-\item{strategy}{Acceleration strategy passed to \code{\link{dbreg}} when
-smoothness is zero. Options are \code{"auto"} (default), \code{"compress"}, or
-\code{"scan"}. This parameter is ignored when \code{s} (smoothness parameter in
-\code{points} or \code{lines}) > 0. See \code{\link{dbreg}} for details.}
+\item{strategy}{Acceleration strategy passed to \code{\link{dbreg}}. Only
+\code{"compress"} is currently supported; \code{"auto"} (the default) maps to
+\code{"compress"}. Included for API consistency with \code{\link{dbreg}}.
+Ignored when smoothness \code{s > 0}, since spline basis construction requires
+row-level data (i.e., no pre-aggregation).}
 
 \item{plot}{Logical. If \code{TRUE} (default), a plot is produced as a side effect.
 Set to \code{FALSE} to suppress plotting.}
