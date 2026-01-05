@@ -52,10 +52,10 @@
 #' the confidence levels and/or bands. Default is `0.95`.
 #' @param nsims Number of simulation draws for confidence band computation.
 #'   Default is 500. Only used when `cb = TRUE`.
-#' @param strategy Acceleration strategy passed to \code{\link{dbreg}} when
-#'   smoothness is zero. Options are `"auto"` (default), `"compress"`, or
-#'   `"scan"`. This parameter is ignored when `s` (smoothness parameter in
-#'   `points` or `lines`) > 0. See \code{\link{dbreg}} for details.
+#' @param strategy Acceleration strategy passed to \code{\link{dbreg}}. Only
+#'   `"compress"` is currently supported; `"auto"` (the default) maps to
+#'   `"compress"`. Included for API consistency with \code{\link{dbreg}}.
+#'   Ignored when smoothness `s > 0`.
 #' @param plot Logical. If `TRUE` (default), a plot is produced as a side effect.
 #'   Set to `FALSE` to suppress plotting.
 #'
@@ -225,7 +225,7 @@ dbbinsreg = function(
   vcov = NULL,
   level = 0.95,
   nsims = 500,
-  strategy = "auto",
+  strategy = c("auto", "compress"),
   plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
   dots = NULL
@@ -235,6 +235,11 @@ dbbinsreg = function(
   if (!is.null(dots)) {
     points = dots
   }
+  
+  # Validate strategy
+  # FIXME: Only compress strategy works currently because bin indicators are
+  # categorical. Could support moments/demean if we expand bins to dummy columns.
+  strategy = match.arg(strategy)
   
   # Handle data input precedence (matching dbreg): table > data > path
   if (!is.null(table)) {
@@ -1129,21 +1134,13 @@ execute_unconstrained_binsreg = function(inputs) {
   
   fml = as.formula(fml_str)
   
-  # Force compress strategy for factor bins (moments doesn't support factors)
-  actual_strategy = if (inputs$strategy == "auto") "compress" else inputs$strategy
-  if (actual_strategy %in% c("moments", "demean", "within", "mundlak")) {
-    if (inputs$verbose) {
-      cat("[dbbinsreg] Note: Using 'compress' strategy (required for binned regression)\n")
-    }
-    actual_strategy = "compress"
-  }
   
   # Run dbreg with the R dataframe
   fit = dbreg(
     fml = fml,
     data = binned_data,
     conn = inputs$conn,
-    strategy = actual_strategy,
+    strategy = inputs$strategy,
     vcov = if (isTRUE(inputs$ci)) inputs$vcov else "iid",
     verbose = inputs$verbose
   )
