@@ -194,9 +194,10 @@ print.dbbinsreg = function(x, ...) {
   cat(sprintf("points = %s | line = %s | nbins = %d | binspos = '%s'\n", 
               points_str, line_str, opt$nbins, opt$binspos))
   
-  # Show observations like dbreg (original vs compressed if available)
-  mod = x$model$points
-  if (!is.null(mod) && !is.null(mod$nobs_orig) && !is.null(mod$nobs)) {
+  # Get model (handles both single and dual-path structures)
+  mod = if (is.list(x$model) && !is.null(x$model$points)) x$model$points else x$model
+  
+  if (!is.null(mod) && identical(mod$strategy, "compress")) {
     cat(sprintf("Observations: %s (original) | %s (compressed)\n",
                 prettyNum(mod$nobs_orig, big.mark = ","),
                 prettyNum(mod$nobs, big.mark = ",")))
