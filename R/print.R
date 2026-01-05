@@ -186,36 +186,24 @@ decimalFormat = function(x) {
 print.dbbinsreg = function(x, ...) {
   opt = x$opt
   
-  # Header
-  cat("Database binned regression (binsreg-compatible)\n")
+  cat("Binscatter Plot\n")
   cat("Formula:", deparse(opt$formula), "\n")
   
-  # Options line like binsreg
   points_str = if (!is.null(opt$points)) paste0("c(", opt$points[1], ",", opt$points[2], ")") else "NULL"
   line_str = if (!is.null(opt$line)) paste0("c(", opt$line[1], ",", opt$line[2], ")") else "NULL"
   cat(sprintf("points = %s | line = %s | nbins = %d | binspos = '%s'\n", 
               points_str, line_str, opt$nbins, opt$binspos))
-  cat(sprintf("N = %s | level = %d%%\n", 
-              prettyNum(opt$N, big.mark = ","), opt$level))
   
-  # Show points
-  if (!is.null(x$points)) {
-    cat("\n$points:\n")
-    print(x$points, ...)
+  # Get model (handles both single and dual-path structures)
+  mod = if (is.list(x$model) && !is.null(x$model$points)) x$model$points else x$model
+  
+  if (!is.null(mod) && identical(mod$strategy, "compress")) {
+    cat(sprintf("Observations: %s (original) | %s (compressed)\n",
+                prettyNum(mod$nobs_orig, big.mark = ","),
+                prettyNum(mod$nobs, big.mark = ",")))
+  } else {
+    cat(sprintf("N = %s\n", prettyNum(opt$N, big.mark = ",")))
   }
-  
-  # Show line preview if present
-  if (!is.null(x$line)) {
-    cat("\n$line:\n")
-    print(utils::head(x$line, 10), ...)
-    if (nrow(x$line) > 10) {
-      cat(sprintf("... %d more rows\n", nrow(x$line) - 10))
-    }
-  }
-  
-  # Show bins
-  cat("\n$bins:\n")
-  print(x$bins, ...)
   
   invisible(x)
 }
