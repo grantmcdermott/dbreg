@@ -230,8 +230,6 @@ of data in R and pass them via the \code{binspos} argument as a numeric vector.
 # Like `dbreg`, we can pass in-memory R data frames to an ephemeral DuckDB
 # connection via the `data` argument. 
 
-dbreg(weight ~ Diet, data = ChickWeight)
-
 # Canonical binscatter: bin means (default)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
 
