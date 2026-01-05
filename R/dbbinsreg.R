@@ -154,39 +154,60 @@
 #'   \code{\link[binsreg]{binsreg}} for the original implementation.
 #' @importFrom stats quantile
 #' @examples
-#' aq = na.omit(airquality)
+#' #
+#' ## In-memory data ----
+#' 
+#' # Like `dbreg`, we can pass in-memory R data frames to an ephemeral DuckDB
+#' # connection via the `data` argument. 
+#' 
+#' dbreg(weight ~ Diet, data = ChickWeight)
 #' 
 #' # Canonical binscatter: bin means (default)
-#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10)
-#'
-#' # For plot customization, rather save the object and then pass additonal args
-#' # to (tiny)plot.dbbinsreg.
-#' bs = dbbinsreg(Temp ~ Day, data = aq, nbins = 10)
+#' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
+#' 
+#' # For plot customization, save the model object so you can pass additional args
+#' # to (tiny)plot.dbbinsreg
+#' bs = dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
 #' plot(bs, theme = "clean", main = "A simple binscatter example")
 #' 
-#' # You can also set a global (tiny)plot theme
+#' # Alternatively: you can also set a global (tiny)plot theme
 #' tinyplot::tinytheme("classic")
 #' 
-#' # With fixed effects (month)
-#' dbbinsreg(Temp ~ Day | Month, data = aq, nbins = 10, points = c(0, 0))
-#' 
 #' # Piecewise linear, no smoothness
-#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 0))
+#' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
 #' 
-#' # Piecewise linear with continuity (instead of quadratic; safer for small data)
-#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1))
+#' # Piecewise linear with continuity
+#' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1))
 #' 
 #' # With line overlay for smooth visualization
-#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1), line = TRUE)
+#' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1), line = TRUE)
 #' 
 #' # Different line smoothness to points
-#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1), line = c(2, 1))
+#' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(0, 0), line = c(1, 1))
 #' 
-#' # With uniform confidence bands
-#' dbbinsreg(Temp ~ Day, data = aq, nbins = 10, cb = TRUE)
+#' # With uniform confidence bands (much greater uncertainty)
+#' set.seed(99)
+#' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, cb = TRUE)
 #' 
-#' # Reset the global (tiny)plot theme to user defaults
-#' tinyplot::tinytheme()
+#' # Accounting for Diet "fixed effects" helps to resolve the situation
+#' dbbinsreg(weight ~ Time | Diet, data = ChickWeight, nbins = 10, cb = TRUE)
+#' 
+#' #
+#' ## DBI connection ----
+#' 
+#' library(DBI)
+#' con = dbConnect(duckdb::duckdb())
+#' dbWriteTable(con, "cw", as.data.frame(ChickWeight))
+#' 
+#' dbbinsreg(weight ~ Time | Diet, conn = con, table = "cw", nbins = 10)
+#' # etc.
+#' 
+#' # See ?dbreg for more connection examples
+#' 
+#' # Clean up
+#' dbDisconnect(con)
+#' tinyplot::tinytheme() # reset plot theme
+#'
 #' 
 #' @export
 dbbinsreg = function(
@@ -404,6 +425,8 @@ dbbinsreg = function(
     # Table name provided
     table_name = data
   } else if (is.data.frame(data)) {
+    # Coerce to base data.frame (handles tibbles, data.tables, etc.)
+    data = as.data.frame(data)
     # Register R dataframe with DuckDB (zero-copy)
     if (!is_duckdb) {
       stop("In-memory data frames are only supported with DuckDB connections. ",
@@ -452,14 +475,24 @@ dbbinsreg = function(
   
   sampled = FALSE
   if (partition_method != "manual") {
-    # Get row count using direct SQL
+    # Get row count and unique x count in one query
     count_expr = dbbinsreg_sql_count(backend)
     count_sql = glue("
-      SELECT {count_expr} AS n 
+      SELECT {count_expr} AS n, COUNT(DISTINCT {x_name}) AS n_unique
       FROM {table_name} 
       WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
     ")
-    n_rows = dbGetQuery(conn, count_sql)$n
+    counts = dbGetQuery(conn, count_sql)
+    n_rows = counts$n
+    n_unique_x = counts$n_unique
+    
+    # Warn if nbins exceeds unique x values
+    if (B > n_unique_x) {
+      warning(sprintf(
+        "nbins (%d) exceeds unique values of x (%d). Results may be misleading. Consider setting nbins = %d.",
+        B, n_unique_x, n_unique_x
+      ), call. = FALSE)
+    }
     
     # Determine effective randcut
     if (is.null(randcut)) {
@@ -726,6 +759,7 @@ execute_separate_binsreg = function(inputs) {
   line_inputs$line_on = TRUE  # Only compute line
   line_inputs$points_on = FALSE
   line_inputs$ci = FALSE  # CIs only for points
+  line_inputs$cb = FALSE  # CBs only for points
   
   if (line_inputs$smooth == 0) {
     line_result = execute_unconstrained_binsreg(line_inputs)
@@ -921,9 +955,11 @@ create_binned_data = function(inputs) {
 #' @keywords internal
 compute_bin_geometry = function(binned_data, x_name) {
   
+  x_vals = as.numeric(binned_data[[x_name]])
+  
   # Group by bin and compute geometry
   geo = aggregate(
-    binned_data[[x_name]],
+    x_vals,
     by = list(bin = binned_data$bin),
     FUN = function(x) {
       c(x_left = min(x), x_right = max(x), x_mid = (min(x) + max(x)) / 2, 

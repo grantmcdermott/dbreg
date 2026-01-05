@@ -220,29 +220,72 @@
 #'
 #' @examples
 #' #
-#' ## Small dataset ----
+#' ## In-memory data ----
 #' 
-#' # dbreg is primarily intended for use against big datasets/databases. But it
-#' # also works with small in-memory datasets, which lets us demo the syntax...
+#' # We can pass in-memory R data frames to an ephemeral DuckDB connection via
+#' # the `data` argument. This is convenient for small(er) datasets and demos.
 #'
-#' # auto strategy defaults to "compress" in this case
-#' (mod = dbreg(Temp ~ Wind | Month, data = airquality))
+#' # Default "compress" strategy reduces the data to 4 rows before running OLS
+#' dbreg(weight ~ Diet, data = ChickWeight)
 #' 
-#' # Same result as lm
-#' coef(lm(Temp ~ Wind + factor(Month), data = airquality))
+#' # Compare with lm
+#' summary(lm(weight ~ Diet, data = ChickWeight))$coefficients
 #' 
-#' # aside: dbreg's default print method hides the "nuisance" coefficients
-#' # like the intercept and fixed effect(s). But we can grab them if we want.
-#' print(mod, fe = TRUE)
+#' # Add "fixed effects" after a `|` 
+#' dbreg(weight ~ Time | Diet, data = ChickWeight)
 #' 
 #' # "robust" SEs can also be computed using a sufficient statistics approach
-#' dbreg(Temp ~ Wind | Month, data = airquality, vcov = "hc1")
-#' dbreg(Temp ~ Wind | Month, data = airquality, vcov = ~Month)
-#'
-#' # other strategies
-#' dbreg(Temp ~ Wind | Month, data = airquality, strategy = "demean")
-#' dbreg(Temp ~ Wind | Month, data = airquality, strategy = "mundlak")
-#' dbreg(Temp ~ Wind, data = airquality, strategy = "moments") # no FEs
+#' dbreg(weight ~ Time | Diet, data = ChickWeight, vcov = "hc1")
+#' dbreg(weight ~ Time | Diet, data = ChickWeight, vcov = ~Chick)
+#' 
+#' # Different acceleration strategies + specifications
+#' dbreg(weight ~ Time | Diet, data = ChickWeight, strategy = "demean")
+#' dbreg(weight ~ Time | Diet, data = ChickWeight, strategy = "mundlak")
+#' dbreg(weight ~ Time | Diet + Chick, data = ChickWeight, strategy = "mundlak") # two-way Mundlak
+#' dbreg(weight ~ Time, data = ChickWeight, strategy = "moments") # no FEs
+#' # etc.
+#' 
+#' #
+#' ## DBI connection ----
+#' 
+#' # For persistent databases or more control, use the `conn` + `table` args.
+#' # Again, we use DuckDB below but any other DBI-supported backend should work
+#' # too (e.g., odbc, bigrquery, noctua (AWS Athena),  etc.) See:
+#' # https://r-dbi.org/backends/
+#' 
+#' library(DBI)
+#' con = dbConnect(duckdb::duckdb())
+#' dbWriteTable(con, "cw", as.data.frame(ChickWeight))
+#' 
+#' dbreg(weight ~ Time | Diet, conn = con, table = "cw")
+#' 
+#' # Tip: Rather than creating or writing (temp) tables, use CREATE VIEW to
+#' # define subsets or computed columns without materializing data. This is more
+#' # efficient and especially useful for filtering or adding variables.
+#' dbExecute(
+#'   con,
+#'   "
+#'   CREATE VIEW cw1 AS
+#'   SELECT *
+#'   FROM cw
+#'   WHERE Diet = 1
+#'   "
+#' )
+#' dbreg(weight ~ Time | Chick, conn = con, table = "cw1")
+#' 
+#' #
+#' ## Path to file ----
+#' #
+#' # For file-based data (e.g., parquet), use the path argument.
+#' 
+#' tmp = tempfile(fileext = ".parquet")
+#' dbExecute(con, sprintf("COPY cw TO '%s' (FORMAT PARQUET)", tmp))
+#' 
+#' dbreg(weight ~ Time | Diet, path = tmp)
+#' 
+#' # Cleanup
+#' dbDisconnect(con)
+#' unlink(tmp)
 #' 
 #' #
 #' ## Big dataset ----
@@ -250,7 +293,7 @@
 #' # For a more compelling and appropriate dbreg use-case, i.e. regression on a
 #' # big (~180 million row) dataset of Hive-partioned parquet files, see the
 #' # package website:
-#' # https://github.com/grantmcdermott/dbreg?tab=readme-ov-file#quickstart
+#' # https://grantmcdermott.com/dbreg/
 #' @export
 dbreg = function(
   fml,
@@ -419,6 +462,8 @@ process_dbreg_inputs = function(
     if (!inherits(data, "data.frame")) {
       stop("`data` must be data.frame.")
     }
+    # Coerce to base data.frame (handles tibbles, data.tables, etc.)
+    data = as.data.frame(data)
     temp_name = sprintf("tmp_table_dbreg_%s", 
                        gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
     duckdb_register(conn, temp_name, data)
@@ -460,13 +505,16 @@ process_dbreg_inputs = function(
       return(NA)
     }
     xv = data[[v]]
+    if (is.factor(xv) || is.character(xv) || is.logical(xv)) {
+      return(FALSE)
+    }
     if (is.integer(xv)) {
       return(FALSE)
     }
     if (is.numeric(xv)) {
       return(length(unique(xv)) > min(50, 0.2 * length(xv)))
     }
-    TRUE
+    FALSE
   }
   any_continuous = if (!is.null(data)) {
     any(vapply(xvars, is_continuous, logical(1)))

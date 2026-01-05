@@ -224,39 +224,60 @@ of data in R and pass them via the \code{binspos} argument as a numeric vector.
 }
 
 \examples{
-aq = na.omit(airquality)
+#
+## In-memory data ----
+
+# Like `dbreg`, we can pass in-memory R data frames to an ephemeral DuckDB
+# connection via the `data` argument. 
+
+dbreg(weight ~ Diet, data = ChickWeight)
 
 # Canonical binscatter: bin means (default)
-dbbinsreg(Temp ~ Day, data = aq, nbins = 10)
+dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
 
-# For plot customization, rather save the object and then pass additonal args
-# to (tiny)plot.dbbinsreg.
-bs = dbbinsreg(Temp ~ Day, data = aq, nbins = 10)
+# For plot customization, save the model object so you can pass additional args
+# to (tiny)plot.dbbinsreg
+bs = dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
 plot(bs, theme = "clean", main = "A simple binscatter example")
 
-# You can also set a global (tiny)plot theme
+# Alternatively: you can also set a global (tiny)plot theme
 tinyplot::tinytheme("classic")
 
-# With fixed effects (month)
-dbbinsreg(Temp ~ Day | Month, data = aq, nbins = 10, points = c(0, 0))
-
 # Piecewise linear, no smoothness
-dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 0))
+dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
 
-# Piecewise linear with continuity (instead of quadratic; safer for small data)
-dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1))
+# Piecewise linear with continuity
+dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1))
 
 # With line overlay for smooth visualization
-dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1), line = TRUE)
+dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1), line = TRUE)
 
 # Different line smoothness to points
-dbbinsreg(Temp ~ Day, data = aq, nbins = 10, points = c(1, 1), line = c(2, 1))
+dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(0, 0), line = c(1, 1))
 
-# With uniform confidence bands
-dbbinsreg(Temp ~ Day, data = aq, nbins = 10, cb = TRUE)
+# With uniform confidence bands (much greater uncertainty)
+set.seed(99)
+dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, cb = TRUE)
 
-# Reset the global (tiny)plot theme to user defaults
-tinyplot::tinytheme()
+# Accounting for Diet "fixed effects" helps to resolve the situation
+dbbinsreg(weight ~ Time | Diet, data = ChickWeight, nbins = 10, cb = TRUE)
+
+#
+## DBI connection ----
+
+library(DBI)
+con = dbConnect(duckdb::duckdb())
+dbWriteTable(con, "cw", as.data.frame(ChickWeight))
+
+dbbinsreg(weight ~ Time | Diet, conn = con, table = "cw", nbins = 10)
+# etc.
+
+# See ?dbreg for more connection examples
+
+# Clean up
+dbDisconnect(con)
+tinyplot::tinytheme() # reset plot theme
+
 
 }
 \references{
