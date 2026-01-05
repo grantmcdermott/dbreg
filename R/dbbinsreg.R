@@ -55,7 +55,8 @@
 #' @param strategy Acceleration strategy passed to \code{\link{dbreg}}. Only
 #'   `"compress"` is currently supported; `"auto"` (the default) maps to
 #'   `"compress"`. Included for API consistency with \code{\link{dbreg}}.
-#'   Ignored when smoothness `s > 0`.
+#'   Ignored when smoothness `s > 0`, since spline basis construction requires
+#'   row-level data (i.e., no pre-aggregation).
 #' @param plot Logical. If `TRUE` (default), a plot is produced as a side effect.
 #'   Set to `FALSE` to suppress plotting.
 #'
