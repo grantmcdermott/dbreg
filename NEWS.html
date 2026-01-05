@@ -244,6 +244,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>From <strong>stats</strong>: <code>coef()</code>, <code>confint()</code>, <code>predict()</code>, and <code>vcov()</code>.</li>
 <li>From <strong>broom</strong>/<strong>generics</strong>: <code>tidy()</code> and <code>glance()</code>. These also enable post-processing operations like exporting results to coefficient tables via <code>modelsummary::msummary()</code>. Thanks to <a href="https://github.com/HariharanJayashankar"><span class="citation" data-cites="HariharanJayashankar">@HariharanJayashankar</span></a> for the request in <a href="./issues/20">#20</a>.</li>
 </ul></li>
+<li>Better documentation. (<a href="./issues/28">#28</a>, <a href="./issues/36">#36</a>, <a href="./issues/43">#43</a>, and various other PRs)</li>
 </ul>
 <p>Bug fixes</p>
 <ul>
@@ -252,6 +253,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Automatically drop incomplete cases (i.e., missing values) prior to any aggregation steps, avoiding mismatched matrices during estimation. (<a href="./issues/19">#19</a>)</li>
 <li>User-specified <code>compress_ratio</code> values should now bind in all cases. Previously, these could sometimes be silently ignored due to internal overrides. Also, clarify in the argument documentation that the default (automatic) <code>compress_ratio</code> threshold can vary based on heuristics related to model structure. (<a href="./issues/25">#25</a>)</li>
 <li>Correctly estimate HC1 standard errors for the <code>"moments"</code>, <code>"demean"</code>, and <code>"mundlak"</code> strategies. While the old analytic HC1 approach worked (and still does) for the <code>"compress"</code> case, it led to misleading SEs for these other strategies. The fix does impose some additional computational overhead, since it requires a second pass over the data to calculate the individual errors and “meat” of the sandwich matrix. But testing suggests that this leads to a &lt;2 increase in total estimation time, which seems a reasonable tradeoff for heteroskedastic-robust SEs. (<a href="./issues/27">#27</a>)</li>
+<li>Fixed a bug for in-memory <code>dbreg(..., data = &lt;data&gt;)</code> cases, where factor variables in X could cause the <code>"compress"</code> strategy to fail. (<a href="./issues/41">#41</a>)</li>
 </ul>
 <p>Internals</p>
 <ul>
