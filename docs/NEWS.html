@@ -220,7 +220,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><code>fes</code> -&gt; <code>fe</code> (in <code>print.dbreg</code>, <code>coef.dbreg</code>, <code>confint.dbreg</code>, etc.)</li>
 </ul></li>
 </ul>
-<p>New features</p>
+<p>Major new features</p>
 <ul>
 <li><p>We have added new/revised acceleration strategies. (<a href="./issues/24">#24</a>)</p>
 <ul>
@@ -231,13 +231,17 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><p>Add support for clustered standard errors. Follows the <code>fixest</code> API:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(..., <span class="at">vcov =</span> <span class="sc">~</span>cluster_var)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Please note that these clustered SEs are computed <em>analytically</em> (not bootstrapped) and should thus add minimal overhead to your regressions. See the updated README for examples. (<a href="./issues/29">#29</a>)</p></li>
-<li><p>The <code>"auto"</code> strategy logic now considers a <code>compress_nmax</code> threshold, which governs the maximum allowable size of the compressed data object (default threshold = 1 million rows). This additional guardrail is intended to avoid cases where the <code>"compress"</code> strategy satisfies the <code>compress_ratio</code> threshold, but could still return a prohibitively large dataset. The most common example would be querying a massive dataset on a remote database, where network latency makes data I/O transfer expensive, even though we’ve achieved good compression relative to the original data size. (<a href="./issues/10">#10</a>)</p>
+<li><p>Added support for binscatter regressions on database backends via the <code>dbbinsreg()</code> function. This function attempts to mimic the main API of the <strong>binsreg</strong> package (modulo some simplifications), but should be much faster on big datasets. (<a href="./issues/32">#32</a>)</p></li>
+</ul>
+<p>Other new features</p>
+<ul>
+<li>The <code>"auto"</code> strategy logic now considers a <code>compress_nmax</code> threshold, which governs the maximum allowable size of the compressed data object (default threshold = 1 million rows). This additional guardrail is intended to avoid cases where the <code>"compress"</code> strategy satisfies the <code>compress_ratio</code> threshold, but could still return a prohibitively large dataset. The most common example would be querying a massive dataset on a remote database, where network latency makes data I/O transfer expensive, even though we’ve achieved good compression relative to the original data size. (<a href="./issues/10">#10</a>)
 <ul>
 <li>Aside: Improved documentation and messaging (when <code>verbose = TRUE</code>) should also help users understand the <code>"auto"</code> strategy decision tree.</li>
 </ul></li>
-<li><p>Enabled weights for double demean (within) specification. (<a href="./issues/13">#13</a>)</p></li>
-<li><p>Esimations now report some goodness-of-fit statistics like R2 and RMSE, powered by the (user-facing) <code>gof()</code> function. (<a href="./issues/21">#21</a>)</p></li>
-<li><p>Added support for various <code>*.dbreg</code> methods (<a href="./issues/21">#21</a>, <a href="./issues/30">#30</a>):</p>
+<li>Enabled weights for double demean (within) specification. (<a href="./issues/13">#13</a>)</li>
+<li>Esimations now report some goodness-of-fit statistics like R2 and RMSE, powered by the (user-facing) <code>gof()</code> function. (<a href="./issues/21">#21</a>)</li>
+<li>Added support for various <code>*.dbreg</code> methods (<a href="./issues/21">#21</a>, <a href="./issues/30">#30</a>):
 <ul>
 <li>From <strong>stats</strong>: <code>coef()</code>, <code>confint()</code>, <code>predict()</code>, and <code>vcov()</code>.</li>
 <li>From <strong>broom</strong>/<strong>generics</strong>: <code>tidy()</code> and <code>glance()</code>. These also enable post-processing operations like exporting results to coefficient tables via <code>modelsummary::msummary()</code>. Thanks to <a href="https://github.com/HariharanJayashankar"><span class="citation" data-cites="HariharanJayashankar">@HariharanJayashankar</span></a> for the request in <a href="./issues/20">#20</a>.</li>
