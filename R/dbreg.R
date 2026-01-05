@@ -222,9 +222,8 @@
 #' #
 #' ## In-memory data ----
 #' 
-#' # dbreg supports in-memory R data frames via the `data` argument. This
-#' # instantiates an ephemeral DuckDB connection and is useful for small(er)
-#' # datasets and demos.
+#' # We can pass in-memory R data frames to an ephemeral DuckDB connection via
+#' # the `data` argument. This is convenient for small(er) datasets and demos.
 #'
 #' # Default "compress" strategy reduces the data to 4 rows before running OLS
 #' dbreg(weight ~ Diet, data = ChickWeight)
@@ -256,7 +255,7 @@
 #' 
 #' library(DBI)
 #' con = dbConnect(duckdb::duckdb())
-#' dbWriteTable(con, "cw", ChickWeight)
+#' dbWriteTable(con, "cw", as.data.frame(ChickWeight))
 #' 
 #' dbreg(weight ~ Time | Diet, conn = con, table = "cw")
 #' 
