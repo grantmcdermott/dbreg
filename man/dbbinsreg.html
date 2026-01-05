@@ -380,7 +380,7 @@ window.Quarto = {
   vcov = NULL,
   level = 0.95,
   nsims = 500,
-  strategy = "auto",
+  strategy = c("auto", "compress"),
   plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
   dots = NULL
@@ -532,7 +532,7 @@ Number of simulation draws for confidence band computation. Default is 500. Only
 <code id="strategy">strategy</code>
 </td>
 <td>
-Acceleration strategy passed to <code>dbreg</code> when smoothness is zero. Options are <code>“auto”</code> (default), <code>“compress”</code>, or <code>“scan”</code>. This parameter is ignored when <code>s</code> (smoothness parameter in <code>points</code> or <code>lines</code>) &gt; 0. See <code>dbreg</code> for details.
+Acceleration strategy passed to <code>dbreg</code>. Only <code>“compress”</code> is currently supported; <code>“auto”</code> (the default) maps to <code>“compress”</code>. Included for API consistency with <code>dbreg</code>. Ignored when smoothness <code>s &gt; 0</code>, since spline basis construction requires row-level data (i.e., no pre-aggregation).
 </td>
 </tr>
 <tr>
