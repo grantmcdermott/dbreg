@@ -404,6 +404,8 @@ dbbinsreg = function(
     # Table name provided
     table_name = data
   } else if (is.data.frame(data)) {
+    # Coerce to base data.frame (handles tibbles, data.tables, etc.)
+    data = as.data.frame(data)
     # Register R dataframe with DuckDB (zero-copy)
     if (!is_duckdb) {
       stop("In-memory data frames are only supported with DuckDB connections. ",
@@ -452,14 +454,24 @@ dbbinsreg = function(
   
   sampled = FALSE
   if (partition_method != "manual") {
-    # Get row count using direct SQL
+    # Get row count and unique x count in one query
     count_expr = dbbinsreg_sql_count(backend)
     count_sql = glue("
-      SELECT {count_expr} AS n 
+      SELECT {count_expr} AS n, COUNT(DISTINCT {x_name}) AS n_unique
       FROM {table_name} 
       WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
     ")
-    n_rows = dbGetQuery(conn, count_sql)$n
+    counts = dbGetQuery(conn, count_sql)
+    n_rows = counts$n
+    n_unique_x = counts$n_unique
+    
+    # Warn if nbins exceeds unique x values
+    if (B > n_unique_x) {
+      warning(sprintf(
+        "nbins (%d) exceeds unique values of x (%d). Results may be misleading. Consider setting nbins = %d.",
+        B, n_unique_x, n_unique_x
+      ), call. = FALSE)
+    }
     
     # Determine effective randcut
     if (is.null(randcut)) {
@@ -726,6 +738,7 @@ execute_separate_binsreg = function(inputs) {
   line_inputs$line_on = TRUE  # Only compute line
   line_inputs$points_on = FALSE
   line_inputs$ci = FALSE  # CIs only for points
+  line_inputs$cb = FALSE  # CBs only for points
   
   if (line_inputs$smooth == 0) {
     line_result = execute_unconstrained_binsreg(line_inputs)
@@ -921,9 +934,11 @@ create_binned_data = function(inputs) {
 #' @keywords internal
 compute_bin_geometry = function(binned_data, x_name) {
   
+  x_vals = as.numeric(binned_data[[x_name]])
+  
   # Group by bin and compute geometry
   geo = aggregate(
-    binned_data[[x_name]],
+    x_vals,
     by = list(bin = binned_data$bin),
     FUN = function(x) {
       c(x_left = min(x), x_right = max(x), x_mid = (min(x) + max(x)) / 2, 
