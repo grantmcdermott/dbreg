@@ -401,22 +401,8 @@ Additional arguments passed to <code style="white-space: pre;">, e.g.&nbsp;</cod
 <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Like `dbreg`, we can pass in-memory R data frames to an ephemeral DuckDB</span></span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co"># connection via the `data` argument. </span></span>
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(weight <span class="sc">~</span> Diet, <span class="at">data =</span> ChickWeight)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output cell-output-stdout">
-<pre><code>Compressed OLS estimation, Dep. Var.: weight 
-Observations.: 578 (original) | 4 (compressed) 
-Standard Errors: IID 
-            Estimate Std. Error  t value   Pr(&gt;|t|)    
-(Intercept) 102.6455    4.67395 21.96116  &lt; 2.2e-16 ***
-Diet2        19.9712    7.86744  2.53846 1.1397e-02 *  
-Diet3        40.3045    7.86744  5.12296 4.1139e-07 ***
-Diet4        32.6173    7.91046  4.12331 4.2864e-05 ***
----
-Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-RMSE: 69.1                Adj. R2: 0.048530</code></pre>
-</div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Canonical binscatter: bin means (default)</span></span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Canonical binscatter: bin means (default)</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -425,41 +411,15 @@ RMSE: 69.1                Adj. R2: 0.048530</code></pre>
 </div>
 </div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Database binned regression (binsreg-compatible)
+<pre><code>Binscatter Plot
 Formula: weight ~ Time 
 points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
-N = 578 | level = 95%
-
-$points:
-            x bin       fit        se       lwr       upr
-1   0.2758621   1  42.13793 0.4111757  41.33032  42.94554
-2   2.5517241   2  52.31034 0.8651630  50.61104  54.00965
-3   4.8620690   3  66.08621 1.2729317  63.58598  68.58643
-4   7.1724138   4  83.86207 2.2050012  79.53112  88.19302
-5   9.4827586   5 103.18966 3.0534057  97.19231 109.18700
-6  11.8965517   6 126.68966 4.3122999 118.21965 135.15966
-7  14.4482759   7 149.31034 5.7361057 138.04378 160.57691
-8  16.8275862   8 176.46552 6.8858102 162.94076 189.99028
-9  19.1929825   9 205.84211 8.3085682 189.52284 222.16137
-10 20.7894737  10 215.35088 9.0255610 197.62333 233.07843
-
-$bins:
-   id left right
-1   1    0     2
-2   2    2     4
-3   3    4     6
-4   4    6     8
-5   5    8    10
-6   6   10    14
-7   7   14    16
-8   8   16    18
-9   9   18    20
-10 10   20    21</code></pre>
+Observations: 578 (original) | 10 (compressed)</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># For plot customization, save the model object so you can pass additional args</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># to (tiny)plot.dbbinsreg</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>bs <span class="ot">=</span> <span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>)</span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(bs, <span class="at">theme =</span> <span class="st">"clean"</span>, <span class="at">main =</span> <span class="st">"A simple binscatter example"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># For plot customization, save the model object so you can pass additional args</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># to (tiny)plot.dbbinsreg</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>bs <span class="ot">=</span> <span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>)</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(bs, <span class="at">theme =</span> <span class="st">"clean"</span>, <span class="at">main =</span> <span class="st">"A simple binscatter example"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -467,11 +427,11 @@ $bins:
 </figure>
 </div>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Alternatively: you can also set a global (tiny)plot theme</span></span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>tinyplot<span class="sc">::</span><span class="fu">tinytheme</span>(<span class="st">"classic"</span>)</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear, no smoothness</span></span>
-<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">0</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Alternatively: you can also set a global (tiny)plot theme</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>tinyplot<span class="sc">::</span><span class="fu">tinytheme</span>(<span class="st">"classic"</span>)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear, no smoothness</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">0</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -480,73 +440,21 @@ $bins:
 </div>
 </div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Database binned regression (binsreg-compatible)
+<pre><code>Binscatter Plot
 Formula: weight ~ Time 
 points = c(1,0) | line = NULL | nbins = 10 | binspos = 'qs'
-N = 578 | level = 95%
-
-$points:
-            x bin       fit        se       lwr       upr
-1   0.2758621   1  42.13793 0.2059102  41.73348  42.54238
-2   2.5517241   2  52.31034 0.5770938  51.17680  53.44389
-3   4.8620690   3  66.08621 0.8504127  64.41581  67.75661
-4   7.1724138   4  83.86207 1.9453576  80.04095  87.68319
-5   9.4827586   5 103.18966 2.9650856  97.36556 109.01375
-6  11.8965517   6 126.68966 4.3493139 118.14663 135.23268
-7  14.4482759   7 149.31034 5.7331130 138.04922 160.57147
-8  16.8275862   8 176.46552 6.8938017 162.92454 190.00649
-9  19.1929825   9 205.84211 8.3187460 189.50222 222.18199
-10 20.7894737  10 215.35088 9.0642870 197.54658 233.15517
-
-$bins:
-   id left right
-1   1    0     2
-2   2    2     4
-3   3    4     6
-4   4    6     8
-5   5    8    10
-6   6   10    14
-7   7   14    16
-8   8   16    18
-9   9   18    20
-10 10   20    21</code></pre>
+Observations: 578 (original) | 21 (compressed)</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear with continuity</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear with continuity</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Database binned regression (binsreg-compatible)
+<pre><code>Binscatter Plot
 Formula: weight ~ Time 
 points = c(1,1) | line = NULL | nbins = 10 | binspos = 'qs'
-N = 578 | level = 95%
-
-$points:
-            x bin       fit        se       lwr       upr
-1   0.2758621   1  42.18552 0.1557102  41.87968  42.49136
-2   2.5517241   2  52.18253 0.4170204  51.36344  53.00163
-3   4.8620690   3  66.14321 0.6639281  64.83915  67.44727
-4   7.1724138   4  84.23575 1.4595820  81.36890  87.10260
-5   9.4827586   5 104.38806 2.6000253  99.28120 109.49492
-6  11.8965517   6 126.04158 2.6563138 120.82416 131.25900
-7  14.4482759   7 150.15277 4.1078954 142.08422 158.22132
-8  16.8275862   8 177.23258 5.2935573 166.83520 187.62995
-9  19.1929825   9 201.83852 6.7460015 188.58831 215.08872
-10 20.7894737  10 216.80015 8.6514357 199.80738 233.79293
-
-$bins:
-   id left right
-1   1    0     2
-2   2    2     4
-3   3    4     6
-4   4    6     8
-5   5    8    10
-6   6   10    14
-7   7   14    16
-8   8   16    18
-9   9   18    20
-10 10   20    21</code></pre>
+N = 578</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With line overlay for smooth visualization</span></span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>), <span class="at">line =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With line overlay for smooth visualization</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>), <span class="at">line =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -555,53 +463,13 @@ $bins:
 </div>
 </div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Database binned regression (binsreg-compatible)
+<pre><code>Binscatter Plot
 Formula: weight ~ Time 
 points = c(1,1) | line = c(1,1) | nbins = 10 | binspos = 'qs'
-N = 578 | level = 95%
-
-$points:
-            x bin       fit        se       lwr       upr
-1   0.2758621   1  42.18552 0.1557102  41.87968  42.49136
-2   2.5517241   2  52.18253 0.4170204  51.36344  53.00163
-3   4.8620690   3  66.14321 0.6639281  64.83915  67.44727
-4   7.1724138   4  84.23575 1.4595820  81.36890  87.10260
-5   9.4827586   5 104.38806 2.6000253  99.28120 109.49492
-6  11.8965517   6 126.04158 2.6563138 120.82416 131.25900
-7  14.4482759   7 150.15277 4.1078954 142.08422 158.22132
-8  16.8275862   8 177.23258 5.2935573 166.83520 187.62995
-9  19.1929825   9 201.83852 6.7460015 188.58831 215.08872
-10 20.7894737  10 216.80015 8.6514357 199.80738 233.79293
-
-$line:
-           x bin      fit
-1  0.0000000   1 41.06000
-2  0.1052632   1 41.48947
-3  0.2105263   1 41.91895
-4  0.3157895   1 42.34842
-5  0.4210526   1 42.77789
-6  0.5263158   1 43.20737
-7  0.6315789   1 43.63684
-8  0.7368421   1 44.06632
-9  0.8421053   1 44.49579
-10 0.9473684   1 44.92526
-... 190 more rows
-
-$bins:
-   id left right
-1   1    0     2
-2   2    2     4
-3   3    4     6
-4   4    6     8
-5   5    8    10
-6   6   10    14
-7   7   14    16
-8   8   16    18
-9   9   18    20
-10 10   20    21</code></pre>
+N = 578</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Different line smoothness to points</span></span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">0</span>), <span class="at">line =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Different line smoothness to points</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">0</span>), <span class="at">line =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -610,54 +478,14 @@ $bins:
 </div>
 </div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Database binned regression (binsreg-compatible)
+<pre><code>Binscatter Plot
 Formula: weight ~ Time 
 points = c(0,0) | line = c(1,1) | nbins = 10 | binspos = 'qs'
-N = 578 | level = 95%
-
-$points:
-            x bin       fit        se       lwr       upr
-1   0.2758621   1  42.13793 0.4111757  41.33032  42.94554
-2   2.5517241   2  52.31034 0.8651630  50.61104  54.00965
-3   4.8620690   3  66.08621 1.2729317  63.58598  68.58643
-4   7.1724138   4  83.86207 2.2050012  79.53112  88.19302
-5   9.4827586   5 103.18966 3.0534057  97.19231 109.18700
-6  11.8965517   6 126.68966 4.3122999 118.21965 135.15966
-7  14.4482759   7 149.31034 5.7361057 138.04378 160.57691
-8  16.8275862   8 176.46552 6.8858102 162.94076 189.99028
-9  19.1929825   9 205.84211 8.3085682 189.52284 222.16137
-10 20.7894737  10 215.35088 9.0255610 197.62333 233.07843
-
-$line:
-           x bin      fit
-1  0.0000000   1 41.06000
-2  0.1052632   1 41.48947
-3  0.2105263   1 41.91895
-4  0.3157895   1 42.34842
-5  0.4210526   1 42.77789
-6  0.5263158   1 43.20737
-7  0.6315789   1 43.63684
-8  0.7368421   1 44.06632
-9  0.8421053   1 44.49579
-10 0.9473684   1 44.92526
-... 190 more rows
-
-$bins:
-   id left right
-1   1    0     2
-2   2    2     4
-3   3    4     6
-4   4    6     8
-5   5    8    10
-6   6   10    14
-7   7   14    16
-8   8   16    18
-9   9   18    20
-10 10   20    21</code></pre>
+Observations: 578 (original) | 10 (compressed)</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With uniform confidence bands (much greater uncertainty)</span></span>
-<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">99</span>)</span>
-<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">cb =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With uniform confidence bands (much greater uncertainty)</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">99</span>)</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">cb =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -666,39 +494,13 @@ $bins:
 </div>
 </div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Database binned regression (binsreg-compatible)
+<pre><code>Binscatter Plot
 Formula: weight ~ Time 
 points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
-N = 578 | level = 95%
-
-$points:
-            x bin       fit        se       lwr       upr   cb_lwr    cb_upr
-1   0.2758621   1  42.13793 0.4111757  41.33032  42.94554 33.23757  51.03829
-2   2.5517241   2  52.31034 0.8651630  50.61104  54.00965 33.58293  71.03776
-3   4.8620690   3  66.08621 1.2729317  63.58598  68.58643 38.53218  93.64024
-4   7.1724138   4  83.86207 2.2050012  79.53112  88.19302 36.13235 131.59178
-5   9.4827586   5 103.18966 3.0534057  97.19231 109.18700 37.09528 169.28403
-6  11.8965517   6 126.68966 4.3122999 118.21965 135.15966 33.34510 220.03421
-7  14.4482759   7 149.31034 5.7361057 138.04378 160.57691 25.14593 273.47476
-8  16.8275862   8 176.46552 6.8858102 162.94076 189.99028 27.41446 325.51657
-9  19.1929825   9 205.84211 8.3085682 189.52284 222.16137 25.99386 385.69035
-10 20.7894737  10 215.35088 9.0255610 197.62333 233.07843 19.98252 410.71923
-
-$bins:
-   id left right
-1   1    0     2
-2   2    2     4
-3   3    4     6
-4   4    6     8
-5   5    8    10
-6   6   10    14
-7   7   14    16
-8   8   16    18
-9   9   18    20
-10 10   20    21</code></pre>
+Observations: 578 (original) | 10 (compressed)</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Accounting for Diet "fixed effects" helps to resolve the situation</span></span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time <span class="sc">|</span> Diet, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">cb =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Accounting for Diet "fixed effects" helps to resolve the situation</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time <span class="sc">|</span> Diet, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">cb =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -707,45 +509,19 @@ $bins:
 </div>
 </div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Database binned regression (binsreg-compatible)
+<pre><code>Binscatter Plot
 Formula: weight ~ Time | Diet 
 points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
-N = 578 | level = 95%
-
-$points:
-            x bin       fit       se       lwr       upr     cb_lwr    cb_upr
-1   0.2758621   1  25.29017 2.787023  19.81597  30.76436   9.804767  40.77557
-2   2.5517241   2  36.33593 2.575210  31.27778  41.39409  22.027418  50.64445
-3   4.8620690   3  49.38176 2.660823  44.15545  54.60807  34.597558  64.16596
-4   7.1724138   4  67.37932 2.878676  61.72511  73.03354  51.384677  83.37397
-5   9.4827586   5  85.78967 3.289406  79.32872  92.25063  67.512911 104.06643
-6  11.8965517   6 110.49354 4.208844 102.22665 118.76043  87.108149 133.87893
-7  14.4482759   7 131.59975 5.347878 121.09560 142.10390 101.885603 161.31390
-8  16.8275862   8 159.48496 6.482669 146.75189 172.21803 123.465626 195.50429
-9  19.1929825   9 187.63032 7.924430 172.06538 203.19526 143.600200 231.66043
-10 20.7894737  10 198.44384 8.297629 182.14587 214.74180 152.340134 244.54754
-
-$bins:
-   id left right
-1   1    0     2
-2   2    2     4
-3   3    4     6
-4   4    6     8
-5   5    8    10
-6   6   10    14
-7   7   14    16
-8   8   16    18
-9   9   18    20
-10 10   20    21</code></pre>
+Observations: 578 (original) | 40 (compressed)</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co">#</span></span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="do">## DBI connection ----</span></span>
-<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(DBI)</span>
-<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>con <span class="ot">=</span> <span class="fu">dbConnect</span>(duckdb<span class="sc">::</span><span class="fu">duckdb</span>())</span>
-<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a><span class="fu">dbWriteTable</span>(con, <span class="st">"cw"</span>, <span class="fu">as.data.frame</span>(ChickWeight))</span>
-<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time <span class="sc">|</span> Diet, <span class="at">conn =</span> con, <span class="at">table =</span> <span class="st">"cw"</span>, <span class="at">nbins =</span> <span class="dv">10</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co">#</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="do">## DBI connection ----</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(DBI)</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>con <span class="ot">=</span> <span class="fu">dbConnect</span>(duckdb<span class="sc">::</span><span class="fu">duckdb</span>())</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a><span class="fu">dbWriteTable</span>(con, <span class="st">"cw"</span>, <span class="fu">as.data.frame</span>(ChickWeight))</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time <span class="sc">|</span> Diet, <span class="at">conn =</span> con, <span class="at">table =</span> <span class="st">"cw"</span>, <span class="at">nbins =</span> <span class="dv">10</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -754,44 +530,18 @@ $bins:
 </div>
 </div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Database binned regression (binsreg-compatible)
+<pre><code>Binscatter Plot
 Formula: weight ~ Time | Diet 
 points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
-N = 578 | level = 95%
-
-$points:
-            x bin       fit       se       lwr       upr
-1   0.2758621   1  25.29017 2.787023  19.81597  30.76436
-2   2.5517241   2  36.33593 2.575210  31.27778  41.39409
-3   4.8620690   3  49.38176 2.660823  44.15545  54.60807
-4   7.1724138   4  67.37932 2.878676  61.72511  73.03354
-5   9.4827586   5  85.78967 3.289406  79.32872  92.25063
-6  11.8965517   6 110.49354 4.208844 102.22665 118.76043
-7  14.4482759   7 131.59975 5.347878 121.09560 142.10390
-8  16.8275862   8 159.48496 6.482669 146.75189 172.21803
-9  19.1929825   9 187.63032 7.924430 172.06538 203.19526
-10 20.7894737  10 198.44384 8.297629 182.14587 214.74180
-
-$bins:
-   id left right
-1   1    0     2
-2   2    2     4
-3   3    4     6
-4   4    6     8
-5   5    8    10
-6   6   10    14
-7   7   14    16
-8   8   16    18
-9   9   18    20
-10 10   20    21</code></pre>
+Observations: 578 (original) | 40 (compressed)</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="co"># etc.</span></span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="co"># See ?dbreg for more connection examples</span></span>
-<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Clean up</span></span>
-<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a><span class="fu">dbDisconnect</span>(con)</span>
-<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>tinyplot<span class="sc">::</span><span class="fu">tinytheme</span>() <span class="co"># reset plot theme</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># etc.</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="co"># See ?dbreg for more connection examples</span></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Clean up</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a><span class="fu">dbDisconnect</span>(con)</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>tinyplot<span class="sc">::</span><span class="fu">tinytheme</span>() <span class="co"># reset plot theme</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 
 
