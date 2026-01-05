@@ -85,6 +85,7 @@ Other new features
   post-processing operations like exporting results to coefficient tables via
   `modelsummary::msummary()`. Thanks to @HariharanJayashankar for the request in
   #20.
+- Better documentation. (#28, #36, #43, and various other PRs)
 
 Bug fixes
 
@@ -107,6 +108,8 @@ Bug fixes
   and "meat" of the sandwich matrix. But testing suggests that this leads to a
   <2 increase in total estimation time, which seems a reasonable tradeoff for
   heteroskedastic-robust SEs. (#27)
+- Fixed a bug for in-memory `dbreg(..., data = <data>)` cases, where factor
+  variables in X could cause the `"compress"` strategy to fail. (#41) 
 
 Internals
 
