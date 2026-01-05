@@ -163,7 +163,7 @@ dbreg(
 While querying on-the-fly with our default DuckDB backend is both convenient and 
 extremely performant, you can also run regressions against existing tables in a
 persistent database connection. This could be DuckDB, but it could also be _any_
-other [supported backend](https://github.com/r-dbi/backends#readme).
+other [supported backend](https://r-dbi.org/backends/).
 All you need to do is specify the appropriate `conn` and `table` arguments.
 
 ```r
@@ -245,10 +245,10 @@ Depending on your data and regression requirements, one of these other
 strategies may better suit your problem. The good news is that (the default)
 `strategy = "auto"` option uses some intelligent heuristics to determine which
 strategy is (probably) optimal for each case. You can set the `verbose = TRUE`
-argument to get real-time feedback about the decision criteria being used.  
-Moreover, the **Acceleration Strategies** section of the `?dbreg` helpfile
-contains a lot detail about the different options and tradeoffs involved, so
-please do consult the documentation.
+argument to get real-time feedback about the decision criteria being used.
+The [Acceleration Strategies](https://grantmcdermott.com/dbreg/man/dbreg.html#acceleration-strategies)
+section of the `?dbreg` helpfile contains a lot detail about the different
+options and tradeoffs involved, so please do consult the documentation.
 
 ## Limitations
 
