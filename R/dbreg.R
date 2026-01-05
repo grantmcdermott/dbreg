@@ -374,7 +374,7 @@ process_dbreg_inputs = function(
   # If table is tbl_lazy and conn is NULL, try to infer conn from the table
   if (is.null(conn) && inherits(table, "tbl_lazy")) {
     inferred_con = tryCatch(dbplyr::remote_con(table), error = function(e) NULL)
-    if (!is.null(inferred_con) && DBI::dbIsValid(inferred_con)) {
+    if (!is.null(inferred_con) && dbIsValid(inferred_con)) {
       conn = inferred_con
     } else {
       stop(
@@ -406,7 +406,7 @@ process_dbreg_inputs = function(
       }
       from_statement = paste0("FROM (", rendered_sql, ") AS lazy_subquery")
       # Connection should already be set (either explicitly or inferred above)
-      if (!DBI::dbIsValid(conn)) {
+      if (!dbIsValid(conn)) {
         stop(
           "Could not obtain a valid database connection. ",
           "Either provide `conn` explicitly or ensure the tbl_lazy has an active connection."
