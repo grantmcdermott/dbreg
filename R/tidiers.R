@@ -44,8 +44,7 @@ tidy.dbreg = function(x, conf.int = FALSE, conf.level = 0.95, fe = FALSE, ...) {
       ct = ct[xvars, , drop = FALSE]
     }
   }
-  # Convert interaction separator to standard R ":" for downstream compatibility
-  out = data.frame(term = gsub("_x_", ":", rownames(ct), fixed = TRUE), ct, row.names = NULL)
+  out = data.frame(term = rownames(ct), ct, row.names = NULL)
   
   if (isTRUE(conf.int)) {
     ci = confint(x, level = conf.level, fe = fe)

@@ -1010,7 +1010,7 @@ execute_moments_strategy = function(inputs) {
     vcov = vcov_mat,
     fml = inputs$fml,
     yvar = inputs$yvar,
-    xvars = inputs$xvars,
+    xvars = standardize_coef_names(inputs$xvars),
     fe = NULL,
     query_string = moments_sql,
     nobs = 1L,
@@ -1370,8 +1370,8 @@ execute_demean_strategy = function(inputs) {
     vcov = vcov_mat,
     fml = inputs$fml,
     yvar = inputs$yvar,
-    xvars = xvar_names_kept,
-    collin.var = collin_vars,
+    xvars = standardize_coef_names(xvar_names_kept),
+    collin.var = standardize_coef_names(collin_vars),
     fe = inputs$fe,
     query_string = demean_sql,
     nobs = 1L,
@@ -1637,7 +1637,7 @@ execute_mundlak_strategy = function(inputs) {
     vcov = vcov_mat,
     fml = inputs$fml,
     yvar = yvar,
-    xvars = xvar_names,
+    xvars = standardize_coef_names(xvar_names),
     fe = fe,
     query_string = mundlak_sql,
     nobs = 1L,
@@ -1838,7 +1838,7 @@ execute_compress_strategy = function(inputs) {
       vcov = vcov_mat,
       fml = inputs$fml,
       yvar = inputs$yvar,
-      xvars = inputs$xvars,
+      xvars = standardize_coef_names(inputs$xvars),
       coef_names = coef_names,
       fe = inputs$fe,
       query_string = query_string,
@@ -1850,65 +1850,6 @@ execute_compress_strategy = function(inputs) {
       df_residual = max(nobs_orig - ncol(X), 1)
     )
   )
-}
-
-#' Detect and remove collinear columns from XtX matrix
-#' @keywords internal
-detect_collinearity = function(XtX, Xty, tol = 1e-10, verbose = FALSE) {
-  p = ncol(XtX)
-  var_names = colnames(XtX)
-  
-  qr_decomp = qr(XtX, tol = tol)
-  rank = qr_decomp$rank
-  
-  if (rank < p) {
-    keep_idx = qr_decomp$pivot[seq_len(rank)]
-    drop_idx = qr_decomp$pivot[(rank + 1):p]
-    drop_names = var_names[drop_idx]
-    keep_names = var_names[keep_idx]
-    
-    if (verbose) {
-      message(sprintf(
-        "[dbreg] %d variable(s) removed due to collinearity: %s",
-        length(drop_names),
-        paste(drop_names, collapse = ", ")
-      ))
-    }
-    
-    list(
-      XtX = XtX[keep_idx, keep_idx, drop = FALSE],
-      Xty = Xty[keep_idx, , drop = FALSE],
-      keep_names = keep_names,
-      drop_names = drop_names,
-      collinear = TRUE
-    )
-  } else {
-    list(
-      XtX = XtX,
-      Xty = Xty,
-      keep_names = var_names,
-      drop_names = character(0),
-      collinear = FALSE
-    )
-  }
-}
-
-#' Solve linear system using Cholesky but with QR fallback
-#' @keywords internal
-solve_with_fallback = function(XtX, Xty) {
-  Rch = tryCatch(chol(XtX), error = function(e) NULL)
-  if (is.null(Rch)) {
-    # Cholesky failed, use QR fallback
-    qr_decomp = qr(XtX)
-    betahat = qr.solve(qr_decomp, Xty)
-    XtX_inv = qr.solve(qr_decomp, diag(ncol(XtX)))
-  } else {
-    # Cholesky succeeded
-    betahat = backsolve(Rch, forwardsolve(Matrix::t(Rch), Xty))
-    XtX_inv = chol2inv(Rch)
-  }
-  dimnames(XtX_inv) = dimnames(XtX)
-  list(betahat = betahat, XtX_inv = XtX_inv)
 }
 
 #' Count levels of FE variables nested within cluster variable
@@ -2278,17 +2219,6 @@ gen_xvar_pairs = function(xvars) {
     }
   }
   pairs
-}
-
-#' Generate coefficient table from estimates and vcov matrix
-#' @keywords internal
-gen_coeftable = function(betahat, vcov_mat, df_residual) {
-  coefs = as.numeric(betahat)
-  names(coefs) = rownames(betahat)
-  ses = sqrt(Matrix::diag(vcov_mat))
-  tstats = coefs / ses
-  pvals = 2 * pt(-abs(tstats), df_residual)
-  cbind(estimate = coefs, std.error = ses, statistic = tstats, p.values = pvals)
 }
 
 #' Finalize dbreg result object
