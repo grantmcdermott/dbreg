@@ -95,6 +95,7 @@ bins_linear = dbbinsreg(
   table = "nyc_jan",
   nbins = 10,
   points = c(1, 1),
+  sample_fit = TRUE,
   plot = FALSE,
   verbose = FALSE
 )
@@ -113,6 +114,7 @@ bins_mixed = dbbinsreg(
   nbins = 10,
   points = c(0, 0),
   line = c(1, 1),
+  sample_fit = TRUE,
   plot = FALSE,
   verbose = FALSE
 )
@@ -169,6 +171,7 @@ bins_quad = dbbinsreg(
   nbins = 8,
   points = c(2, 1),
   binspos = "qs",
+  sample_fit = TRUE,
   plot = FALSE,
   verbose = FALSE
 )
