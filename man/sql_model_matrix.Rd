@@ -2,19 +2,21 @@
 % Please edit documentation in R/sql_model_matrix.R
 \name{sql_model_matrix}
 \alias{sql_model_matrix}
-\title{Build SQL expressions equivalent to model.matrix()}
+\title{Construct SQL expressions for a design matrix}
 \usage{
 sql_model_matrix(formula, conn, table, expand = c("all", "interactions"))
 }
 \arguments{
-\item{formula}{A formula (or Formula) object}
+\item{formula}{A \code{\link[stats]{formula}} (or
+\code{\link[Formula]{Formula}}) object. Only the RHS terms are expanded;
+the LHS (response variable) is ignored.}
 
 \item{conn}{Database connection}
 
 \item{table}{Table name or FROM clause}
 
-\item{expand}{Character: "all" expands factors and interactions, 
-"interactions" only expands interaction terms (factors in main effects 
+\item{expand}{Character: `"all"` expands factors and interactions, 
+`"interactions"` only expands interaction terms (factors in main effects 
 kept as-is for grouping)}
 }
 \value{
@@ -25,7 +27,9 @@ List with:
 }
 \description{
 Expands formula terms into SQL SELECT expressions, handling factor one-hot
-encoding and interaction terms.
+encoding and interaction terms. Similar to \code{\link[stats]{model.matrix}},
+only the right-hand side (RHS) of the formula is processed; the response
+variable (LHS) is ignored.
 }
 \examples{
 library(DBI)

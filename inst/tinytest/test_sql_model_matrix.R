@@ -27,7 +27,7 @@ expect_true(grepl("CASE WHEN", res$select_exprs[2]), info = "factor SQL uses CAS
 
 res = sql_model_matrix(~ x1:x2, con, "test", expand = "all")
 
-expect_equal(res$col_names, c("x1:x2b", "x1:x2c"), info = "interaction names")
+expect_equal(res$col_names, c("x1_x2b", "x1_x2c"), info = "interaction names")
 expect_true(all(grepl("\\*", res$select_exprs)), info = "interaction SQL uses multiplication")
 
 #
@@ -41,7 +41,7 @@ expect_equal(res$col_names[2], "x2", info = "factor main effect NOT expanded")
 expect_equal(res$select_exprs[2], "x2", info = "factor SQL is column name when not expanded")
 
 # Interaction: factor IS expanded
-expect_equal(res$col_names[3:4], c("x1:x2b", "x1:x2c"), info = "interaction expands factor")
+expect_equal(res$col_names[3:4], c("x1_x2b", "x1_x2c"), info = "interaction expands factor")
 
 #
 ## Test factor levels stored ----
@@ -53,7 +53,7 @@ expect_equal(res$factor_levels$x2, c("a", "b", "c"), info = "factor levels captu
   
 res = sql_model_matrix(~ x1:x3, con, "test", expand = "all")
 
-expect_equal(res$col_names, "x1:x3", info = "numeric × numeric interaction name")
+expect_equal(res$col_names, "x1_x3", info = "numeric × numeric interaction name")
 expect_equal(res$select_exprs, "(x1) * (x3)", info = "numeric × numeric SQL")
 
 #
