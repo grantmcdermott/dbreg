@@ -201,6 +201,11 @@ print.dbbinsreg = function(x, ...) {
     cat(sprintf("Observations: %s (original) | %s (compressed)\n",
                 prettyNum(mod$nobs_orig, big.mark = ","),
                 prettyNum(mod$nobs, big.mark = ",")))
+  } else if (!is.null(opt$N_orig) && opt$N_orig != opt$N) {
+    # Sampled data case
+    cat(sprintf("N = %s (sampled from %s)\n", 
+                prettyNum(opt$N, big.mark = ","),
+                prettyNum(opt$N_orig, big.mark = ",")))
   } else {
     cat(sprintf("N = %s\n", prettyNum(opt$N, big.mark = ",")))
   }

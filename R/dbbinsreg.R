@@ -36,7 +36,13 @@
 #'   million rows and `1` (100%) otherwise. Note that sampling is only used for
 #'   computing the bin boundaries, since this requires an expensive ranking
 #'   operation. The subsequent, primary regression operations use all of the
-#'   data.
+#'   data (unless `sample_fit = TRUE`).
+#' @param sample_fit Logical. When `TRUE` and smoothness `s > 0`, use the same
+#'   random sample for both bin boundary computation and regression fitting.
+#'   This speeds up computation on large datasets but produces estimates based
+#'   on the sample, not full data. Default is `FALSE` (matches `binsreg`
+#'   behavior). Ignored when `s = 0` since the compress strategy already
+#'   handles aggregation efficiently.
 #' @param plot Logical. If `TRUE` (the default), then a plot is automatically
 #'   produced alongside the return `dbbinsreg` data object; see
 #'   \code{\link{plot.dbbinsreg}}.
@@ -221,6 +227,7 @@ dbbinsreg = function(
   nbins = 20,
   binspos = "qs",
   randcut = NULL,
+  sample_fit = FALSE,
   ci = TRUE,
   cb = FALSE,
   vcov = NULL,
@@ -393,8 +400,8 @@ dbbinsreg = function(
   }
   
   # Warn if user sets strategy when `s` (smoothness) > 0 (it will be ignored)
-  # if (smooth > 0 && strategy != "auto") {
-  if (smooth > 0) {
+  # Skip warning if sample_fit = TRUE since user is explicitly opting into constrained path
+  if (smooth > 0 && !sample_fit) {
     warning("'strategy' parameter is ignored when `s` (smoothness) > 0 (constrained estimation)", 
             call. = FALSE)
   }
@@ -480,6 +487,8 @@ dbbinsreg = function(
   backend = backend_info$name
   
   sampled = FALSE
+  sampled_table_name = NULL
+  n_rows_orig = NULL  # Track original dataset size
   if (partition_method != "manual") {
     # Get row count and unique x count in one query
     count_expr = dbbinsreg_sql_count(backend)
@@ -490,6 +499,7 @@ dbbinsreg = function(
     ")
     counts = dbGetQuery(conn, count_sql)
     n_rows = counts$n
+    n_rows_orig = n_rows  # Store original size
     n_unique_x = counts$n_unique
     
     # Warn if nbins exceeds unique x values
@@ -520,16 +530,45 @@ dbbinsreg = function(
       sample_size = max(10000L, ceiling(n_rows * effective_randcut))  # at least 10k rows
       random_expr = dbbinsreg_sql_random(backend)
       
-      # Build sample query (backend-specific for LIMIT/TOP)
-      sample_sql_base = glue("
-        SELECT {x_name}
-        FROM {table_name}
-        WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
-        ORDER BY {random_expr}
-      ")
-      sample_sql = dbbinsreg_sql_limit(sample_sql_base, sample_size, backend)
-      sampled_data = dbGetQuery(conn, sample_sql)
-      x_sample = sampled_data[[x_name]]
+      # If sample_fit = TRUE and smooth > 0, sample all columns into temp table
+      # Otherwise just sample x for break computation
+      if (sample_fit && smooth > 0) {
+        # Create temp table with sampled data (all columns needed for regression)
+        sample_table_base = sprintf("__dbbinsreg_%s_sample", 
+                                    gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+        sample_table = dbbinsreg_temp_table_name(sample_table_base, backend)
+        
+        sample_sql_base = glue("
+          SELECT *
+          FROM {table_name}
+          WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
+          ORDER BY {random_expr}
+        ")
+        sample_sql = dbbinsreg_sql_limit(sample_sql_base, sample_size, backend)
+        dbbinsreg_create_temp_table_as(conn, sample_table, sample_sql, backend)
+        
+        # Get x values from sample table for break computation
+        x_sample = dbGetQuery(conn, glue("SELECT {x_name} FROM {sample_table}"))[[x_name]]
+        
+        # Store sample table name to use instead of full table
+        sampled_table_name = sample_table
+        
+        if (verbose) {
+          message(sprintf("Created sample table with %d rows for regression fitting.", sample_size))
+        }
+      } else {
+        # Just sample x values for break computation
+        sample_sql_base = glue("
+          SELECT {x_name}
+          FROM {table_name}
+          WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
+          ORDER BY {random_expr}
+        ")
+        sample_sql = dbbinsreg_sql_limit(sample_sql_base, sample_size, backend)
+        sampled_data = dbGetQuery(conn, sample_sql)
+        x_sample = sampled_data[[x_name]]
+        sampled_table_name = NULL
+      }
       
       # Compute breaks based on partition method
       if (partition_method == "quantile") {
@@ -562,10 +601,16 @@ dbbinsreg = function(
     }
   }
   
+  # Cleanup sample table if created
+  if (!is.null(sampled_table_name)) {
+    on.exit(try(dbRemoveTable(conn, sampled_table_name, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
+  }
+  
   # Bundle inputs
   inputs = list(
     conn = conn,
     table_name = table_name,
+    sampled_table_name = sampled_table_name,
     y_name = y_name,
     x_name = x_name,
     B = as.integer(B),
@@ -582,6 +627,8 @@ dbbinsreg = function(
     vcov = vcov,
     alpha = alpha,  # Internal: use alpha (0.05) for calculations
     strategy = strategy,
+    sample_fit = sample_fit,
+    n_rows_orig = n_rows_orig,
     verbose = verbose,
     formula = as.formula(formula_str),
     # binsreg-style parameters
@@ -790,6 +837,7 @@ execute_separate_binsreg = function(inputs) {
       nbins = points_result$opt$nbins,
       binspos = inputs$binspos,
       N = points_result$opt$N,
+      N_orig = inputs$n_rows_orig,
       x_var = inputs$x_name,
       y_var = inputs$y_name,
       formula = inputs$formula,
@@ -1173,7 +1221,12 @@ execute_constrained_binsreg = function(inputs) {
   
   # Extract inputs
   conn = inputs$conn
-  table_name = inputs$table_name
+  # Use sample table if available (sample_fit = TRUE), otherwise full table
+  use_sample = !is.null(inputs$sampled_table_name)
+  table_name = if (use_sample) inputs$sampled_table_name else inputs$table_name
+  if (use_sample && inputs$verbose) {
+    cat("[dbbinsreg] Using sampled data for regression (sample_fit = TRUE)\n")
+  }
   x_name = inputs$x_name
   y_name = inputs$y_name
   B = inputs$B
@@ -1815,6 +1868,7 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
     nbins = B,
     binspos = inputs$binspos,
     N = sum(geo$n),
+    N_orig = inputs$n_rows_orig,
     x_var = inputs$x_name,
     y_var = inputs$y_name,
     formula = inputs$formula,
