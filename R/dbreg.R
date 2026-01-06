@@ -9,8 +9,9 @@
 #'
 #' @param fml A \code{\link[stats]{formula}} representing the relation to be
 #' estimated. Fixed effects should be included after a pipe, e.g
-#' `fml = y ~ x1 + x2 | fe1 + f2`. Currently, only simple additive terms
-#' are supported (i.e., no interaction terms, transformations or literals).
+#' `fml = y ~ x1 + x2 | fe1 + f2`. Interaction terms are supported using
+#' standard R syntax (`:` for interactions, `*` for main effects plus
+#' interaction). Transformations and literals are not yet supported.
 #' @param conn Database connection, e.g. created with
 #' \code{\link[DBI]{dbConnect}}. Can be either persistent (disk-backed) or
 #' ephemeral (in-memory). If no connection is provided, then an ephemeral
@@ -489,7 +490,13 @@ process_dbreg_inputs = function(
     stop("Exactly one outcome variable required.")
   }
 
-  xvars = all.vars(formula(fml, lhs = 0, rhs = 1))
+  # Get term structure (preserves interactions)
+  rhs1 = formula(fml, lhs = 0, rhs = 1)
+  tt = terms(rhs1)
+  term_labels = attr(tt, "term.labels")
+  xvars = all.vars(rhs1)  # unique variable names (for column validation)
+  has_interactions = any(grepl(":", term_labels))
+  
   fe = if (length(fml)[2] > 1) {
     all.vars(formula(fml, lhs = 0, rhs = 2))
   } else {
@@ -554,6 +561,8 @@ process_dbreg_inputs = function(
     fml = fml,
     yvar = yvar,
     xvars = xvars,
+    term_labels = term_labels,
+    has_interactions = has_interactions,
     fe = fe,
     conn = conn,
     from_statement = from_statement,
@@ -835,6 +844,14 @@ choose_strategy = function(inputs) {
       }
     }
   }
+  
+  # Interactions only supported with compress strategy (for now)
+  if (isTRUE(inputs$has_interactions) && chosen_strategy != "compress") {
+    if (verbose) {
+      message("[dbreg] Interactions detected; forcing strategy = 'compress'")
+    }
+    chosen_strategy = "compress"
+  }
 
   # Store compression ratio estimate for later use
   inputs$compression_ratio_est = est_cr
@@ -845,6 +862,13 @@ choose_strategy = function(inputs) {
 #' Execute moments strategy (no fixed effects)
 #' @keywords internal
 execute_moments_strategy = function(inputs) {
+  # Interactions not yet supported for moments strategy
+
+  if (isTRUE(inputs$has_interactions)) {
+    stop("Interaction terms are not yet supported with strategy = 'moments'. ",
+         "Use strategy = 'compress' instead.")
+  }
+  
   pair_exprs = c(
     "COUNT(*) AS n_total",
     glue("SUM({inputs$yvar}) AS sum_y"),
@@ -994,6 +1018,12 @@ execute_moments_strategy = function(inputs) {
 #' 
 #' @keywords internal
 execute_demean_strategy = function(inputs) {
+  # Interactions not yet supported for demean strategy
+  if (isTRUE(inputs$has_interactions)) {
+    stop("Interaction terms are not yet supported with strategy = 'demean'. ",
+         "Use strategy = 'compress' instead.")
+  }
+  
   all_vars = c(inputs$yvar, inputs$xvars)
   
   if (length(inputs$fe) == 1) {
@@ -1328,6 +1358,12 @@ execute_demean_strategy = function(inputs) {
 #'
 #' @keywords internal
 execute_mundlak_strategy = function(inputs) {
+  # Interactions not yet supported for mundlak strategy
+  if (isTRUE(inputs$has_interactions)) {
+    stop("Interaction terms are not yet supported with strategy = 'mundlak'. ",
+         "Use strategy = 'compress' instead.")
+  }
+  
   xvars = inputs$xvars
   yvar = inputs$yvar
   fe = inputs$fe
@@ -1552,13 +1588,41 @@ execute_compress_strategy = function(inputs) {
     from_statement = glue("FROM (SELECT * {from_statement})")
   }
 
-  group_cols = c(inputs$xvars, inputs$fe)
+  # Handle interactions: expand to SQL expressions
+  if (isTRUE(inputs$has_interactions)) {
+    # Extract table name from FROM statement for sql_model_matrix
+    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
+    
+    # Get SQL expansions for RHS terms (expand interactions only, keep main effects as-is)
+    sql_design = sql_model_matrix(
+      inputs$fml,
+      inputs$conn,
+      table_ref,
+      expand = "interactions"
+    )
+    
+    # Build SELECT expressions with aliases
+    select_exprs = paste0(sql_design$select_exprs, " AS ", sql_design$col_names)
+    xvars_sql = paste(select_exprs, collapse = ", ")
+    xvar_names = sql_design$col_names
+  } else {
+    xvars_sql = paste(inputs$xvars, collapse = ", ")
+    xvar_names = inputs$xvars
+  }
+  
+  # FE columns (no expansion needed - used for grouping)
+  fe_sql = if (length(inputs$fe)) paste(inputs$fe, collapse = ", ") else NULL
+  
+  # Combined columns for SELECT and GROUP BY
+  all_cols_sql = if (!is.null(fe_sql)) paste(xvars_sql, fe_sql, sep = ", ") else xvars_sql
+  group_cols = if (!is.null(fe_sql)) c(xvar_names, inputs$fe) else xvar_names
   group_cols_sql = paste(group_cols, collapse = ", ")
+  
   query_string = paste0(
     "WITH cte AS (
     SELECT
         ",
-    group_cols_sql,
+    all_cols_sql,
     ",
         COUNT(*) AS n,
         SUM(",
@@ -1611,8 +1675,11 @@ execute_compress_strategy = function(inputs) {
     return(compressed_dat)
   }
 
+  # Build design matrix
+  # Use expanded column names if interactions were present
+  design_vars = if (isTRUE(inputs$has_interactions)) xvar_names else inputs$xvars
   X = sparse.model.matrix(
-    reformulate(c(inputs$xvars, inputs$fe)),
+    reformulate(c(design_vars, inputs$fe)),
     compressed_dat
   )
   if (ncol(X) == 0) {
@@ -1686,6 +1753,15 @@ execute_compress_strategy = function(inputs) {
 
   coeftable = gen_coeftable(betahat, vcov_mat, max(nobs_orig - ncol(X), 1))
 
+  # Coefficient names for xvars (excluding intercept and FE dummies)
+  all_coef_names = rownames(coeftable)
+  fe_pattern = if (length(inputs$fe)) paste0("^(", paste(inputs$fe, collapse = "|"), ")") else NULL
+  coef_names = if (!is.null(fe_pattern)) {
+    all_coef_names[!grepl(fe_pattern, all_coef_names)]
+  } else {
+    all_coef_names[all_coef_names != "(Intercept)"]
+  }
+
   return(
     list(
       coeftable = coeftable,
@@ -1694,6 +1770,7 @@ execute_compress_strategy = function(inputs) {
       fml = inputs$fml,
       yvar = inputs$yvar,
       xvars = inputs$xvars,
+      coef_names = coef_names,
       fe = inputs$fe,
       query_string = query_string,
       nobs = nobs_comp,

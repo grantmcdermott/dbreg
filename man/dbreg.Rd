@@ -26,8 +26,9 @@ dbreg(
 \arguments{
 \item{fml}{A \code{\link[stats]{formula}} representing the relation to be
 estimated. Fixed effects should be included after a pipe, e.g
-\code{fml = y ~ x1 + x2 | fe1 + f2}. Currently, only simple additive terms
-are supported (i.e., no interaction terms, transformations or literals).}
+\code{fml = y ~ x1 + x2 | fe1 + f2}. Interaction terms are supported using
+standard R syntax (\code{:} for interactions, \code{*} for main effects plus
+interaction). Transformations and literals are not yet supported.}
 
 \item{conn}{Database connection, e.g. created with
 \code{\link[DBI]{dbConnect}}. Can be either persistent (disk-backed) or
