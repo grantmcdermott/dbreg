@@ -23,4 +23,10 @@ Complete SQL query for sampling
 \description{
 Uses native SAMPLE/TABLESAMPLE when available, falls back to ORDER BY RANDOM()
 }
+\details{
+FIXME: Currently uses simple random sampling. When FEs are specified, rare
+groups could be excluded from the sample. Consider adding stratified sampling
+(e.g., via window functions: ROW_NUMBER() OVER (PARTITION BY fe ORDER BY RANDOM()))
+to ensure representation from all FE groups.
+}
 \keyword{internal}

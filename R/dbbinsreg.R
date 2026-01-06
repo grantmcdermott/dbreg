@@ -43,7 +43,7 @@
 #'   major speed gains on big datasets; see the `Smoothness Constraints` section
 #'   below. If `NULL` (the default), sampling is enabled automatically when
 #'   applicable, with a message. Explicitly set to `TRUE` to enable the same
-#'   sampling behaviour, but without the messsage. Alternatively, set to `FALSE`
+#'   sampling behaviour, but without the message. Alternatively, set to `FALSE`
 #'   to use the full dataset. Ignored when `s = 0`, since the `"compress"`
 #'   strategy already handles these aggregation cases efficiently.
 #' @param plot Logical. If `TRUE` (the default), then a plot is automatically
@@ -205,7 +205,7 @@
 #' # Piecewise linear (p = 1), no smoothness (s = 0)
 #' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
 #' 
-#' # Piecewise linear (p = 0) with continuity (s = 1)
+#' # Piecewise linear (p = 1) with continuity (s = 1)
 #' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1))
 #' 
 #' # With line overlay for smooth visualization

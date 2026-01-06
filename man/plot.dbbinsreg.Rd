@@ -53,7 +53,7 @@ tinyplot::tinytheme("classic")
 # Piecewise linear (p = 1), no smoothness (s = 0)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
 
-# Piecewise linear (p = 0) with continuity (s = 1)
+# Piecewise linear (p = 1) with continuity (s = 1)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1))
 
 # With line overlay for smooth visualization

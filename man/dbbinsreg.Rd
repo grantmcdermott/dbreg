@@ -98,7 +98,7 @@ used for computing the bin boundaries. This trades off some precision for
 major speed gains on big datasets; see the \verb{Smoothness Constraints} section
 below. If \code{NULL} (the default), sampling is enabled automatically when
 applicable, with a message. Explicitly set to \code{TRUE} to enable the same
-sampling behaviour, but without the messsage. Alternatively, set to \code{FALSE}
+sampling behaviour, but without the message. Alternatively, set to \code{FALSE}
 to use the full dataset. Ignored when \code{s = 0}, since the \code{"compress"}
 strategy already handles these aggregation cases efficiently.}
 
@@ -278,7 +278,7 @@ tinyplot::tinytheme("classic")
 # Piecewise linear (p = 1), no smoothness (s = 0)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
 
-# Piecewise linear (p = 0) with continuity (s = 1)
+# Piecewise linear (p = 1) with continuity (s = 1)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1))
 
 # With line overlay for smooth visualization
