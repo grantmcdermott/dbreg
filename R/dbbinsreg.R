@@ -92,7 +92,7 @@
 #' database backend introduces its own set of tradeoffs. We cover the most
 #' important points of similarity and difference below.
 #' 
-#' ## API 
+#' ## Core API and bin selection 
 #'
 #' We aim to mimic the \code{\link[binsreg]{binsreg}} API as much as possible.
 #' Key parameter mappings include:
@@ -112,9 +112,26 @@
 #' }
 #'
 #' **Important:** Unlike \code{\link[binsreg]{binsreg}}, \code{dbbinsreg} does
-#' not automatically select the IMSE-optimal number of bins. Users must specify
-#' \code{nbins} manually. For guidance on bin selection, see
-#' \code{\link[binsreg]{binsregselect}} or Cattaneo et al. (2024).
+#' not automatically select the IMSE-optimal number of bins. Rather, users must
+#' specify \code{nbins} manually (with a default of value of 20). For guidance
+#' on bin selection, see \code{\link[binsreg]{binsregselect}} or Cattaneo et al.
+#' (2024).
+#'
+#' ## Smoothness constraints
+#'
+#' When `s > 0`, the function fits a regression spline using a truncated power
+#' basis. For degree \eqn{p} and smoothness \eqn{s}, the basis includes global
+#' polynomial terms (\eqn{x, x^2, \ldots, x^p}) plus truncated power terms
+#' \eqn{(x - \kappa_j)_+^r} at each interior knot \eqn{\kappa_j} for
+#' \eqn{r = s, \ldots, p}. This enforces \eqn{C^{s-1}} continuity (continuous
+#' derivatives up to order \eqn{s-1}) at bin boundaries. For example, `c(1,1)`
+#' gives a piecewise linear fit that is continuous; `c(2,2)` gives a piecewise
+#' quadratic with continuous first derivatives.
+#'
+#' **Important:** Unlike `s = 0` (which uses the `"compress"` strategy for fast
+#' aggregation), `s > 0` requires row-level spline basis construction and can
+#' be slow on large datasets. Use `sample_fit = TRUE` to speed up computation
+#' by fitting on a random sample.
 #'
 #' ## Confidence intervals vs confidence bands
 #'

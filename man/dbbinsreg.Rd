@@ -16,6 +16,7 @@ dbbinsreg(
   nbins = 20,
   binspos = "qs",
   randcut = NULL,
+  sample_fit = FALSE,
   ci = TRUE,
   cb = FALSE,
   vcov = NULL,
@@ -89,7 +90,14 @@ default), then sampling is automatic: \code{0.01} (1\%) for datasets exceeding 1
 million rows and \code{1} (100\%) otherwise. Note that sampling is only used for
 computing the bin boundaries, since this requires an expensive ranking
 operation. The subsequent, primary regression operations use all of the
-data.}
+data (unless \code{sample_fit = TRUE}).}
+
+\item{sample_fit}{Logical. When \code{TRUE} and smoothness \code{s > 0}, use the same
+random sample for both bin boundary computation and regression fitting.
+This speeds up computation on large datasets but produces estimates based
+on the sample, not full data. Default is \code{FALSE} (matches \code{binsreg}
+behavior). Ignored when \code{s = 0} since the compress strategy already
+handles aggregation efficiently.}
 
 \item{ci}{Logical. Calculate standard errors and confidence intervals for points?
 Default is \code{TRUE}.}
@@ -158,7 +166,7 @@ employing various acceration strategies, which makes it particularly suitable
 for large datasets (which may not fit in memory). At the same time, the
 database backend introduces its own set of tradeoffs. We cover the most
 important points of similarity and difference below.
-\subsection{API}{
+\subsection{Core API and bin selection}{
 
 We aim to mimic the \code{\link[binsreg]{binsreg}} API as much as possible.
 Key parameter mappings include:
@@ -178,9 +186,27 @@ Key parameter mappings include:
 }
 
 \strong{Important:} Unlike \code{\link[binsreg]{binsreg}}, \code{dbbinsreg} does
-not automatically select the IMSE-optimal number of bins. Users must specify
-\code{nbins} manually. For guidance on bin selection, see
-\code{\link[binsreg]{binsregselect}} or Cattaneo et al. (2024).
+not automatically select the IMSE-optimal number of bins. Rather, users must
+specify \code{nbins} manually (with a default of value of 20). For guidance
+on bin selection, see \code{\link[binsreg]{binsregselect}} or Cattaneo et al.
+(2024).
+}
+
+\subsection{Smoothness constraints}{
+
+When \code{s > 0}, the function fits a regression spline using a truncated power
+basis. For degree \eqn{p} and smoothness \eqn{s}, the basis includes global
+polynomial terms (\eqn{x, x^2, \ldots, x^p}) plus truncated power terms
+\eqn{(x - \kappa_j)_+^r} at each interior knot \eqn{\kappa_j} for
+\eqn{r = s, \ldots, p}. This enforces \eqn{C^{s-1}} continuity (continuous
+derivatives up to order \eqn{s-1}) at bin boundaries. For example, \code{c(1,1)}
+gives a piecewise linear fit that is continuous; \code{c(2,2)} gives a piecewise
+quadratic with continuous first derivatives.
+
+\strong{Important:} Unlike \code{s = 0} (which uses the \code{"compress"} strategy for fast
+aggregation), \code{s > 0} requires row-level spline basis construction and can
+be slow on large datasets. Use \code{sample_fit = TRUE} to speed up computation
+by fitting on a random sample.
 }
 
 \subsection{Confidence intervals vs confidence bands}{
