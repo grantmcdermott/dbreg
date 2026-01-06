@@ -845,8 +845,8 @@ choose_strategy = function(inputs) {
     }
   }
   
-  # Interactions only supported with compress strategy (for now)
-  if (isTRUE(inputs$has_interactions) && chosen_strategy != "compress") {
+  # Interactions only supported with compress/moments strategies (for now)
+  if (isTRUE(inputs$has_interactions) && chosen_strategy %in% c("demean", "mundlak")) {
     if (verbose) {
       message("[dbreg] Interactions detected; forcing strategy = 'compress'")
     }
@@ -862,11 +862,21 @@ choose_strategy = function(inputs) {
 #' Execute moments strategy (no fixed effects)
 #' @keywords internal
 execute_moments_strategy = function(inputs) {
-  # Interactions not yet supported for moments strategy
-
+  # Get SQL expressions for design matrix terms
+  # For interactions/factors, this expands to CASE WHEN expressions
   if (isTRUE(inputs$has_interactions)) {
-    stop("Interaction terms are not yet supported with strategy = 'moments'. ",
-         "Use strategy = 'compress' instead.")
+    table_ref = sub("^FROM\\s+", "", inputs$from_statement, ignore.case = TRUE)
+    sql_design = sql_model_matrix(
+      inputs$fml,
+      inputs$conn,
+      table_ref,
+      expand = "all"
+    )
+    xvars_sql = sql_design$select_exprs
+    xvar_names = sql_design$col_names
+  } else {
+    xvars_sql = inputs$xvars
+    xvar_names = inputs$xvars
   }
   
   pair_exprs = c(
@@ -874,19 +884,25 @@ execute_moments_strategy = function(inputs) {
     glue("SUM({inputs$yvar}) AS sum_y"),
     glue("SUM({inputs$yvar}*{inputs$yvar}) AS sum_y_sq")
   )
-  for (x in inputs$xvars) {
+  for (i in seq_along(xvars_sql)) {
+    x_sql = xvars_sql[i]
+    x_name = xvar_names[i]
     pair_exprs = c(
       pair_exprs,
-      glue("SUM({x}) AS sum_{x}"),
-      glue("SUM({x}*{inputs$yvar}) AS sum_{x}_y"),
-      glue("SUM({x}*{x}) AS sum_{x}_{x}")
+      glue("SUM({x_sql}) AS sum_{x_name}"),
+      glue("SUM(({x_sql})*{inputs$yvar}) AS sum_{x_name}_y"),
+      glue("SUM(({x_sql})*({x_sql})) AS sum_{x_name}_{x_name}")
     )
   }
-  xpairs = gen_xvar_pairs(inputs$xvars)
-  for (pair in xpairs) {
-    xi = pair[1]
-    xj = pair[2]
-    pair_exprs = c(pair_exprs, glue("SUM({xi}*{xj}) AS sum_{xi}_{xj}"))
+  xpairs = gen_xvar_pairs(xvar_names)
+  for (k in seq_along(xpairs)) {
+    i = match(xpairs[[k]][1], xvar_names)
+    j = match(xpairs[[k]][2], xvar_names)
+    xi_sql = xvars_sql[i]
+    xj_sql = xvars_sql[j]
+    xi_name = xvar_names[i]
+    xj_name = xvar_names[j]
+    pair_exprs = c(pair_exprs, glue("SUM(({xi_sql})*({xj_sql})) AS sum_{xi_name}_{xj_name}"))
   }
   
   # CTE structure for HC1 meat computation
@@ -911,14 +927,14 @@ execute_moments_strategy = function(inputs) {
   }
   n_total = moments_df$n_total
 
-  vars_all = c("(Intercept)", inputs$xvars)
+  vars_all = c("(Intercept)", xvar_names)
   p = length(vars_all)
   XtX = matrix(0, p, p, dimnames = list(vars_all, vars_all))
   Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
 
   XtX["(Intercept)", "(Intercept)"] = n_total
   Xty["(Intercept)", ] = moments_df$sum_y
-  for (x in inputs$xvars) {
+  for (x in xvar_names) {
     sx = moments_df[[paste0("sum_", x)]]
     sxx = moments_df[[paste0("sum_", x, "_", x)]]
     sxy = moments_df[[paste0("sum_", x, "_y")]]
@@ -926,7 +942,7 @@ execute_moments_strategy = function(inputs) {
     XtX[x, x] = sxx
     Xty[x, ] = sxy
   }
-  xpairs = gen_xvar_pairs(inputs$xvars)
+  xpairs = gen_xvar_pairs(xvar_names)
   for (pair in xpairs) {
     xi = pair[1]
     xj = pair[2]
@@ -957,7 +973,8 @@ execute_moments_strategy = function(inputs) {
     meat = compute_meat_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
-      vars = inputs$xvars,
+      vars = xvar_names,
+      vars_sql = xvars_sql,
       yvar = inputs$yvar,
       betahat = betahat,
       is_athena = is_athena,
@@ -969,7 +986,8 @@ execute_moments_strategy = function(inputs) {
     meat = compute_meat_cluster_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
-      vars = inputs$xvars,
+      vars = xvar_names,
+      vars_sql = xvars_sql,
       yvar = inputs$yvar,
       betahat = betahat,
       cluster_var = inputs$cluster_var,
@@ -1892,9 +1910,12 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
                             is_athena = FALSE, 
                             var_suffix = "_tilde",
                             cte_name = "demeaned",
-                            has_intercept = FALSE) {
-  # Build variable names with suffix
-  vars_sql = paste0(vars, var_suffix)
+                            has_intercept = FALSE,
+                            vars_sql = NULL) {
+  # Build variable SQL expressions (use provided or construct from suffix)
+  if (is.null(vars_sql)) {
+    vars_sql = paste0(vars, var_suffix)
+  }
   yvar_sql = paste0(yvar, var_suffix)
   
   # Extract beta values (betahat may be a matrix)
@@ -1916,37 +1937,28 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
     resid_expr = sprintf("(%s - (%s))", yvar_sql, beta_terms)
   }
   
-  # Build meat terms: SUM(e^2 * xi * xj) for all pairs including diagonal
-  # If has_intercept, include intercept as first "variable" (value = 1)
+  # Build meat terms using numeric indices to avoid naming collisions
+  # (variable names may contain underscores from interaction terms)
   meat_terms = character(0)
   
   if (has_intercept) {
-    # Intercept-intercept term: SUM(e^2 * 1 * 1) = SUM(e^2)
     meat_terms = c(meat_terms, sprintf(
-      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_intercept_intercept",
+      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_0_0",
       resid_expr, resid_expr
     ))
-    # Intercept-variable terms: SUM(e^2 * 1 * xj) = SUM(e^2 * xj)
     for (j in seq_along(vars)) {
-      vj = vars[j]
-      vj_sql = paste0(vj, var_suffix)
       meat_terms = c(meat_terms, sprintf(
-        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_intercept_%s",
-        resid_expr, resid_expr, vj_sql, vj
+        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_0_%d",
+        resid_expr, resid_expr, vars_sql[j], j
       ))
     }
   }
   
-  # Variable-variable terms
   for (i in seq_along(vars)) {
     for (j in i:length(vars)) {
-      vi = vars[i]
-      vj = vars[j]
-      vi_sql = paste0(vi, var_suffix)
-      vj_sql = paste0(vj, var_suffix)
       meat_terms = c(meat_terms, sprintf(
-        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_%s_%s",
-        resid_expr, resid_expr, vi_sql, vj_sql, vi, vj
+        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_%d_%d",
+        resid_expr, resid_expr, vars_sql[i], vars_sql[j], i, j
       ))
     }
   }
@@ -1973,20 +1985,19 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
   meat_mat = matrix(0, p, p, dimnames = list(vars_all, vars_all))
   
   if (has_intercept) {
-    meat_mat["(Intercept)", "(Intercept)"] = meat_df$meat_intercept_intercept
+    meat_mat[1, 1] = meat_df$meat_0_0
     for (j in seq_along(vars)) {
-      vj = vars[j]
-      val = meat_df[[sprintf("meat_intercept_%s", vj)]]
-      meat_mat["(Intercept)", vj] = meat_mat[vj, "(Intercept)"] = val
+      val = meat_df[[sprintf("meat_0_%d", j)]]
+      meat_mat[1, j + 1] = meat_mat[j + 1, 1] = val
     }
   }
   
   for (i in seq_along(vars)) {
     for (j in i:length(vars)) {
-      vi = vars[i]
-      vj = vars[j]
-      val = meat_df[[sprintf("meat_%s_%s", vi, vj)]]
-      meat_mat[vi, vj] = meat_mat[vj, vi] = val
+      val = meat_df[[sprintf("meat_%d_%d", i, j)]]
+      idx_i = if (has_intercept) i + 1 else i
+      idx_j = if (has_intercept) j + 1 else j
+      meat_mat[idx_i, idx_j] = meat_mat[idx_j, idx_i] = val
     }
   }
   meat_mat
@@ -2003,9 +2014,12 @@ compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
                                     is_athena = FALSE, 
                                     var_suffix = "_tilde",
                                     cte_name = "demeaned",
-                                    has_intercept = FALSE) {
-  # Build variable names with suffix
-  vars_sql = paste0(vars, var_suffix)
+                                    has_intercept = FALSE,
+                                    vars_sql = NULL) {
+  # Build variable SQL expressions (use provided or construct from suffix)
+  if (is.null(vars_sql)) {
+    vars_sql = paste0(vars, var_suffix)
+  }
   yvar_sql = paste0(yvar, var_suffix)
   
   # Extract beta values
@@ -2027,24 +2041,20 @@ compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
     resid_expr = sprintf("(%s - (%s))", yvar_sql, beta_terms)
   }
   
-  # Build cluster score terms: SUM(e * x_j) for each variable within cluster
+  # Build cluster score terms using numeric indices to avoid naming collisions
   score_terms = character(0)
   
   if (has_intercept) {
-    # Score for intercept: SUM(e * 1) = SUM(e)
     score_terms = c(score_terms, sprintf(
-      "SUM(CAST(%s AS FLOAT)) AS score_intercept",
+      "SUM(CAST(%s AS FLOAT)) AS score_0",
       resid_expr
     ))
   }
   
-  # Score for each variable: SUM(e * x_j)
   for (j in seq_along(vars)) {
-    vj = vars[j]
-    vj_sql = paste0(vj, var_suffix)
     score_terms = c(score_terms, sprintf(
-      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS score_%s",
-      resid_expr, vj_sql, vj
+      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS score_%d",
+      resid_expr, vars_sql[j], j
     ))
   }
   
@@ -2075,9 +2085,9 @@ compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
   
   # Extract score columns
   score_cols = if (has_intercept) {
-    c("score_intercept", paste0("score_", vars))
+    c("score_0", paste0("score_", seq_along(vars)))
   } else {
-    paste0("score_", vars)
+    paste0("score_", seq_along(vars))
   }
   
   # Sum outer products across clusters
