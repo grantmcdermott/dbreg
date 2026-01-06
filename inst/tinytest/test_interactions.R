@@ -18,9 +18,9 @@ fml_int = y ~ x1 * x2 | fe
 db_int = dbreg(fml_int, data = test_df, vcov = "hc1")
 fe_int = feols(fml_int, data = test_df, vcov = "hc1")
 
-# dbreg uses "_" for interactions, fixest uses ":"
+# dbreg uses "_x_" for interactions, fixest uses ":"
 # Map fixest names to dbreg names for comparison
-map_coef_name = function(x) gsub(":", "_", x)
+map_coef_name = function(x) gsub(":", "_x_", x)
 
 # Check estimates match (by mapped name)
 for (coef in rownames(fe_int$coeftable)) {
