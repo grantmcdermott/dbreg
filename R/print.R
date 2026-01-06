@@ -191,8 +191,13 @@ print.dbbinsreg = function(x, ...) {
   
   points_str = if (!is.null(opt$points)) paste0("c(", opt$points[1], ",", opt$points[2], ")") else "NULL"
   line_str = if (!is.null(opt$line)) paste0("c(", opt$line[1], ",", opt$line[2], ")") else "NULL"
-  cat(sprintf("points = %s | line = %s | nbins = %d | binspos = '%s'\n", 
-              points_str, line_str, opt$nbins, opt$binspos))
+  binspos_str = switch(opt$binspos,
+    "qs" = "quantile-spaced",
+    "es" = "evenly-spaced",
+    "manual"
+  )
+  cat(sprintf("points = %s | line = %s | nbins = %d (%s)\n", 
+              points_str, line_str, opt$nbins, binspos_str))
   
   # Get model (handles both single and dual-path structures)
   mod = if (is.list(x$model) && !is.null(x$model$points)) x$model$points else x$model
@@ -201,6 +206,11 @@ print.dbbinsreg = function(x, ...) {
     cat(sprintf("Observations: %s (original) | %s (compressed)\n",
                 prettyNum(mod$nobs_orig, big.mark = ","),
                 prettyNum(mod$nobs, big.mark = ",")))
+  } else if (!is.null(opt$N_orig) && opt$N_orig != opt$N) {
+    # Sampled data case
+    cat(sprintf("N = %s (sampled from %s)\n", 
+                prettyNum(opt$N, big.mark = ","),
+                prettyNum(opt$N_orig, big.mark = ",")))
   } else {
     cat(sprintf("N = %s\n", prettyNum(opt$N, big.mark = ",")))
   }

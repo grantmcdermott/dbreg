@@ -36,7 +36,16 @@
 #'   million rows and `1` (100%) otherwise. Note that sampling is only used for
 #'   computing the bin boundaries, since this requires an expensive ranking
 #'   operation. The subsequent, primary regression operations use all of the
-#'   data.
+#'   data (unless `sample_fit` is enabled).
+#' @param sample_fit Logical or `NULL`. Controls whether the spline regression
+#'   (`s > 0`) re-uses the same random sample (controlled by `randcut`) that is
+#'   used for computing the bin boundaries. This trades off some precision for
+#'   major speed gains on big datasets; see the `Smoothness Constraints` section
+#'   below. If `NULL` (the default), sampling is enabled automatically when
+#'   applicable, with a message. Explicitly set to `TRUE` to enable the same
+#'   sampling behaviour, but without the message. Alternatively, set to `FALSE`
+#'   to use the full dataset. Ignored when `s = 0`, since the `"compress"`
+#'   strategy already handles these aggregation cases efficiently.
 #' @param plot Logical. If `TRUE` (the default), then a plot is automatically
 #'   produced alongside the return `dbbinsreg` data object; see
 #'   \code{\link{plot.dbbinsreg}}.
@@ -86,7 +95,7 @@
 #' database backend introduces its own set of tradeoffs. We cover the most
 #' important points of similarity and difference below.
 #' 
-#' ## API 
+#' ## Core API and bin selection 
 #'
 #' We aim to mimic the \code{\link[binsreg]{binsreg}} API as much as possible.
 #' Key parameter mappings include:
@@ -106,9 +115,30 @@
 #' }
 #'
 #' **Important:** Unlike \code{\link[binsreg]{binsreg}}, \code{dbbinsreg} does
-#' not automatically select the IMSE-optimal number of bins. Users must specify
-#' \code{nbins} manually. For guidance on bin selection, see
-#' \code{\link[binsreg]{binsregselect}} or Cattaneo et al. (2024).
+#' not automatically select the IMSE-optimal number of bins. Rather, users must
+#' specify \code{nbins} manually (with a default of value of 20). For guidance
+#' on bin selection, see \code{\link[binsreg]{binsregselect}} or Cattaneo et al.
+#' (2024).
+#'
+#' ## Smoothness constraints
+#'
+#' When `s > 0`, the function fits a regression spline using a truncated power
+#' basis. For degree \eqn{p} and smoothness \eqn{s}, the basis includes global
+#' polynomial terms (\eqn{x, x^2, \ldots, x^p}) plus truncated power terms
+#' \eqn{(x - \kappa_j)_+^r} at each interior knot \eqn{\kappa_j} for
+#' \eqn{r = s, \ldots, p}. This enforces \eqn{C^{s-1}} continuity (continuous
+#' derivatives up to order \eqn{s-1}) at bin boundaries. For example, `c(1,1)`
+#' gives a piecewise linear fit that is continuous; `c(2,2)` gives a piecewise
+#' quadratic with continuous first derivatives.
+#'
+#' **Important:** Unlike `s = 0` (which uses the `"compress"` strategy for fast
+#' aggregation), `s > 0` requires row-level spline basis construction and can
+#' be very slow on large datasets. As a result, \code{dbbinsreg} re-uses the
+#' random sample (used to compute the bin boundaries) for estimating the spline
+#' fits in these cases, ensuring much faster computation at the cost of reduced
+#' precision. Users can override this behaviour by passing the
+#' `sample_fit = FALSE` argument to rather estimate the spline regressions on
+#' the full dataset.
 #'
 #' ## Confidence intervals vs confidence bands
 #'
@@ -172,10 +202,10 @@
 #' # Alternatively: you can also set a global (tiny)plot theme
 #' tinyplot::tinytheme("classic")
 #' 
-#' # Piecewise linear, no smoothness
+#' # Piecewise linear (p = 1), no smoothness (s = 0)
 #' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
 #' 
-#' # Piecewise linear with continuity
+#' # Piecewise linear (p = 1) with continuity (s = 1)
 #' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1))
 #' 
 #' # With line overlay for smooth visualization
@@ -221,6 +251,7 @@ dbbinsreg = function(
   nbins = 20,
   binspos = "qs",
   randcut = NULL,
+  sample_fit = NULL,
   ci = TRUE,
   cb = FALSE,
   vcov = NULL,
@@ -392,12 +423,6 @@ dbbinsreg = function(
     stop("nbins must be a positive integer")
   }
   
-  # Warn if user sets strategy when `s` (smoothness) > 0 (it will be ignored)
-  # if (smooth > 0 && strategy != "auto") {
-  if (smooth > 0) {
-    warning("'strategy' parameter is ignored when `s` (smoothness) > 0 (constrained estimation)", 
-            call. = FALSE)
-  }
   
   # Set up database connection if needed
   conn_managed = FALSE
@@ -480,6 +505,8 @@ dbbinsreg = function(
   backend = backend_info$name
   
   sampled = FALSE
+  sampled_table_name = NULL
+  n_rows_orig = NULL  # Track original dataset size
   if (partition_method != "manual") {
     # Get row count and unique x count in one query
     count_expr = dbbinsreg_sql_count(backend)
@@ -490,6 +517,7 @@ dbbinsreg = function(
     ")
     counts = dbGetQuery(conn, count_sql)
     n_rows = counts$n
+    n_rows_orig = n_rows  # Store original size
     n_unique_x = counts$n_unique
     
     # Warn if nbins exceeds unique x values
@@ -518,18 +546,45 @@ dbbinsreg = function(
       
       # Sample data for break computation using direct SQL
       sample_size = max(10000L, ceiling(n_rows * effective_randcut))  # at least 10k rows
-      random_expr = dbbinsreg_sql_random(backend)
+      where_clause = sprintf("%s IS NOT NULL AND %s IS NOT NULL", x_name, y_name)
       
-      # Build sample query (backend-specific for LIMIT/TOP)
-      sample_sql_base = glue("
-        SELECT {x_name}
-        FROM {table_name}
-        WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
-        ORDER BY {random_expr}
-      ")
-      sample_sql = dbbinsreg_sql_limit(sample_sql_base, sample_size, backend)
-      sampled_data = dbGetQuery(conn, sample_sql)
-      x_sample = sampled_data[[x_name]]
+      # Auto-enable sample_fit when NULL and s > 0
+      if (is.null(sample_fit) && smooth > 0) {
+        sample_fit = TRUE
+        message(
+          "Note: Using sampled data for spline regression (s > 0).",
+          "\n  Silence this message by explicitly setting `sample_fit = TRUE`.",
+          "\n  Or, use the full dataset by setting `sample_fit = FALSE`.")
+      }
+      
+      # If sample_fit and smooth > 0, sample all columns into temp table
+      # Otherwise just sample x for break computation
+      if (isTRUE(sample_fit) && smooth > 0) {
+        # Create temp table with sampled data (all columns needed for regression)
+        sample_table_base = sprintf("__dbbinsreg_%s_sample", 
+                                    gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+        sample_table = dbbinsreg_temp_table_name(sample_table_base, backend)
+        
+        # Pass to sample helper query generator (to handle different SQL dialects)
+        sample_sql = dbbinsreg_sql_sample("*", table_name, where_clause, sample_size, backend)
+        dbbinsreg_create_temp_table_as(conn, sample_table, sample_sql, backend)
+        
+        # Get x values from sample table for break computation
+        x_sample = dbGetQuery(conn, glue("SELECT {x_name} FROM {sample_table}"))[[x_name]]
+        
+        # Store sample table name to use instead of full table
+        sampled_table_name = sample_table
+        
+        if (verbose) {
+          message(sprintf("Created sample table with %d rows for regression fitting.", sample_size))
+        }
+      } else {
+        # Just sample x values for break computation
+        sample_sql = dbbinsreg_sql_sample(x_name, table_name, where_clause, sample_size, backend)
+        sampled_data = dbGetQuery(conn, sample_sql)
+        x_sample = sampled_data[[x_name]]
+        sampled_table_name = NULL
+      }
       
       # Compute breaks based on partition method
       if (partition_method == "quantile") {
@@ -562,10 +617,16 @@ dbbinsreg = function(
     }
   }
   
+  # Cleanup sample table if created
+  if (!is.null(sampled_table_name)) {
+    on.exit(try(dbRemoveTable(conn, sampled_table_name, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
+  }
+  
   # Bundle inputs
   inputs = list(
     conn = conn,
     table_name = table_name,
+    sampled_table_name = sampled_table_name,
     y_name = y_name,
     x_name = x_name,
     B = as.integer(B),
@@ -582,6 +643,8 @@ dbbinsreg = function(
     vcov = vcov,
     alpha = alpha,  # Internal: use alpha (0.05) for calculations
     strategy = strategy,
+    sample_fit = sample_fit,
+    n_rows_orig = n_rows_orig,
     verbose = verbose,
     formula = as.formula(formula_str),
     # binsreg-style parameters
@@ -645,6 +708,50 @@ dbbinsreg_sql_random = function(backend) {
     "mysql" = "RAND()",
     "RANDOM()"  # default fallback
   )
+}
+
+#' Build efficient sample query (backend-specific)
+#' 
+#' Uses native SAMPLE/TABLESAMPLE when available, falls back to ORDER BY RANDOM()
+#' 
+#' FIXME: Currently uses simple random sampling. When FEs are specified, rare
+#' groups could be excluded from the sample. Consider adding stratified sampling
+#' (e.g., via window functions: ROW_NUMBER() OVER (PARTITION BY fe ORDER BY RANDOM()))
+#' to ensure representation from all FE groups.
+#' 
+#' @param select_clause The SELECT clause (e.g., "*" or "col1, col2")
+#' @param table_name Table to sample from
+#' @param where_clause WHERE clause without "WHERE" keyword (or NULL)
+#' @param n Number of rows to sample
+#' @param backend Backend name from detect_backend()
+#' @return Complete SQL query for sampling
+#' @keywords internal
+dbbinsreg_sql_sample = function(select_clause, table_name, where_clause, n, backend) {
+  where_sql = if (!is.null(where_clause)) paste("WHERE", where_clause) else ""
+  
+  if (backend == "duckdb") {
+    # DuckDB: efficient reservoir sampling
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} USING SAMPLE {n} ROWS")
+  } else if (backend == "spark") {
+    # Spark SQL: TABLESAMPLE with ROWS
+    glue("SELECT {select_clause} FROM {table_name} TABLESAMPLE ({n} ROWS) {where_sql}")
+  } else if (backend %in% c("athena", "presto", "trino")) {
+    # Athena/Presto/Trino: TABLESAMPLE BERNOULLI only supports percentages
+    # Fall back to ORDER BY RANDOM() for exact row counts
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY RANDOM() LIMIT {n}")
+  } else if (backend == "postgres") {
+    # PostgreSQL: TABLESAMPLE BERNOULLI only supports percentages
+    # Fall back to ORDER BY for exact row count
+    random_expr = dbbinsreg_sql_random(backend)
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY {random_expr} LIMIT {n}")
+  } else if (backend == "sqlserver") {
+    # SQL Server: TABLESAMPLE is block-level, not row-level; use TOP with NEWID()
+    glue("SELECT TOP {n} {select_clause} FROM {table_name} {where_sql} ORDER BY NEWID()")
+  } else {
+    # SQLite, MySQL, others: ORDER BY RANDOM() LIMIT n
+    random_expr = dbbinsreg_sql_random(backend)
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY {random_expr} LIMIT {n}")
+  }
 }
 
 #' Get backend-specific count expression
@@ -790,6 +897,7 @@ execute_separate_binsreg = function(inputs) {
       nbins = points_result$opt$nbins,
       binspos = inputs$binspos,
       N = points_result$opt$N,
+      N_orig = inputs$n_rows_orig,
       x_var = inputs$x_name,
       y_var = inputs$y_name,
       formula = inputs$formula,
@@ -1173,7 +1281,12 @@ execute_constrained_binsreg = function(inputs) {
   
   # Extract inputs
   conn = inputs$conn
-  table_name = inputs$table_name
+  # Use sample table if available (sample_fit = TRUE), otherwise full table
+  use_sample = !is.null(inputs$sampled_table_name)
+  table_name = if (use_sample) inputs$sampled_table_name else inputs$table_name
+  if (use_sample && inputs$verbose) {
+    cat("[dbbinsreg] Using sampled data for regression (sample_fit = TRUE)\n")
+  }
   x_name = inputs$x_name
   y_name = inputs$y_name
   B = inputs$B
@@ -1815,6 +1928,7 @@ build_dbbinsreg_output = function(inputs, fit, geo, eval_fn, se_fn = NULL, knots
     nbins = B,
     binspos = inputs$binspos,
     N = sum(geo$n),
+    N_orig = inputs$n_rows_orig,
     x_var = inputs$x_name,
     y_var = inputs$y_name,
     formula = inputs$formula,

@@ -50,10 +50,10 @@ plot(bs, theme = "clean", main = "A simple binscatter example")
 # Alternatively: you can also set a global (tiny)plot theme
 tinyplot::tinytheme("classic")
 
-# Piecewise linear, no smoothness
+# Piecewise linear (p = 1), no smoothness (s = 0)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
 
-# Piecewise linear with continuity
+# Piecewise linear (p = 1) with continuity (s = 1)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1))
 
 # With line overlay for smooth visualization
