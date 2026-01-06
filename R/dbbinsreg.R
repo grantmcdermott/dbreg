@@ -546,7 +546,7 @@ dbbinsreg = function(
       
       # Sample data for break computation using direct SQL
       sample_size = max(10000L, ceiling(n_rows * effective_randcut))  # at least 10k rows
-      random_expr = dbbinsreg_sql_random(backend)
+      where_clause = sprintf("%s IS NOT NULL AND %s IS NOT NULL", x_name, y_name)
       
       # Auto-enable sample_fit when NULL and s > 0
       if (is.null(sample_fit) && smooth > 0) {
@@ -565,13 +565,8 @@ dbbinsreg = function(
                                     gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
         sample_table = dbbinsreg_temp_table_name(sample_table_base, backend)
         
-        sample_sql_base = glue("
-          SELECT *
-          FROM {table_name}
-          WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
-          ORDER BY {random_expr}
-        ")
-        sample_sql = dbbinsreg_sql_limit(sample_sql_base, sample_size, backend)
+        # Pass to sample helper query generator (to handle different SQL dialects)
+        sample_sql = dbbinsreg_sql_sample("*", table_name, where_clause, sample_size, backend)
         dbbinsreg_create_temp_table_as(conn, sample_table, sample_sql, backend)
         
         # Get x values from sample table for break computation
@@ -585,13 +580,7 @@ dbbinsreg = function(
         }
       } else {
         # Just sample x values for break computation
-        sample_sql_base = glue("
-          SELECT {x_name}
-          FROM {table_name}
-          WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
-          ORDER BY {random_expr}
-        ")
-        sample_sql = dbbinsreg_sql_limit(sample_sql_base, sample_size, backend)
+        sample_sql = dbbinsreg_sql_sample(x_name, table_name, where_clause, sample_size, backend)
         sampled_data = dbGetQuery(conn, sample_sql)
         x_sample = sampled_data[[x_name]]
         sampled_table_name = NULL
@@ -719,6 +708,44 @@ dbbinsreg_sql_random = function(backend) {
     "mysql" = "RAND()",
     "RANDOM()"  # default fallback
   )
+}
+
+#' Build efficient sample query (backend-specific)
+#' 
+#' Uses native SAMPLE/TABLESAMPLE when available, falls back to ORDER BY RANDOM()
+#' @param select_clause The SELECT clause (e.g., "*" or "col1, col2")
+#' @param table_name Table to sample from
+#' @param where_clause WHERE clause without "WHERE" keyword (or NULL)
+#' @param n Number of rows to sample
+#' @param backend Backend name from detect_backend()
+#' @return Complete SQL query for sampling
+#' @keywords internal
+dbbinsreg_sql_sample = function(select_clause, table_name, where_clause, n, backend) {
+  where_sql = if (!is.null(where_clause)) paste("WHERE", where_clause) else ""
+  
+  if (backend == "duckdb") {
+    # DuckDB: efficient reservoir sampling
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} USING SAMPLE {n} ROWS")
+  } else if (backend == "spark") {
+    # Spark SQL: TABLESAMPLE with ROWS
+    glue("SELECT {select_clause} FROM {table_name} TABLESAMPLE ({n} ROWS) {where_sql}")
+  } else if (backend %in% c("athena", "presto", "trino")) {
+    # Athena/Presto/Trino: TABLESAMPLE BERNOULLI only supports percentages
+    # Fall back to ORDER BY RANDOM() for exact row counts
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY RANDOM() LIMIT {n}")
+  } else if (backend == "postgres") {
+    # PostgreSQL: TABLESAMPLE BERNOULLI only supports percentages
+    # Fall back to ORDER BY for exact row count
+    random_expr = dbbinsreg_sql_random(backend)
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY {random_expr} LIMIT {n}")
+  } else if (backend == "sqlserver") {
+    # SQL Server: TABLESAMPLE is block-level, not row-level; use TOP with NEWID()
+    glue("SELECT TOP {n} {select_clause} FROM {table_name} {where_sql} ORDER BY NEWID()")
+  } else {
+    # SQLite, MySQL, others: ORDER BY RANDOM() LIMIT n
+    random_expr = dbbinsreg_sql_random(backend)
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY {random_expr} LIMIT {n}")
+  }
 }
 
 #' Get backend-specific count expression
