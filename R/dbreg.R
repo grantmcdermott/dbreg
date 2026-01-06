@@ -845,8 +845,8 @@ choose_strategy = function(inputs) {
     }
   }
   
-  # Interactions only supported with compress/moments strategies (for now)
-  if (isTRUE(inputs$has_interactions) && chosen_strategy %in% c("demean", "mundlak")) {
+  # Interactions only supported with compress/moments/demean strategies (for now)
+  if (isTRUE(inputs$has_interactions) && chosen_strategy == "mundlak") {
     if (verbose) {
       message("[dbreg] Interactions detected; forcing strategy = 'compress'")
     }
@@ -1037,30 +1037,49 @@ execute_moments_strategy = function(inputs) {
 #' @keywords internal
 execute_demean_strategy = function(inputs) {
   # Interactions not yet supported for demean strategy
+  # Handle interactions: expand to SQL expressions
+
   if (isTRUE(inputs$has_interactions)) {
-    stop("Interaction terms are not yet supported with strategy = 'demean'. ",
-         "Use strategy = 'compress' instead.")
+    table_ref = sub("^FROM\\s+", "", inputs$from_statement, ignore.case = TRUE)
+    sql_design = sql_model_matrix(
+      inputs$fml,
+      inputs$conn,
+      table_ref,
+      expand = "all"
+    )
+    xvars_sql = sql_design$select_exprs
+    xvar_names = sql_design$col_names
+  } else {
+    xvars_sql = inputs$xvars
+    xvar_names = inputs$xvars
   }
   
-  all_vars = c(inputs$yvar, inputs$xvars)
+  all_var_names = c(inputs$yvar, xvar_names)
+  all_var_sql = c(inputs$yvar, xvars_sql)
   
   if (length(inputs$fe) == 1) {
     # Single FE: simple within-group demeaning
     fe1 = inputs$fe[1]
-
+    
+    # Build base CTE with expanded columns
+    base_select = c(fe1, inputs$yvar)
+    for (i in seq_along(xvar_names)) {
+      base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
+    }
+    
     means_cols = paste(
-      sprintf("AVG(%s) AS %s_mean", all_vars, all_vars),
+      sprintf("AVG(%s) AS %s_mean", all_var_names, all_var_names),
       collapse = ", "
     )
     tilde_exprs = paste(
-      sprintf("(b.%s - gm.%s_mean) AS %s_tilde", all_vars, all_vars, all_vars),
+      sprintf("(b.%s - gm.%s_mean) AS %s_tilde", all_var_names, all_var_names, all_var_names),
       collapse = ",\n       "
     )
 
     # CTE part (reusable for HC1 meat computation)
     cte_sql = paste0(
       "WITH base AS (
-      SELECT * ",
+      SELECT ", paste(base_select, collapse = ", "), " ",
       inputs$from_statement,
       "
       ),
@@ -1104,27 +1123,33 @@ execute_demean_strategy = function(inputs) {
     # Two FE: double demeaning
     fe1 = inputs$fe[1]
     fe2 = inputs$fe[2]
+    
+    # Build base CTE with expanded columns
+    base_select = c(fe1, fe2, inputs$yvar)
+    for (i in seq_along(xvar_names)) {
+      base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
+    }
 
     unit_means_cols = paste(
-      sprintf("AVG(%s) AS %s_u", all_vars, all_vars),
+      sprintf("AVG(%s) AS %s_u", all_var_names, all_var_names),
       collapse = ", "
     )
     time_means_cols = paste(
-      sprintf("AVG(%s) AS %s_t", all_vars, all_vars),
+      sprintf("AVG(%s) AS %s_t", all_var_names, all_var_names),
       collapse = ", "
     )
     overall_cols = paste(
-      sprintf("AVG(%s) AS %s_o", all_vars, all_vars),
+      sprintf("AVG(%s) AS %s_o", all_var_names, all_var_names),
       collapse = ", "
     )
     tilde_exprs = paste(
       sprintf(
         "(b.%s - um.%s_u - tm.%s_t + o.%s_o) AS %s_tilde",
-        all_vars,
-        all_vars,
-        all_vars,
-        all_vars,
-        all_vars
+        all_var_names,
+        all_var_names,
+        all_var_names,
+        all_var_names,
+        all_var_names
       ),
       collapse = ",\n       "
     )
@@ -1132,7 +1157,7 @@ execute_demean_strategy = function(inputs) {
     # CTE part (reusable for HC1 meat computation)
     cte_sql = paste0(
       "WITH base AS (
-      SELECT * ",
+      SELECT ", paste(base_select, collapse = ", "), " ",
       inputs$from_statement,
       "
       ),
@@ -1198,37 +1223,30 @@ execute_demean_strategy = function(inputs) {
   }
 
   # Add moment terms for xvars (shared by both 1-FE and 2-FE cases)
-  for (x in inputs$xvars) {
+  # Use numeric indices for column aliases to avoid naming collisions
+  for (i in seq_along(xvar_names)) {
+    x = xvar_names[i]
     moment_terms = c(
       moment_terms,
       sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-        x,
-        inputs$yvar,
-        x,
-        inputs$yvar
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_y",
+        x, inputs$yvar, i
       ),
       sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-        x,
-        x,
-        x,
-        x
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_%d",
+        x, x, i, i
       )
     )
   }
-  xpairs = gen_xvar_pairs(inputs$xvars)
+  xpairs = gen_xvar_pairs(xvar_names)
   for (pair in xpairs) {
-    xi = pair[1]
-    xj = pair[2]
+    i = match(pair[1], xvar_names)  # larger index (i > j in gen_xvar_pairs)
+    j = match(pair[2], xvar_names)  # smaller index
     moment_terms = c(
       moment_terms,
       sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-        xi,
-        xj,
-        xi,
-        xj
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_%d",
+        pair[2], pair[1], j, i  # store as sum_smaller_larger
       )
     )
   }
@@ -1269,24 +1287,20 @@ execute_demean_strategy = function(inputs) {
   n_fe1 = demean_df$n_fe1
   n_fe2 = demean_df$n_fe2
 
-  vars_all = inputs$xvars # No intercept for FE models
-  p = length(vars_all)
-  XtX = matrix(0, p, p, dimnames = list(vars_all, vars_all))
-  Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
+  p = length(xvar_names)
+  XtX = matrix(0, p, p, dimnames = list(xvar_names, xvar_names))
+  Xty = matrix(0, p, 1, dimnames = list(xvar_names, ""))
 
-  for (x in inputs$xvars) {
-    XtX[x, x] = demean_df[[sprintf("sum_%s_%s", x, x)]]
-    Xty[x, ] = demean_df[[sprintf("sum_%s_%s", x, inputs$yvar)]]
+  for (i in seq_along(xvar_names)) {
+    XtX[i, i] = demean_df[[sprintf("sum_%d_%d", i, i)]]
+    Xty[i, ] = demean_df[[sprintf("sum_%d_y", i)]]
   }
-  if (length(inputs$xvars) > 1) {
-    for (i in seq_along(inputs$xvars)) {
-      if (i == 1) {
-        next
-      }
+  if (length(xvar_names) > 1) {
+    for (i in seq_along(xvar_names)) {
+      if (i == 1) next
       for (j in seq_len(i - 1)) {
-        xi = inputs$xvars[i]
-        xj = inputs$xvars[j]
-        XtX[xi, xj] = XtX[xj, xi] = demean_df[[sprintf("sum_%s_%s", xi, xj)]]
+        # Pairs stored as sum_j_i where j < i
+        XtX[i, j] = XtX[j, i] = demean_df[[sprintf("sum_%d_%d", j, i)]]
       }
     }
   }
@@ -1294,7 +1308,7 @@ execute_demean_strategy = function(inputs) {
   solve_result = solve_with_fallback(XtX, Xty)
   betahat = solve_result$betahat
   XtX_inv = solve_result$XtX_inv
-  rownames(betahat) = vars_all
+  rownames(betahat) = xvar_names
 
   rss = as.numeric(
     demean_df$sum_y_sq -
@@ -1312,7 +1326,7 @@ execute_demean_strategy = function(inputs) {
     meat = compute_meat_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
-      vars = inputs$xvars,
+      vars = xvar_names,
       yvar = inputs$yvar,
       betahat = betahat,
       is_athena = is_athena
@@ -1321,7 +1335,7 @@ execute_demean_strategy = function(inputs) {
     meat = compute_meat_cluster_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
-      vars = inputs$xvars,
+      vars = xvar_names,
       yvar = inputs$yvar,
       betahat = betahat,
       cluster_var = inputs$cluster_var,
@@ -1356,7 +1370,7 @@ execute_demean_strategy = function(inputs) {
     vcov = vcov_mat,
     fml = inputs$fml,
     yvar = inputs$yvar,
-    xvars = inputs$xvars,
+    xvars = xvar_names,
     fe = inputs$fe,
     query_string = demean_sql,
     nobs = 1L,
