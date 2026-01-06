@@ -16,7 +16,7 @@ dbbinsreg(
   nbins = 20,
   binspos = "qs",
   randcut = NULL,
-  sample_fit = TRUE,
+  sample_fit = NULL,
   ci = TRUE,
   cb = FALSE,
   vcov = NULL,
@@ -90,14 +90,17 @@ default), then sampling is automatic: \code{0.01} (1\%) for datasets exceeding 1
 million rows and \code{1} (100\%) otherwise. Note that sampling is only used for
 computing the bin boundaries, since this requires an expensive ranking
 operation. The subsequent, primary regression operations use all of the
-data (unless \code{sample_fit = TRUE}).}
+data (unless \code{sample_fit} is enabled).}
 
-\item{sample_fit}{Logical. When \code{TRUE} (the default) and smoothness \code{s > 0},
-the regression fitting re-uses the same random sample used for computing
-the bin boundaries. This trades off some precision for major speed
-gains on big datasets. Set to \code{FALSE} to rather use the full dataset.
-Ignored when \code{s = 0}, since the default \code{"compress"} strategy already
-handles aggregation efficiently.}
+\item{sample_fit}{Logical or \code{NULL}. Controls whether the spline regression
+(\code{s > 0}) re-uses the same random sample (controlled by \code{randcut}) that is
+used for computing the bin boundaries. This trades off some precision for
+major speed gains on big datasets; see the \verb{Smoothness Constraints} section
+below. If \code{NULL} (the default), sampling is enabled automatically when
+applicable, with a message. Explicitly set to \code{TRUE} to enable the same
+sampling behaviour, but without the messsage. Alternatively, set to \code{FALSE}
+to use the full dataset. Ignored when \code{s = 0}, since the \code{"compress"}
+strategy already handles these aggregation cases efficiently.}
 
 \item{ci}{Logical. Calculate standard errors and confidence intervals for points?
 Default is \code{TRUE}.}

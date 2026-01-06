@@ -36,13 +36,16 @@
 #'   million rows and `1` (100%) otherwise. Note that sampling is only used for
 #'   computing the bin boundaries, since this requires an expensive ranking
 #'   operation. The subsequent, primary regression operations use all of the
-#'   data (unless `sample_fit = TRUE`).
-#' @param sample_fit Logical. When `TRUE` (the default) and smoothness `s > 0`,
-#'   the regression fitting re-uses the same random sample used for computing
-#'   the bin boundaries. This trades off some precision for major speed
-#'   gains on big datasets. Set to `FALSE` to rather use the full dataset.
-#'   Ignored when `s = 0`, since the default `"compress"` strategy already
-#'   handles aggregation efficiently.
+#'   data (unless `sample_fit` is enabled).
+#' @param sample_fit Logical or `NULL`. Controls whether the spline regression
+#'   (`s > 0`) re-uses the same random sample (controlled by `randcut`) that is
+#'   used for computing the bin boundaries. This trades off some precision for
+#'   major speed gains on big datasets; see the `Smoothness Constraints` section
+#'   below. If `NULL` (the default), sampling is enabled automatically when
+#'   applicable, with a message. Explicitly set to `TRUE` to enable the same
+#'   sampling behaviour, but without the messsage. Alternatively, set to `FALSE`
+#'   to use the full dataset. Ignored when `s = 0`, since the `"compress"`
+#'   strategy already handles these aggregation cases efficiently.
 #' @param plot Logical. If `TRUE` (the default), then a plot is automatically
 #'   produced alongside the return `dbbinsreg` data object; see
 #'   \code{\link{plot.dbbinsreg}}.
@@ -248,7 +251,7 @@ dbbinsreg = function(
   nbins = 20,
   binspos = "qs",
   randcut = NULL,
-  sample_fit = TRUE,
+  sample_fit = NULL,
   ci = TRUE,
   cb = FALSE,
   vcov = NULL,
@@ -420,12 +423,6 @@ dbbinsreg = function(
     stop("nbins must be a positive integer")
   }
   
-  # Warn if user sets strategy when `s` (smoothness) > 0 (it will be ignored)
-  # Skip warning if sample_fit = TRUE since user is explicitly opting into constrained path
-  if (smooth > 0 && !sample_fit) {
-    warning("'strategy' parameter is ignored when `s` (smoothness) > 0 (constrained estimation)", 
-            call. = FALSE)
-  }
   
   # Set up database connection if needed
   conn_managed = FALSE
@@ -551,9 +548,18 @@ dbbinsreg = function(
       sample_size = max(10000L, ceiling(n_rows * effective_randcut))  # at least 10k rows
       random_expr = dbbinsreg_sql_random(backend)
       
-      # If sample_fit = TRUE and smooth > 0, sample all columns into temp table
+      # Auto-enable sample_fit when NULL and s > 0
+      if (is.null(sample_fit) && smooth > 0) {
+        sample_fit = TRUE
+        message(
+          "Note: Using sampled data for spline regression (s > 0).",
+          "\n  Silence this message by explicitly setting `sample_fit = TRUE`.",
+          "\n  Or, use the full dataset by setting `sample_fit = FALSE`.")
+      }
+      
+      # If sample_fit and smooth > 0, sample all columns into temp table
       # Otherwise just sample x for break computation
-      if (sample_fit && smooth > 0) {
+      if (isTRUE(sample_fit) && smooth > 0) {
         # Create temp table with sampled data (all columns needed for regression)
         sample_table_base = sprintf("__dbbinsreg_%s_sample", 
                                     gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
