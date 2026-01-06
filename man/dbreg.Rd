@@ -260,6 +260,10 @@ dbreg(weight ~ Time | Diet + Chick, data = ChickWeight, strategy = "mundlak") # 
 dbreg(weight ~ Time, data = ChickWeight, strategy = "moments") # no FEs
 # etc.
 
+# Interactions: does the effect of Time vary by Diet?
+# (Diet main effects are collinear with Chick FE, so these drop out)
+dbreg(weight ~ Time * Diet | Chick, data = ChickWeight)
+
 #
 ## DBI connection ----
 
