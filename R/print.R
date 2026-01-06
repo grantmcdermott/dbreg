@@ -86,8 +86,8 @@ print.dbreg = function(x, fe = FALSE, ...) {
   # Calculate goodness-of-fit metrics
   gof_vals = gof(x)
 
-  # Prettify interaction names for display
-  rownames(ct) = gsub("_x_", " \u00d7 ", rownames(ct), fixed = TRUE)
+  # Prettify interaction names for display (use standard R notation)
+  rownames(ct) = gsub("_x_", ":", rownames(ct), fixed = TRUE)
 
   print_coeftable(ct, gof_vals = gof_vals, has_fes = !is.null(x$fe))
   invisible(ct)
