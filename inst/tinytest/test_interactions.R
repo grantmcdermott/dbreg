@@ -19,9 +19,6 @@ test_df = within(data.frame(
   y2 = 1 + x1 + 2*x3 + 0.8*x1*x3 + fe * 0.3 + rnorm(n, sd = 0.5)
 })
 
-# dbreg uses "_x_" for interactions, fixest uses ":"
-map_coef_name = function(x) gsub(":", "_x_", x)
-
 #
 ## Test numeric × factor interaction (with FE) ----
 
@@ -32,29 +29,28 @@ db_compress = dbreg(fml_int, data = test_df, vcov = "hc1", strategy = "compress"
 db_demean = dbreg(fml_int, data = test_df, vcov = "hc1", strategy = "demean")
 
 for (coef in rownames(fe_int$coeftable)) {
-  db_coef = map_coef_name(coef)
   # compress
   expect_equal(
-    db_compress$coeftable[db_coef, "estimate"],
+    db_compress$coeftable[coef, "estimate"],
     fe_int$coeftable[coef, "Estimate"],
     tolerance = 1e-6,
     info = paste("compress estimate for", coef)
   )
   expect_equal(
-    db_compress$coeftable[db_coef, "std.error"],
+    db_compress$coeftable[coef, "std.error"],
     fe_int$coeftable[coef, "Std. Error"],
     tolerance = 1e-6,
     info = paste("compress SE for", coef)
   )
   # demean
   expect_equal(
-    db_demean$coeftable[db_coef, "estimate"],
+    db_demean$coeftable[coef, "estimate"],
     fe_int$coeftable[coef, "Estimate"],
     tolerance = 1e-6,
     info = paste("demean estimate for", coef)
   )
   expect_equal(
-    db_demean$coeftable[db_coef, "std.error"],
+    db_demean$coeftable[coef, "std.error"],
     fe_int$coeftable[coef, "Std. Error"],
     tolerance = 1e-6,
     info = paste("demean SE for", coef)
@@ -84,15 +80,14 @@ db_num_compress = dbreg(fml_num, data = test_df, vcov = "hc1", strategy = "compr
 db_num_demean = dbreg(fml_num, data = test_df, vcov = "hc1", strategy = "demean")
 
 for (coef in rownames(fe_num$coeftable)) {
-  db_coef = map_coef_name(coef)
   expect_equal(
-    db_num_compress$coeftable[db_coef, "estimate"],
+    db_num_compress$coeftable[coef, "estimate"],
     fe_num$coeftable[coef, "Estimate"],
     tolerance = 1e-6,
     info = paste("numeric compress estimate for", coef)
   )
   expect_equal(
-    db_num_demean$coeftable[db_coef, "estimate"],
+    db_num_demean$coeftable[coef, "estimate"],
     fe_num$coeftable[coef, "Estimate"],
     tolerance = 1e-6,
     info = paste("numeric demean estimate for", coef)
@@ -108,15 +103,14 @@ fe_moments = feols(fml_moments, data = test_df, vcov = "hc1")
 db_moments = dbreg(fml_moments, data = test_df, vcov = "hc1", strategy = "moments")
 
 for (coef in rownames(fe_moments$coeftable)) {
-  db_coef = map_coef_name(coef)
   expect_equal(
-    db_moments$coeftable[db_coef, "estimate"],
+    db_moments$coeftable[coef, "estimate"],
     fe_moments$coeftable[coef, "Estimate"],
     tolerance = 1e-6,
     info = paste("moments estimate for", coef)
   )
   expect_equal(
-    db_moments$coeftable[db_coef, "std.error"],
+    db_moments$coeftable[coef, "std.error"],
     fe_moments$coeftable[coef, "Std. Error"],
     tolerance = 1e-6,
     info = paste("moments SE for", coef)
@@ -135,9 +129,8 @@ test_df_mundlak = transform(test_df, x1_bar = ave(x1, fe), x3_bar = ave(x3, fe))
 fe_mundlak = feols(y2 ~ x1 * x3 + x1_bar + x3_bar, data = test_df_mundlak)
 
 for (coef in c("x1", "x3", "x1:x3")) {
-  db_coef = map_coef_name(coef)
   expect_equal(
-    db_mundlak$coeftable[db_coef, "estimate"],
+    db_mundlak$coeftable[coef, "estimate"],
     fe_mundlak$coeftable[coef, "Estimate"],
     tolerance = 1e-6,
     info = paste("mundlak estimate for", coef)
