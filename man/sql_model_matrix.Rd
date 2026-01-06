@@ -4,11 +4,16 @@
 \alias{sql_model_matrix}
 \title{Construct SQL expressions for a design matrix}
 \usage{
-sql_model_matrix(formula, conn, table, expand = c("all", "interactions"))
+sql_model_matrix(
+  formula,
+  conn,
+  table,
+  expand = c("all", "interactions"),
+  sep = "_x_"
+)
 }
 \arguments{
-\item{formula}{A \code{\link[stats]{formula}} (or
-\code{\link[Formula]{Formula}}) object. Only the RHS terms are expanded;
+\item{formula}{A formula (or Formula) object. Only RHS terms are expanded;
 the LHS (response variable) is ignored.}
 
 \item{conn}{Database connection}
@@ -18,6 +23,9 @@ the LHS (response variable) is ignored.}
 \item{expand}{Character: `"all"` expands factors and interactions, 
 `"interactions"` only expands interaction terms (factors in main effects 
 kept as-is for grouping)}
+
+\item{sep}{Character separator for interaction term names. Default is
+`"_x_"`. Use `":"` for standard R naming convention.}
 }
 \value{
 List with:
@@ -27,9 +35,8 @@ List with:
 }
 \description{
 Expands formula terms into SQL SELECT expressions, handling factor one-hot
-encoding and interaction terms. Similar to \code{\link[stats]{model.matrix}},
-only the right-hand side (RHS) of the formula is processed; the response
-variable (LHS) is ignored.
+encoding and interaction terms. Only the right-hand side of the formula is
+processed; the response variable (LHS) is ignored.
 }
 \examples{
 library(DBI)
@@ -38,5 +45,6 @@ con = dbConnect(duckdb())
 duckdb_register(con, "test", data.frame(x1 = 1:3, x2 = c("a", "b", "c")))
 sql_model_matrix(~ x1 + x2, con, "test")
 sql_model_matrix(~ x1:x2, con, "test")
+sql_model_matrix(~ x1:x2, con, "test", sep = ":")
 dbDisconnect(con)
 }

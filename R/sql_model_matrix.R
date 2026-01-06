@@ -1,18 +1,18 @@
 #' Construct SQL expressions for a design matrix
 #'
 #' Expands formula terms into SQL SELECT expressions, handling factor one-hot
-#' encoding and interaction terms. Similar to \code{\link[stats]{model.matrix}},
-#' only the right-hand side (RHS) of the formula is processed; the response
-#' variable (LHS) is ignored.
+#' encoding and interaction terms. Only the right-hand side of the formula is
+#' processed; the response variable (LHS) is ignored.
 #'
-#' @param formula A \code{\link[stats]{formula}} (or
-#'   \code{\link[Formula]{Formula}}) object. Only the RHS terms are expanded;
+#' @param formula A formula (or Formula) object. Only RHS terms are expanded;
 #'   the LHS (response variable) is ignored.
 #' @param conn Database connection
 #' @param table Table name or FROM clause
 #' @param expand Character: `"all"` expands factors and interactions, 
 #'   `"interactions"` only expands interaction terms (factors in main effects 
 #'   kept as-is for grouping)
+#' @param sep Character separator for interaction term names. Default is
+#'   `"_x_"`. Use `":"` for standard R naming convention.
 #' @return List with:
 #'   - `select_exprs`: character vector of SQL expressions
 #'   - `col_names`: corresponding column names
@@ -25,12 +25,14 @@
 #' duckdb_register(con, "test", data.frame(x1 = 1:3, x2 = c("a", "b", "c")))
 #' sql_model_matrix(~ x1 + x2, con, "test")
 #' sql_model_matrix(~ x1:x2, con, "test")
+#' sql_model_matrix(~ x1:x2, con, "test", sep = ":")
 #' dbDisconnect(con)
 sql_model_matrix = function(
   formula,
   conn,
   table,
-  expand = c("all", "interactions")
+  expand = c("all", "interactions"),
+  sep = "_x_"
 ) {
   expand = match.arg(expand)
   
@@ -51,7 +53,7 @@ sql_model_matrix = function(
   result = list(select_exprs = character(), col_names = character())
   
   for (term in term_labels) {
-    expanded = expand_term(term, col_info, expand)
+    expanded = expand_term(term, col_info, expand, sep)
     result$select_exprs = c(result$select_exprs, vapply(expanded, `[[`, character(1), "sql"))
     result$col_names = c(result$col_names, vapply(expanded, `[[`, character(1), "name"))
   }
@@ -95,7 +97,7 @@ get_column_info = function(conn, table, term_labels) {
 
 #' Expand a single term into SQL expressions
 #' @keywords internal
-expand_term = function(term, col_info, expand) {
+expand_term = function(term, col_info, expand, sep = "_x_") {
   vars = strsplit(term, ":")[[1]]
   is_interaction = length(vars) > 1
   
@@ -110,7 +112,7 @@ expand_term = function(term, col_info, expand) {
   })
   
   # Cross product for interactions
-  cross_product(expansions)
+  cross_product(expansions, sep)
 }
 
 #' Expand a single variable into SQL expression(s)
@@ -142,18 +144,18 @@ expand_variable = function(var, col_info, expand, in_interaction) {
 
 #' Cartesian product of term expansions
 #' @keywords internal
-cross_product = function(expansions) {
+cross_product = function(expansions, sep = "_x_") {
   if (length(expansions) == 1) return(expansions[[1]])
   
   # Recursive: cross first with rest
-  rest = cross_product(expansions[-1])
+  rest = cross_product(expansions[-1], sep)
   
   result = list()
   for (e1 in expansions[[1]]) {
     for (e2 in rest) {
       result = c(result, list(list(
         sql = glue("({e1$sql}) * ({e2$sql})"),
-        name = paste0(e1$name, "_", e2$name)
+        name = paste0(e1$name, sep, e2$name)
       )))
     }
   }

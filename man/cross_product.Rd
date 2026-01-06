@@ -4,7 +4,7 @@
 \alias{cross_product}
 \title{Cartesian product of term expansions}
 \usage{
-cross_product(expansions)
+cross_product(expansions, sep = "_x_")
 }
 \description{
 Cartesian product of term expansions
