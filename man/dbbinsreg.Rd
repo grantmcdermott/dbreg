@@ -16,7 +16,7 @@ dbbinsreg(
   nbins = 20,
   binspos = "qs",
   randcut = NULL,
-  sample_fit = FALSE,
+  sample_fit = TRUE,
   ci = TRUE,
   cb = FALSE,
   vcov = NULL,
@@ -92,11 +92,11 @@ computing the bin boundaries, since this requires an expensive ranking
 operation. The subsequent, primary regression operations use all of the
 data (unless \code{sample_fit = TRUE}).}
 
-\item{sample_fit}{Logical. When \code{TRUE} and smoothness \code{s > 0}, use the same
-random sample for both bin boundary computation and regression fitting.
-This speeds up computation on large datasets but produces estimates based
-on the sample, not full data. Default is \code{FALSE} (matches \code{binsreg}
-behavior). Ignored when \code{s = 0} since the compress strategy already
+\item{sample_fit}{Logical. When \code{TRUE} (the default) and smoothness \code{s > 0},
+the regression fitting re-uses the same random sample used for computing
+the bin boundaries. This trades off some precision for major speed
+gains on big datasets. Set to \code{FALSE} to rather use the full dataset.
+Ignored when \code{s = 0}, since the default \code{"compress"} strategy already
 handles aggregation efficiently.}
 
 \item{ci}{Logical. Calculate standard errors and confidence intervals for points?
@@ -205,8 +205,12 @@ quadratic with continuous first derivatives.
 
 \strong{Important:} Unlike \code{s = 0} (which uses the \code{"compress"} strategy for fast
 aggregation), \code{s > 0} requires row-level spline basis construction and can
-be slow on large datasets. Use \code{sample_fit = TRUE} to speed up computation
-by fitting on a random sample.
+be very slow on large datasets. As a result, \code{dbbinsreg} re-uses the
+random sample (used to compute the bin boundaries) for estimating the spline
+fits in these cases, ensuring much faster computation at the cost of reduced
+precision. Users can override this behaviour by passing the
+\code{sample_fit = FALSE} argument to rather estimate the spline regressions on
+the full dataset.
 }
 
 \subsection{Confidence intervals vs confidence bands}{
@@ -268,10 +272,10 @@ plot(bs, theme = "clean", main = "A simple binscatter example")
 # Alternatively: you can also set a global (tiny)plot theme
 tinyplot::tinytheme("classic")
 
-# Piecewise linear, no smoothness
+# Piecewise linear (p = 1), no smoothness (s = 0)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
 
-# Piecewise linear with continuity
+# Piecewise linear (p = 0) with continuity (s = 1)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1))
 
 # With line overlay for smooth visualization

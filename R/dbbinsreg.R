@@ -37,11 +37,11 @@
 #'   computing the bin boundaries, since this requires an expensive ranking
 #'   operation. The subsequent, primary regression operations use all of the
 #'   data (unless `sample_fit = TRUE`).
-#' @param sample_fit Logical. When `TRUE` and smoothness `s > 0`, use the same
-#'   random sample for both bin boundary computation and regression fitting.
-#'   This speeds up computation on large datasets but produces estimates based
-#'   on the sample, not full data. Default is `FALSE` (matches `binsreg`
-#'   behavior). Ignored when `s = 0` since the compress strategy already
+#' @param sample_fit Logical. When `TRUE` (the default) and smoothness `s > 0`,
+#'   the regression fitting re-uses the same random sample used for computing
+#'   the bin boundaries. This trades off some precision for major speed
+#'   gains on big datasets. Set to `FALSE` to rather use the full dataset.
+#'   Ignored when `s = 0`, since the default `"compress"` strategy already
 #'   handles aggregation efficiently.
 #' @param plot Logical. If `TRUE` (the default), then a plot is automatically
 #'   produced alongside the return `dbbinsreg` data object; see
@@ -130,8 +130,12 @@
 #'
 #' **Important:** Unlike `s = 0` (which uses the `"compress"` strategy for fast
 #' aggregation), `s > 0` requires row-level spline basis construction and can
-#' be slow on large datasets. Use `sample_fit = TRUE` to speed up computation
-#' by fitting on a random sample.
+#' be very slow on large datasets. As a result, \code{dbbinsreg} re-uses the
+#' random sample (used to compute the bin boundaries) for estimating the spline
+#' fits in these cases, ensuring much faster computation at the cost of reduced
+#' precision. Users can override this behaviour by passing the
+#' `sample_fit = FALSE` argument to rather estimate the spline regressions on
+#' the full dataset.
 #'
 #' ## Confidence intervals vs confidence bands
 #'
@@ -195,10 +199,10 @@
 #' # Alternatively: you can also set a global (tiny)plot theme
 #' tinyplot::tinytheme("classic")
 #' 
-#' # Piecewise linear, no smoothness
+#' # Piecewise linear (p = 1), no smoothness (s = 0)
 #' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
 #' 
-#' # Piecewise linear with continuity
+#' # Piecewise linear (p = 0) with continuity (s = 1)
 #' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 1))
 #' 
 #' # With line overlay for smooth visualization
@@ -244,7 +248,7 @@ dbbinsreg = function(
   nbins = 20,
   binspos = "qs",
   randcut = NULL,
-  sample_fit = FALSE,
+  sample_fit = TRUE,
   ci = TRUE,
   cb = FALSE,
   vcov = NULL,
