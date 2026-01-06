@@ -40,8 +40,13 @@ coef.dbreg = function(object, fe = FALSE, ...) {
   ct = object[["coeftable"]]
   
   if (!isTRUE(fe) && !is.null(object$fe)) {
-    xvars = object[["xvars"]]
-    ct = ct[xvars, , drop = FALSE]
+    coef_names = object[["coef_names"]]
+    if (!is.null(coef_names)) {
+      ct = ct[coef_names, , drop = FALSE]
+    } else {
+      xvars = object[["xvars"]]
+      ct = ct[xvars, , drop = FALSE]
+    }
   }
   
   out = ct[, "estimate"]
@@ -268,8 +273,13 @@ confint.dbreg = function(object, parm, level = 0.95, fe = FALSE, ...) {
   ct = object[["coeftable"]]
   
   if (!isTRUE(fe) && !is.null(object$fe)) {
-    xvars = object[["xvars"]]
-    ct = ct[xvars, , drop = FALSE]
+    coef_names = object[["coef_names"]]
+    if (!is.null(coef_names)) {
+      ct = ct[coef_names, , drop = FALSE]
+    } else {
+      xvars = object[["xvars"]]
+      ct = ct[xvars, , drop = FALSE]
+    }
   }
   
   cf = ct[, "estimate"]

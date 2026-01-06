@@ -25,8 +25,14 @@ print.dbreg = function(x, fe = FALSE, ...) {
   ct = x[["coeftable"]]
   colnames(ct) = c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
   if (!isTRUE(fe) && !is.null(x$fe)) {
-    xvars = x[["xvars"]]
-    ct = ct[xvars, , drop = FALSE]
+    # Use coef_names if available (handles interactions), fall back to xvars
+    coef_names = x[["coef_names"]]
+    if (!is.null(coef_names)) {
+      ct = ct[coef_names, , drop = FALSE]
+    } else {
+      xvars = x[["xvars"]]
+      ct = ct[xvars, , drop = FALSE]
+    }
   }
   se_type = attr(x$vcov, "type")
   n_clusters = attr(x$vcov, "n_clusters")
@@ -79,6 +85,9 @@ print.dbreg = function(x, fe = FALSE, ...) {
 
   # Calculate goodness-of-fit metrics
   gof_vals = gof(x)
+
+  # Prettify interaction names for display
+  rownames(ct) = gsub("_x_", " \u00d7 ", rownames(ct), fixed = TRUE)
 
   print_coeftable(ct, gof_vals = gof_vals, has_fes = !is.null(x$fe))
   invisible(ct)

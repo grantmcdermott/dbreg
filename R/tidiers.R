@@ -36,10 +36,16 @@ tidy.dbreg = function(x, conf.int = FALSE, conf.level = 0.95, fe = FALSE, ...) {
   }
   ct = x[["coeftable"]]
   if (!isTRUE(fe) && !is.null(x$fe)) {
+    coef_names = x[["coef_names"]]
+    if (!is.null(coef_names)) {
+      ct = ct[coef_names, , drop = FALSE]
+    } else {
       xvars = x[["xvars"]]
       ct = ct[xvars, , drop = FALSE]
+    }
   }
-  out = data.frame(term = rownames(ct), ct, row.names = NULL)
+  # Convert interaction separator to standard R ":" for downstream compatibility
+  out = data.frame(term = gsub("_x_", ":", rownames(ct), fixed = TRUE), ct, row.names = NULL)
   
   if (isTRUE(conf.int)) {
     ci = confint(x, level = conf.level, fe = fe)
