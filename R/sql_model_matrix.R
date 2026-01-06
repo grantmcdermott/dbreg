@@ -149,7 +149,7 @@ cross_product = function(expansions) {
     for (e2 in rest) {
       result = c(result, list(list(
         sql = glue("({e1$sql}) * ({e2$sql})"),
-        name = paste0(e1$name, ":", e2$name)
+        name = paste0(e1$name, "_", e2$name)
       )))
     }
   }

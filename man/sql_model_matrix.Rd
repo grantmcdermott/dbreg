@@ -31,7 +31,7 @@ encoding and interaction terms.
 library(DBI)
 library(duckdb)
 con = dbConnect(duckdb())
-dbWriteTable(con, "test", data.frame(x1 = 1:3, x2 = c("a", "b", "c")))
+duckdb_register(con, "test", data.frame(x1 = 1:3, x2 = c("a", "b", "c")))
 sql_model_matrix(~ x1 + x2, con, "test")
 sql_model_matrix(~ x1:x2, con, "test")
 dbDisconnect(con)
