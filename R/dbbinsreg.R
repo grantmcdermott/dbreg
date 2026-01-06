@@ -713,6 +713,12 @@ dbbinsreg_sql_random = function(backend) {
 #' Build efficient sample query (backend-specific)
 #' 
 #' Uses native SAMPLE/TABLESAMPLE when available, falls back to ORDER BY RANDOM()
+#' 
+#' FIXME: Currently uses simple random sampling. When FEs are specified, rare
+#' groups could be excluded from the sample. Consider adding stratified sampling
+#' (e.g., via window functions: ROW_NUMBER() OVER (PARTITION BY fe ORDER BY RANDOM()))
+#' to ensure representation from all FE groups.
+#' 
 #' @param select_clause The SELECT clause (e.g., "*" or "col1, col2")
 #' @param table_name Table to sample from
 #' @param where_clause WHERE clause without "WHERE" keyword (or NULL)
