@@ -844,14 +844,6 @@ choose_strategy = function(inputs) {
       }
     }
   }
-  
-  # Interactions only supported with compress/moments/demean strategies (for now)
-  if (isTRUE(inputs$has_interactions) && chosen_strategy == "mundlak") {
-    if (verbose) {
-      message("[dbreg] Interactions detected; forcing strategy = 'compress'")
-    }
-    chosen_strategy = "compress"
-  }
 
   # Store compression ratio estimate for later use
   inputs$compression_ratio_est = est_cr
@@ -1390,13 +1382,6 @@ execute_demean_strategy = function(inputs) {
 #'
 #' @keywords internal
 execute_mundlak_strategy = function(inputs) {
-  # Interactions not yet supported for mundlak strategy
-  if (isTRUE(inputs$has_interactions)) {
-    stop("Interaction terms are not yet supported with strategy = 'mundlak'. ",
-         "Use strategy = 'compress' instead.")
-  }
-  
-  xvars = inputs$xvars
   yvar = inputs$yvar
   fe = inputs$fe
   n_fe = length(fe)
@@ -1405,41 +1390,88 @@ execute_mundlak_strategy = function(inputs) {
     stop("mundlak strategy requires at least one fixed effect")
   }
 
+  # Handle interactions: expand to SQL expressions
+  if (isTRUE(inputs$has_interactions)) {
+    table_ref = sub("^FROM\\s+", "", inputs$from_statement, ignore.case = TRUE)
+    sql_design = sql_model_matrix(
+      inputs$fml,
+      inputs$conn,
+      table_ref,
+      expand = "all"
+    )
+    xvars_sql = sql_design$select_exprs
+    xvar_names = sql_design$col_names
+  } else {
+    xvars_sql = inputs$xvars
+    xvar_names = inputs$xvars
+  }
+  
+  # Build base CTE with expanded columns AND original xvars (for group means)
+  base_select = c(fe, yvar, inputs$xvars)
+  for (i in seq_along(xvar_names)) {
+    # Only add expanded terms that aren't already in original xvars
+    if (!xvar_names[i] %in% inputs$xvars) {
+      base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
+    }
+  }
+
   # Build group means CTEs and join clauses for each FE
   cte_parts = character(0)
   join_parts = character(0)
   xbar_all = character(0)
 
+  # Build group means CTEs using ORIGINAL numeric xvars only
+  # (can't compute AVG on factors; their means are handled via expanded dummies)
+  # This follows the Mundlak/CRE approach of controlling for correlation
+  # between original covariates and the FE
+  if (isTRUE(inputs$has_interactions)) {
+    # Filter to numeric vars only (factors are in sql_design$factor_levels)
+    factor_vars = names(sql_design$factor_levels)
+    numeric_xvars = setdiff(inputs$xvars, factor_vars)
+  } else {
+    numeric_xvars = inputs$xvars
+  }
+  
   for (k in seq_along(fe)) {
     fe_k = fe[k]
     suffix = paste0("_bar_", fe_k)
-    xbar_k = paste0(xvars, suffix)
-    xbar_all = c(xbar_all, xbar_k)
-
-    means_cols = paste(sprintf("AVG(%s) AS %s", xvars, xbar_k), collapse = ", ")
-    cte_parts = c(cte_parts, sprintf(
-      "fe%d_means AS (SELECT %s, %s FROM base GROUP BY %s)",
-      k, fe_k, means_cols, fe_k
-    ))
+    
+    if (length(numeric_xvars) > 0) {
+      xbar_k = paste0(numeric_xvars, suffix)
+      xbar_all = c(xbar_all, xbar_k)
+      means_cols = paste(sprintf("AVG(%s) AS %s", numeric_xvars, xbar_k), collapse = ", ")
+      cte_parts = c(cte_parts, sprintf(
+        "fe%d_means AS (SELECT %s, %s FROM base GROUP BY %s)",
+        k, fe_k, means_cols, fe_k
+      ))
+    } else {
+      # No numeric vars - just select FE for joining
+      cte_parts = c(cte_parts, sprintf(
+        "fe%d_means AS (SELECT DISTINCT %s FROM base)",
+        k, fe_k
+      ))
+    }
     join_parts = c(join_parts, sprintf(
       "JOIN fe%d_means m%d ON b.%s = m%d.%s",
       k, k, fe_k, k, fe_k
     ))
   }
 
-  # Select columns for augmented table
-  aug_select_parts = "b.*"
+  # Select columns for augmented table (include FE for counting)
+  aug_select_parts = c(sprintf("b.%s", fe), sprintf("b.%s", yvar), sprintf("b.%s", xvar_names))
   for (k in seq_along(fe)) {
-    suffix = paste0("_bar_", fe[k])
-    xbar_k = paste0(xvars, suffix)
-    aug_select_parts = c(aug_select_parts, paste0("m", k, ".", xbar_k))
+    if (length(numeric_xvars) > 0) {
+      suffix = paste0("_bar_", fe[k])
+      xbar_k = paste0(numeric_xvars, suffix)
+      aug_select_parts = c(aug_select_parts, paste0("m", k, ".", xbar_k))
+    }
   }
   aug_select = paste(aug_select_parts, collapse = ", ")
 
-  # All regressors: original X plus all group means
-  all_regressors = c(xvars, xbar_all)
+  # All regressors: expanded X plus group means of numeric xvars
+  all_regressors = c(xvar_names, xbar_all)
 
-  # Build moment terms
+  # Build moment terms using numeric indices
   moment_terms = c(
     sql_count(inputs$conn, "n_total"),
     if (n_fe >= 1) sql_count(inputs$conn, "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
@@ -1449,12 +1481,12 @@ execute_mundlak_strategy = function(inputs) {
   )
 
   # sum(X_j) and sum(X_j * Y) for each regressor
-
-  for (v in all_regressors) {
+  for (i in seq_along(all_regressors)) {
+    v = all_regressors[i]
     moment_terms = c(
       moment_terms,
-      sprintf("SUM(CAST(%s AS FLOAT)) AS sum_%s", v, v),
-      sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%s_%s", v, yvar, v, yvar)
+      sprintf("SUM(CAST(%s AS FLOAT)) AS sum_%d", v, i),
+      sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%d_y", v, yvar, i)
     )
   }
 
@@ -1465,14 +1497,14 @@ execute_mundlak_strategy = function(inputs) {
       vj = all_regressors[j]
       moment_terms = c(
         moment_terms,
-        sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%s_%s", vi, vj, vi, vj)
+        sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%d_%d", vi, vj, i, j)
       )
     }
   }
 
   # CTE part (reusable for HC1 meat computation)
   cte_sql = paste0(
-    "WITH base AS (SELECT * ", inputs$from_statement, "),\n",
+    "WITH base AS (SELECT ", paste(base_select, collapse = ", "), " ", inputs$from_statement, "),\n",
     paste(cte_parts, collapse = ",\n"), ",\n",
     "augmented AS (SELECT ", aug_select, " FROM base b ", paste(join_parts, collapse = " "), ")"
   )
@@ -1512,23 +1544,21 @@ execute_mundlak_strategy = function(inputs) {
   Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
 
   # Intercept terms
-  XtX["(Intercept)", "(Intercept)"] = n_total
-  Xty["(Intercept)", ] = mundlak_df$sum_y
+  XtX[1, 1] = n_total
+  Xty[1, ] = mundlak_df$sum_y
 
-  # Regressor terms
-  for (v in all_regressors) {
-    XtX["(Intercept)", v] = XtX[v, "(Intercept)"] = mundlak_df[[paste0("sum_", v)]]
-    XtX[v, v] = mundlak_df[[paste0("sum_", v, "_", v)]]
-    Xty[v, ] = mundlak_df[[paste0("sum_", v, "_", yvar)]]
+  # Regressor terms (using numeric indices)
+  for (i in seq_along(all_regressors)) {
+    XtX[1, i + 1] = XtX[i + 1, 1] = mundlak_df[[sprintf("sum_%d", i)]]
+    XtX[i + 1, i + 1] = mundlak_df[[sprintf("sum_%d_%d", i, i)]]
+    Xty[i + 1, ] = mundlak_df[[sprintf("sum_%d_y", i)]]
   }
 
   # Cross-terms
   for (i in seq_along(all_regressors)) {
     for (j in seq_along(all_regressors)) {
       if (i < j) {
-        vi = all_regressors[i]
-        vj = all_regressors[j]
-        XtX[vi, vj] = XtX[vj, vi] = mundlak_df[[paste0("sum_", vi, "_", vj)]]
+        XtX[i + 1, j + 1] = XtX[j + 1, i + 1] = mundlak_df[[sprintf("sum_%d_%d", i, j)]]
       }
     }
   }
@@ -1598,7 +1628,7 @@ execute_mundlak_strategy = function(inputs) {
     vcov = vcov_mat,
     fml = inputs$fml,
     yvar = yvar,
-    xvars = xvars,
+    xvars = xvar_names,
     fe = fe,
     query_string = mundlak_sql,
     nobs = 1L,
