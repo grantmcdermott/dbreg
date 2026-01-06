@@ -17,6 +17,7 @@
 #'   - `select_exprs`: character vector of SQL expressions
 #'   - `col_names`: corresponding column names
 #'   - `factor_levels`: list of factor levels by variable (for reference)
+#' @importFrom stats terms
 #' @export
 #' @examples
 #' library(DBI)
