@@ -1,13 +1,17 @@
-#' Build SQL expressions equivalent to model.matrix()
+#' Construct SQL expressions for a design matrix
 #'
 #' Expands formula terms into SQL SELECT expressions, handling factor one-hot
-#' encoding and interaction terms.
+#' encoding and interaction terms. Similar to \code{\link[stats]{model.matrix}},
+#' only the right-hand side (RHS) of the formula is processed; the response
+#' variable (LHS) is ignored.
 #'
-#' @param formula A formula (or Formula) object
+#' @param formula A \code{\link[stats]{formula}} (or
+#'   \code{\link[Formula]{Formula}}) object. Only the RHS terms are expanded;
+#'   the LHS (response variable) is ignored.
 #' @param conn Database connection
 #' @param table Table name or FROM clause
-#' @param expand Character: "all" expands factors and interactions, 
-#'   "interactions" only expands interaction terms (factors in main effects 
+#' @param expand Character: `"all"` expands factors and interactions, 
+#'   `"interactions"` only expands interaction terms (factors in main effects 
 #'   kept as-is for grouping)
 #' @return List with:
 #'   - `select_exprs`: character vector of SQL expressions
