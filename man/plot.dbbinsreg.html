@@ -413,7 +413,7 @@ Additional arguments passed to <code style="white-space: pre;">, e.g.&nbsp;</cod
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(0,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 10 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># For plot customization, save the model object so you can pass additional args</span></span>
@@ -430,7 +430,7 @@ Observations: 578 (original) | 10 (compressed)</code></pre>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Alternatively: you can also set a global (tiny)plot theme</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>tinyplot<span class="sc">::</span><span class="fu">tinytheme</span>(<span class="st">"classic"</span>)</span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear, no smoothness</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear (p = 1), no smoothness (s = 0)</span></span>
 <span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">0</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
@@ -442,15 +442,15 @@ Observations: 578 (original) | 10 (compressed)</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(1,0) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(1,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 21 (compressed)</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear with continuity</span></span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear (p = 1) with continuity (s = 1)</span></span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(1,1) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(1,1) | line = NULL | nbins = 10 (quantile-spaced)
 N = 578</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With line overlay for smooth visualization</span></span>
@@ -465,7 +465,7 @@ N = 578</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(1,1) | line = c(1,1) | nbins = 10 | binspos = 'qs'
+points = c(1,1) | line = c(1,1) | nbins = 10 (quantile-spaced)
 N = 578</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Different line smoothness to points</span></span>
@@ -480,7 +480,7 @@ N = 578</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(0,0) | line = c(1,1) | nbins = 10 | binspos = 'qs'
+points = c(0,0) | line = c(1,1) | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 10 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With uniform confidence bands (much greater uncertainty)</span></span>
@@ -496,7 +496,7 @@ Observations: 578 (original) | 10 (compressed)</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(0,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 10 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Accounting for Diet "fixed effects" helps to resolve the situation</span></span>
@@ -511,7 +511,7 @@ Observations: 578 (original) | 10 (compressed)</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time | Diet 
-points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(0,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 40 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co">#</span></span>
@@ -532,7 +532,7 @@ Observations: 578 (original) | 40 (compressed)</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time | Diet 
-points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(0,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 40 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># etc.</span></span>

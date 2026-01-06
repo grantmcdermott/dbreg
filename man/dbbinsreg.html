@@ -375,6 +375,7 @@ window.Quarto = {
   nbins = 20,
   binspos = "qs",
   randcut = NULL,
+  sample_fit = NULL,
   ci = TRUE,
   cb = FALSE,
   vcov = NULL,
@@ -484,7 +485,15 @@ Bin positioning method. One of either <code>“qs”</code> (quantile-spaced, eq
 <code id="randcut">randcut</code>
 </td>
 <td>
-Numeric in the range <code style="white-space: pre;">(0,1]</code>. Controls the random sampling fraction for bin boundary computation on large datasets. If <code>NULL</code> (the default), then sampling is automatic: <code>0.01</code> (1%) for datasets exceeding 1 million rows and <code>1</code> (100%) otherwise. Note that sampling is only used for computing the bin boundaries, since this requires an expensive ranking operation. The subsequent, primary regression operations use all of the data.
+Numeric in the range <code style="white-space: pre;">(0,1]</code>. Controls the random sampling fraction for bin boundary computation on large datasets. If <code>NULL</code> (the default), then sampling is automatic: <code>0.01</code> (1%) for datasets exceeding 1 million rows and <code>1</code> (100%) otherwise. Note that sampling is only used for computing the bin boundaries, since this requires an expensive ranking operation. The subsequent, primary regression operations use all of the data (unless <code>sample_fit</code> is enabled).
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="sample_fit">sample_fit</code>
+</td>
+<td>
+Logical or <code>NULL</code>. Controls whether the spline regression (<code>s &gt; 0</code>) re-uses the same random sample (controlled by <code>randcut</code>) that is used for computing the bin boundaries. This trades off some precision for major speed gains on big datasets; see the <code style="white-space: pre;">Smoothness Constraints</code> section below. If <code>NULL</code> (the default), sampling is enabled automatically when applicable, with a message. Explicitly set to <code>TRUE</code> to enable the same sampling behaviour, but without the message. Alternatively, set to <code>FALSE</code> to use the full dataset. Ignored when <code>s = 0</code>, since the <code>“compress”</code> strategy already handles these aggregation cases efficiently.
 </td>
 </tr>
 <tr>
@@ -602,7 +611,7 @@ List of options used: <code>points</code>, <code>line</code>, <code>nbins</code>
 <h3 class="anchored" data-anchor-id="comparison-with-binsreg">Comparison with binsreg</h3>
 <p>The <code>dbbinsreg</code> function is deeply inspired by the <span class="pkg">binsreg</span> package (Cattaneo et. al., 2024). The main difference is that <code>dbbinsreg</code> performs most of its computation on a database backend, employing various acceration strategies, which makes it particularly suitable for large datasets (which may not fit in memory). At the same time, the database backend introduces its own set of tradeoffs. We cover the most important points of similarity and difference below.</p>
 <h4 class="anchored">
-API
+Core API and bin selection
 </h4>
 <p>We aim to mimic the <code>binsreg</code> API as much as possible. Key parameter mappings include:</p>
 <ul>
@@ -635,7 +644,12 @@ API
 </ul>
 </li>
 </ul>
-<p><strong>Important:</strong> Unlike <code>binsreg</code>, <code>dbbinsreg</code> does not automatically select the IMSE-optimal number of bins. Users must specify <code>nbins</code> manually. For guidance on bin selection, see <code>binsregselect</code> or Cattaneo et al.&nbsp;(2024).</p>
+<p><strong>Important:</strong> Unlike <code>binsreg</code>, <code>dbbinsreg</code> does not automatically select the IMSE-optimal number of bins. Rather, users must specify <code>nbins</code> manually (with a default of value of 20). For guidance on bin selection, see <code>binsregselect</code> or Cattaneo et al. (2024).</p>
+<h4 class="anchored">
+Smoothness constraints
+</h4>
+<p>When <code>s &gt; 0</code>, the function fits a regression spline using a truncated power basis. For degree <span class="math inline">\(p\)</span> and smoothness <span class="math inline">\(s\)</span>, the basis includes global polynomial terms (<span class="math inline">\(x, x^2, \ldots, x^p\)</span>) plus truncated power terms <span class="math inline">\((x - \kappa_j)_+^r\)</span> at each interior knot <span class="math inline">\(\kappa_j\)</span> for <span class="math inline">\(r = s, \ldots, p\)</span>. This enforces <span class="math inline">\(C^{s-1}\)</span> continuity (continuous derivatives up to order <span class="math inline">\(s-1\)</span>) at bin boundaries. For example, <code>c(1,1)</code> gives a piecewise linear fit that is continuous; <code>c(2,2)</code> gives a piecewise quadratic with continuous first derivatives.</p>
+<p><strong>Important:</strong> Unlike <code>s = 0</code> (which uses the <code>“compress”</code> strategy for fast aggregation), <code>s &gt; 0</code> requires row-level spline basis construction and can be very slow on large datasets. As a result, <code>dbbinsreg</code> re-uses the random sample (used to compute the bin boundaries) for estimating the spline fits in these cases, ensuring much faster computation at the cost of reduced precision. Users can override this behaviour by passing the <code>sample_fit = FALSE</code> argument to rather estimate the spline regressions on the full dataset.</p>
 <h4 class="anchored">
 Confidence intervals vs confidence bands
 </h4>
@@ -697,7 +711,7 @@ Note on quantile bin boundaries
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(0,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 10 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># For plot customization, save the model object so you can pass additional args</span></span>
@@ -714,7 +728,7 @@ Observations: 578 (original) | 10 (compressed)</code></pre>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Alternatively: you can also set a global (tiny)plot theme</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>tinyplot<span class="sc">::</span><span class="fu">tinytheme</span>(<span class="st">"classic"</span>)</span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear, no smoothness</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear (p = 1), no smoothness (s = 0)</span></span>
 <span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">0</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
@@ -726,15 +740,15 @@ Observations: 578 (original) | 10 (compressed)</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(1,0) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(1,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 21 (compressed)</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear with continuity</span></span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Piecewise linear (p = 1) with continuity (s = 1)</span></span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">points =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(1,1) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(1,1) | line = NULL | nbins = 10 (quantile-spaced)
 N = 578</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With line overlay for smooth visualization</span></span>
@@ -749,7 +763,7 @@ N = 578</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(1,1) | line = c(1,1) | nbins = 10 | binspos = 'qs'
+points = c(1,1) | line = c(1,1) | nbins = 10 (quantile-spaced)
 N = 578</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Different line smoothness to points</span></span>
@@ -764,7 +778,7 @@ N = 578</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(0,0) | line = c(1,1) | nbins = 10 | binspos = 'qs'
+points = c(0,0) | line = c(1,1) | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 10 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># With uniform confidence bands (much greater uncertainty)</span></span>
@@ -780,7 +794,7 @@ Observations: 578 (original) | 10 (compressed)</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time 
-points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(0,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 10 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Accounting for Diet "fixed effects" helps to resolve the situation</span></span>
@@ -795,7 +809,7 @@ Observations: 578 (original) | 10 (compressed)</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time | Diet 
-points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(0,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 40 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co">#</span></span>
@@ -816,7 +830,7 @@ Observations: 578 (original) | 40 (compressed)</code></pre>
 <div class="cell-output cell-output-stdout">
 <pre><code>Binscatter Plot
 Formula: weight ~ Time | Diet 
-points = c(0,0) | line = NULL | nbins = 10 | binspos = 'qs'
+points = c(0,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 40 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># etc.</span></span>
