@@ -1754,13 +1754,11 @@ execute_compress_strategy = function(inputs) {
   coeftable = gen_coeftable(betahat, vcov_mat, max(nobs_orig - ncol(X), 1))
 
   # Coefficient names for xvars (excluding intercept and FE dummies)
+  # Match coefficients that start with any design_var name
   all_coef_names = rownames(coeftable)
-  fe_pattern = if (length(inputs$fe)) paste0("^(", paste(inputs$fe, collapse = "|"), ")") else NULL
-  coef_names = if (!is.null(fe_pattern)) {
-    all_coef_names[!grepl(fe_pattern, all_coef_names)]
-  } else {
-    all_coef_names[all_coef_names != "(Intercept)"]
-  }
+  all_coef_names = all_coef_names[all_coef_names != "(Intercept)"]
+  design_pattern = paste0("^(", paste(design_vars, collapse = "|"), ")")
+  coef_names = all_coef_names[grepl(design_pattern, all_coef_names)]
 
   return(
     list(
