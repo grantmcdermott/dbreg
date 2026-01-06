@@ -124,6 +124,27 @@ for (coef in rownames(fe_moments$coeftable)) {
 }
 
 #
+## Test mundlak strategy (numeric interaction) ----
+
+fml_mundlak = y2 ~ x1 * x3 | fe
+
+db_mundlak = dbreg(fml_mundlak, data = test_df, strategy = "mundlak")
+
+# Compare against manual mundlak via feols
+test_df_mundlak = transform(test_df, x1_bar = ave(x1, fe), x3_bar = ave(x3, fe))
+fe_mundlak = feols(y2 ~ x1 * x3 + x1_bar + x3_bar, data = test_df_mundlak)
+
+for (coef in c("x1", "x3", "x1:x3")) {
+  db_coef = map_coef_name(coef)
+  expect_equal(
+    db_mundlak$coeftable[db_coef, "estimate"],
+    fe_mundlak$coeftable[coef, "Estimate"],
+    tolerance = 1e-6,
+    info = paste("mundlak estimate for", coef)
+  )
+}
+
+#
 ## Test sql_only with interactions ----
 
 invisible(capture.output({
