@@ -90,6 +90,19 @@ print.dbreg = function(x, fe = FALSE, ...) {
   rownames(ct) = gsub("_x_", ":", rownames(ct), fixed = TRUE)
 
   print_coeftable(ct, gof_vals = gof_vals, has_fes = !is.null(x$fe))
+  
+  # Print collinearity info (like fixest)
+  collin_vars = x[["collin.var"]]
+  if (length(collin_vars) > 0) {
+    n_collin = length(collin_vars)
+    vars_str = paste(collin_vars, collapse = ", ")
+    if (n_collin == 1) {
+      cat(sprintf("1 variable was removed because of collinearity (%s)\n", vars_str))
+    } else {
+      cat(sprintf("%d variables were removed because of collinearity (%s)\n", n_collin, vars_str))
+    }
+  }
+  
   invisible(ct)
 }
 

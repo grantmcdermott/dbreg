@@ -1297,10 +1297,18 @@ execute_demean_strategy = function(inputs) {
     }
   }
 
+  # Detect and handle collinearity
+  collin = detect_collinearity(XtX, Xty, verbose = inputs$verbose)
+  XtX = collin$XtX
+  Xty = collin$Xty
+  xvar_names_kept = collin$keep_names
+  collin_vars = collin$drop_names
+
   solve_result = solve_with_fallback(XtX, Xty)
   betahat = solve_result$betahat
   XtX_inv = solve_result$XtX_inv
-  rownames(betahat) = xvar_names
+  rownames(betahat) = xvar_names_kept
+  p_kept = length(xvar_names_kept)
 
   rss = as.numeric(
     demean_df$sum_y_sq -
@@ -1308,17 +1316,17 @@ execute_demean_strategy = function(inputs) {
       t(betahat) %*% XtX %*% betahat
   )
   df_fe = n_fe1 + n_fe2 - 1
-  df_res = max(n_total - p - df_fe, 1)
+  df_res = max(n_total - p_kept - df_fe, 1)
   
   # Compute meat matrix if needed (HC1 or cluster)
   meat = NULL
-  n_params_cluster = p + df_fe  # K for CR1 correction
+  n_params_cluster = p_kept + df_fe  # K for CR1 correction
   is_athena = inherits(inputs$conn, "AthenaConnection")
   if (inputs$vcov_type_req == "hc1") {
     meat = compute_meat_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
-      vars = xvar_names,
+      vars = xvar_names_kept,
       yvar = inputs$yvar,
       betahat = betahat,
       is_athena = is_athena
@@ -1327,7 +1335,7 @@ execute_demean_strategy = function(inputs) {
     meat = compute_meat_cluster_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
-      vars = xvar_names,
+      vars = xvar_names_kept,
       yvar = inputs$yvar,
       betahat = betahat,
       cluster_var = inputs$cluster_var,
@@ -1338,7 +1346,7 @@ execute_demean_strategy = function(inputs) {
       nested_levels = count_nested_fe_levels(
         inputs$conn, inputs$from_statement, inputs$fe, inputs$cluster_var
       )
-      n_params_cluster = p + df_fe - nested_levels
+      n_params_cluster = p_kept + df_fe - nested_levels
     }
   }
   
@@ -1362,7 +1370,8 @@ execute_demean_strategy = function(inputs) {
     vcov = vcov_mat,
     fml = inputs$fml,
     yvar = inputs$yvar,
-    xvars = xvar_names,
+    xvars = xvar_names_kept,
+    collin.var = collin_vars,
     fe = inputs$fe,
     query_string = demean_sql,
     nobs = 1L,
@@ -1841,6 +1850,47 @@ execute_compress_strategy = function(inputs) {
       df_residual = max(nobs_orig - ncol(X), 1)
     )
   )
+}
+
+#' Detect and remove collinear columns from XtX matrix
+#' @keywords internal
+detect_collinearity = function(XtX, Xty, tol = 1e-10, verbose = FALSE) {
+  p = ncol(XtX)
+  var_names = colnames(XtX)
+  
+  qr_decomp = qr(XtX, tol = tol)
+  rank = qr_decomp$rank
+  
+  if (rank < p) {
+    keep_idx = qr_decomp$pivot[seq_len(rank)]
+    drop_idx = qr_decomp$pivot[(rank + 1):p]
+    drop_names = var_names[drop_idx]
+    keep_names = var_names[keep_idx]
+    
+    if (verbose) {
+      message(sprintf(
+        "[dbreg] %d variable(s) removed due to collinearity: %s",
+        length(drop_names),
+        paste(drop_names, collapse = ", ")
+      ))
+    }
+    
+    list(
+      XtX = XtX[keep_idx, keep_idx, drop = FALSE],
+      Xty = Xty[keep_idx, , drop = FALSE],
+      keep_names = keep_names,
+      drop_names = drop_names,
+      collinear = TRUE
+    )
+  } else {
+    list(
+      XtX = XtX,
+      Xty = Xty,
+      keep_names = var_names,
+      drop_names = character(0),
+      collinear = FALSE
+    )
+  }
 }
 
 #' Solve linear system using Cholesky but with QR fallback
