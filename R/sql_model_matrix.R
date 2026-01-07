@@ -13,6 +13,9 @@
 #'   kept as-is for grouping)
 #' @param sep Character separator for interaction term names. Default is
 #'   `"_x_"`. Use `":"` for standard R naming convention.
+#' @param fe_vars Character vector of fixed effect variable names. These are
+#'   treated as "in the model" for determining whether to drop reference levels
+#'   in interactions.
 #' @return List with:
 #'   - `select_exprs`: character vector of SQL expressions
 #'   - `col_names`: corresponding column names
@@ -33,7 +36,8 @@ sql_model_matrix = function(
   conn,
   table,
   expand = c("all", "interactions"),
-  sep = "_x_"
+  sep = "_x_",
+  fe_vars = character()
 ) {
   expand = match.arg(expand)
   
@@ -54,7 +58,7 @@ sql_model_matrix = function(
   result = list(select_exprs = character(), col_names = character())
   
   for (term in term_labels) {
-    expanded = expand_term(term, col_info, expand, sep)
+    expanded = expand_term(term, col_info, expand, sep, all_terms = unique(c(term_labels, fe_vars)), fe_vars = fe_vars)
     result$select_exprs = c(result$select_exprs, vapply(expanded, `[[`, character(1), "sql"))
     result$col_names = c(result$col_names, vapply(expanded, `[[`, character(1), "name"))
   }
@@ -98,7 +102,7 @@ get_column_info = function(conn, table, term_labels) {
 
 #' Expand a single term into SQL expressions
 #' @keywords internal
-expand_term = function(term, col_info, expand, sep = "_x_") {
+expand_term = function(term, col_info, expand, sep = "_x_", all_terms = character(), fe_vars = character()) {
   vars = strsplit(term, ":")[[1]]
   is_interaction = length(vars) > 1
   
@@ -109,7 +113,12 @@ expand_term = function(term, col_info, expand, sep = "_x_") {
   
   # Expand each variable
   expansions = lapply(vars, function(v) {
-    expand_variable(v, col_info, expand, is_interaction)
+    drop_ref = TRUE
+    if (is_interaction && identical(col_info$types[[v]], "factor")) {
+      other_term = paste(sort(setdiff(vars, v)), collapse = ":")
+      drop_ref = v %in% fe_vars || other_term %in% all_terms
+    }
+    expand_variable(v, col_info, expand, is_interaction, drop_ref)
   })
   
   # Cross product for interactions
@@ -118,7 +127,7 @@ expand_term = function(term, col_info, expand, sep = "_x_") {
 
 #' Expand a single variable into SQL expression(s)
 #' @keywords internal
-expand_variable = function(var, col_info, expand, in_interaction) {
+expand_variable = function(var, col_info, expand, in_interaction, drop_ref = TRUE) {
   is_factor = identical(col_info$types[[var]], "factor")
   
   # Only expand factors if: expand="all", OR variable is part of interaction
@@ -127,8 +136,10 @@ expand_variable = function(var, col_info, expand, in_interaction) {
     if (length(lvls) < 2) {
       return(list(list(sql = "1", name = paste0(var, "_constant"))))
     }
-    # Drop first level (reference)
-    lvls = lvls[-1]
+    # Drop first level (reference) only if appropriate
+    if (drop_ref) {
+      lvls = lvls[-1]
+    }
     lapply(lvls, function(lvl) {
       # Escape single quotes in level names
       lvl_escaped = gsub("'", "''", lvl)

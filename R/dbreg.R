@@ -866,7 +866,8 @@ execute_moments_strategy = function(inputs) {
       inputs$fml,
       inputs$conn,
       table_ref,
-      expand = "all"
+      expand = "all",
+      fe_vars = inputs$fe
     )
     xvars_sql = sql_design$select_exprs
     xvar_names = sql_design$col_names
@@ -1032,7 +1033,6 @@ execute_moments_strategy = function(inputs) {
 #' 
 #' @keywords internal
 execute_demean_strategy = function(inputs) {
-  # Interactions not yet supported for demean strategy
   # Handle interactions: expand to SQL expressions
 
   if (isTRUE(inputs$has_interactions)) {
@@ -1041,7 +1041,8 @@ execute_demean_strategy = function(inputs) {
       inputs$fml,
       inputs$conn,
       table_ref,
-      expand = "all"
+      expand = "all",
+      fe_vars = inputs$fe
     )
     xvars_sql = sql_design$select_exprs
     xvar_names = sql_design$col_names
@@ -1410,7 +1411,8 @@ execute_mundlak_strategy = function(inputs) {
       inputs$fml,
       inputs$conn,
       table_ref,
-      expand = "all"
+      expand = "all",
+      fe_vars = inputs$fe
     )
     xvars_sql = sql_design$select_exprs
     xvar_names = sql_design$col_names
@@ -1673,7 +1675,8 @@ execute_compress_strategy = function(inputs) {
       inputs$fml,
       inputs$conn,
       table_ref,
-      expand = "interactions"
+      expand = "interactions",
+      fe_vars = inputs$fe
     )
     
     # Build SELECT expressions with aliases
