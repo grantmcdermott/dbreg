@@ -1767,6 +1767,16 @@ execute_compress_strategy = function(inputs) {
   XtX = crossprod(Xw)
   XtY = crossprod(Xw, Yw)
 
+  # Detect and handle collinearity
+  collin = detect_collinearity(XtX, XtY, verbose = inputs$verbose)
+  XtX = collin$XtX
+  XtY = collin$Xty
+  collin_vars = collin$drop_names
+  if (collin$collinear) {
+    keep_idx = match(collin$keep_names, colnames(X))
+    X = X[, keep_idx, drop = FALSE]
+  }
+
   solve_result = solve_with_fallback(XtX, XtY)
   betahat = solve_result$betahat
   XtX_inv = solve_result$XtX_inv
@@ -1843,6 +1853,7 @@ execute_compress_strategy = function(inputs) {
       fml = inputs$fml,
       yvar = inputs$yvar,
       xvars = standardize_coef_names(inputs$xvars),
+      collin.var = standardize_coef_names(collin_vars),
       coef_names = coef_names,
       fe = inputs$fe,
       query_string = query_string,
