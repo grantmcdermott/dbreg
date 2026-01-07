@@ -63,6 +63,11 @@ Major new features
   `dbbinsreg()` function. This function attempts to mimic the main API of the
   **binsreg** package (modulo some simplifications), but should be much faster
   on big datasets. (#32)
+- Added support for interaction terms in formulas (e.g., `y ~ x1 * x2 | fe`).
+  Interactions are expanded to SQL via the new (user-facing)
+  `sql_model_matrix()` function and work with all acceleration strategies.
+  Collinear terms (e.g., treatment main effects absorbed by unit FEs in DiD
+  models) are automatically detected and dropped. (#48)
 
 Other new features
 
