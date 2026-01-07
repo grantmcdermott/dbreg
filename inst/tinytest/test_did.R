@@ -37,3 +37,22 @@ for (coef in test_coefs) {
   )
 }
 
+
+#
+## Test two-way FE (treat:period with id + period FE) ----
+
+fml_twfe = y ~ x1 + treat:period | id + period
+
+db_twfe = dbreg(fml_twfe, data = did, strategy = "demean")
+
+# Check key coefficients match fixest (same as above, period FE absorbs period main effects)
+test_coefs_twfe = c("x1", grep("^treat:", rownames(fe_did$coeftable), value = TRUE))
+
+for (coef in test_coefs_twfe) {
+  expect_equal(
+    db_twfe$coeftable[coef, "estimate"],
+    fe_did$coeftable[coef, "Estimate"],
+    tolerance = 1e-4,
+    info = paste("TWFE estimate for", coef)
+  )
+}
