@@ -9,7 +9,8 @@ sql_model_matrix(
   conn,
   table,
   expand = c("all", "interactions"),
-  sep = "_x_"
+  sep = "_x_",
+  fe_vars = character()
 )
 }
 \arguments{
@@ -26,6 +27,10 @@ kept as-is for grouping)}
 
 \item{sep}{Character separator for interaction term names. Default is
 `"_x_"`. Use `":"` for standard R naming convention.}
+
+\item{fe_vars}{Character vector of fixed effect variable names. These are
+treated as "in the model" for determining whether to drop reference levels
+in interactions.}
 }
 \value{
 List with:

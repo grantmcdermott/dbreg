@@ -4,7 +4,14 @@
 \alias{expand_term}
 \title{Expand a single term into SQL expressions}
 \usage{
-expand_term(term, col_info, expand, sep = "_x_")
+expand_term(
+  term,
+  col_info,
+  expand,
+  sep = "_x_",
+  all_terms = character(),
+  fe_vars = character()
+)
 }
 \description{
 Expand a single term into SQL expressions
