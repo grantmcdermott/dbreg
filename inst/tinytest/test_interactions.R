@@ -71,6 +71,28 @@ expect_equal(
 )
 
 #
+## Test interaction-only without main effect (all factor levels retained) ----
+
+fml_colon_only = y ~ x2:x1
+fe_colon_only = feols(fml_colon_only, data = test_df)
+db_colon_only = dbreg(fml_colon_only, data = test_df, strategy = "moments")
+
+# Should have all factor levels (a, b, c) since x1 is not a main effect
+expect_equal(
+  nrow(db_colon_only$coeftable),
+  nrow(fe_colon_only$coeftable),
+  info = "interaction-only retains all factor levels"
+)
+for (coef in rownames(fe_colon_only$coeftable)) {
+  expect_equal(
+    db_colon_only$coeftable[coef, "estimate"],
+    fe_colon_only$coeftable[coef, "Estimate"],
+    tolerance = 1e-6,
+    info = paste("interaction-only estimate for", coef)
+  )
+}
+
+#
 ## Test numeric × numeric interaction ----
 
 fml_num = y2 ~ x1 * x3 | fe

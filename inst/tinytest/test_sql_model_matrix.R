@@ -27,7 +27,8 @@ expect_true(grepl("CASE WHEN", res$select_exprs[2]), info = "factor SQL uses CAS
 
 res = sql_model_matrix(~ x1:x2, con, "test", expand = "all")
 
-expect_equal(res$col_names, c("x1_x_x2b", "x1_x_x2c"), info = "interaction names")
+# No main effect for x1, so all factor levels of x2 retained
+expect_equal(res$col_names, c("x1_x_x2a", "x1_x_x2b", "x1_x_x2c"), info = "interaction names")
 expect_true(all(grepl("\\*", res$select_exprs)), info = "interaction SQL uses multiplication")
 
 #
