@@ -1845,7 +1845,7 @@ execute_compress_strategy = function(inputs) {
   # Match coefficients that start with any design_var name
   all_coef_names = rownames(coeftable)
   all_coef_names = all_coef_names[all_coef_names != "(Intercept)"]
-  design_pattern = paste0("^(", paste(design_vars, collapse = "|"), ")")
+  design_pattern = paste0("^(", paste(standardize_coef_names(design_vars), collapse = "|"), ")")
   coef_names = all_coef_names[grepl(design_pattern, all_coef_names)]
 
   return(
