@@ -93,6 +93,22 @@ for (coef in rownames(fe_colon_only$coeftable)) {
 }
 
 #
+## Test compress strategy with interaction + main effect (x:z + z) ----
+
+fml_compress_int = y1 ~ x2:x1 + x2 | fe
+fe_compress_int = feols(fml_compress_int, data = test_df)
+db_compress_int = dbreg(fml_compress_int, data = test_df, strategy = "compress")
+
+for (coef in rownames(fe_compress_int$coeftable)) {
+  expect_equal(
+    db_compress_int$coeftable[coef, "estimate"],
+    fe_compress_int$coeftable[coef, "Estimate"],
+    tolerance = 1e-6,
+    info = paste("compress interaction+main estimate for", coef)
+  )
+}
+
+#
 ## Test numeric × numeric interaction ----
 
 fml_num = y2 ~ x1 * x3 | fe
