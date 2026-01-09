@@ -13,7 +13,8 @@ compute_meat_sql(
   is_athena = FALSE,
   var_suffix = "_tilde",
   cte_name = "demeaned",
-  has_intercept = FALSE
+  has_intercept = FALSE,
+  vars_sql = NULL
 )
 }
 \description{

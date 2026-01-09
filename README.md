@@ -250,12 +250,62 @@ The [Acceleration Strategies](https://grantmcdermott.com/dbreg/man/dbreg.html#ac
 section of the `?dbreg` helpfile contains a lot detail about the different
 options and tradeoffs involved, so please do consult the documentation.
 
+## Bonus: Binscatter + interactions
+
+The companion `dbbinsreg()` function provides a quick way to visualize
+relationships in large datasets. Here we plot average tips by month:
+
+```r
+dbbinsreg(
+   tip_amount ~ month, nbins = 12, line = TRUE,
+   path = "read_parquet('nyc-taxi/**/*.parquet')"
+)
+```
+![](man/figures/nyc-tips-by-month.png)
+
+The plot reveals a striking jump in tips starting in September. We can
+investigate whether this jump differed by taxi vendor using an interaction
+model. First, create a view with a post-September indicator:
+
+```r
+dbExecute(con, "
+   CREATE VIEW nyc_post AS
+   SELECT 
+      tip_amount, vendor_name, month,
+      CAST(month >= 9 AS INTEGER) AS post
+   FROM read_parquet('nyc-taxi/**/*.parquet')
+")
+```
+
+Then run a DiD-style regression:
+
+```r
+dbreg(
+   tip_amount ~ post * vendor_name | month,
+   conn = con,
+   table = "nyc_post"
+)
+#> Compressed OLS estimation, Dep. Var.: tip_amount 
+#> Observations.: 178,544,324 (original) | 24 (compressed) 
+#> Standard Errors: IID 
+#>                      Estimate Std. Error  t value  Pr(>|t|)    
+#> post                 0.226457   0.000768 295.0536 < 2.2e-16 ***
+#> vendor_nameVTS      -0.009126   0.000349 -26.1327 < 2.2e-16 ***
+#> post:vendor_nameVTS  0.006936   0.000615  11.2757 < 2.2e-16 ***
+#> ---
+#> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+#> RMSE: 1.9                 Adj. R2: 0.002497
+#> 1 variable was removed because of collinearity (month12)
+```
+
+The results confirm a $0.23 jump in tips post-September, with a small
+additional increase for VTS taxis.
+
 ## Limitations
 
 **dbreg** is a maturing package and there are a number of features that we still
 plan to add before submitting it to CRAN. (See our
-[TO-DO](https://github.com/grantmcdermott/dbreg/issues/5) list.) We also don't
-yet support some standard R operations like interaction terms in the formula. At 
+[TO-DO](https://github.com/grantmcdermott/dbreg/issues/5) list.) At 
 the same time, the core `dbreg()` routine has been tested pretty thoroughly and
 should work in standard cases. Please help us by kicking the tyres and creating
 GitHub issues for both bug reports and feature requests.

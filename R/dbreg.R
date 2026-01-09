@@ -9,8 +9,9 @@
 #'
 #' @param fml A \code{\link[stats]{formula}} representing the relation to be
 #' estimated. Fixed effects should be included after a pipe, e.g
-#' `fml = y ~ x1 + x2 | fe1 + f2`. Currently, only simple additive terms
-#' are supported (i.e., no interaction terms, transformations or literals).
+#' `fml = y ~ x1 + x2 | fe1 + f2`. Interaction terms are supported using
+#' standard R syntax (`:` for interactions, `*` for main effects plus
+#' interaction). Transformations and literals are not yet supported.
 #' @param conn Database connection, e.g. created with
 #' \code{\link[DBI]{dbConnect}}. Can be either persistent (disk-backed) or
 #' ephemeral (in-memory). If no connection is provided, then an ephemeral
@@ -244,6 +245,10 @@
 #' dbreg(weight ~ Time | Diet + Chick, data = ChickWeight, strategy = "mundlak") # two-way Mundlak
 #' dbreg(weight ~ Time, data = ChickWeight, strategy = "moments") # no FEs
 #' # etc.
+#' 
+#' # Interactions: does the effect of Time vary by Diet?
+#' # (Diet main effects are collinear with Chick FE, so these drop out)
+#' dbreg(weight ~ Time * Diet | Chick, data = ChickWeight)
 #' 
 #' #
 #' ## DBI connection ----
@@ -489,7 +494,13 @@ process_dbreg_inputs = function(
     stop("Exactly one outcome variable required.")
   }
 
-  xvars = all.vars(formula(fml, lhs = 0, rhs = 1))
+  # Get term structure (preserves interactions)
+  rhs1 = formula(fml, lhs = 0, rhs = 1)
+  tt = terms(rhs1)
+  term_labels = attr(tt, "term.labels")
+  xvars = all.vars(rhs1)  # unique variable names (for column validation)
+  has_interactions = any(grepl(":", term_labels))
+  
   fe = if (length(fml)[2] > 1) {
     all.vars(formula(fml, lhs = 0, rhs = 2))
   } else {
@@ -554,6 +565,8 @@ process_dbreg_inputs = function(
     fml = fml,
     yvar = yvar,
     xvars = xvars,
+    term_labels = term_labels,
+    has_interactions = has_interactions,
     fe = fe,
     conn = conn,
     from_statement = from_statement,
@@ -845,24 +858,48 @@ choose_strategy = function(inputs) {
 #' Execute moments strategy (no fixed effects)
 #' @keywords internal
 execute_moments_strategy = function(inputs) {
+  # Get SQL expressions for design matrix terms
+  # For interactions/factors, this expands to CASE WHEN expressions
+  if (isTRUE(inputs$has_interactions)) {
+    table_ref = sub("^FROM\\s+", "", inputs$from_statement, ignore.case = TRUE)
+    sql_design = sql_model_matrix(
+      inputs$fml,
+      inputs$conn,
+      table_ref,
+      expand = "all",
+      fe_vars = inputs$fe
+    )
+    xvars_sql = sql_design$select_exprs
+    xvar_names = sql_design$col_names
+  } else {
+    xvars_sql = inputs$xvars
+    xvar_names = inputs$xvars
+  }
+  
   pair_exprs = c(
     "COUNT(*) AS n_total",
     glue("SUM({inputs$yvar}) AS sum_y"),
     glue("SUM({inputs$yvar}*{inputs$yvar}) AS sum_y_sq")
   )
-  for (x in inputs$xvars) {
+  for (i in seq_along(xvars_sql)) {
+    x_sql = xvars_sql[i]
+    x_name = xvar_names[i]
     pair_exprs = c(
       pair_exprs,
-      glue("SUM({x}) AS sum_{x}"),
-      glue("SUM({x}*{inputs$yvar}) AS sum_{x}_y"),
-      glue("SUM({x}*{x}) AS sum_{x}_{x}")
+      glue("SUM({x_sql}) AS sum_{x_name}"),
+      glue("SUM(({x_sql})*{inputs$yvar}) AS sum_{x_name}_y"),
+      glue("SUM(({x_sql})*({x_sql})) AS sum_{x_name}_{x_name}")
     )
   }
-  xpairs = gen_xvar_pairs(inputs$xvars)
-  for (pair in xpairs) {
-    xi = pair[1]
-    xj = pair[2]
-    pair_exprs = c(pair_exprs, glue("SUM({xi}*{xj}) AS sum_{xi}_{xj}"))
+  xpairs = gen_xvar_pairs(xvar_names)
+  for (k in seq_along(xpairs)) {
+    i = match(xpairs[[k]][1], xvar_names)
+    j = match(xpairs[[k]][2], xvar_names)
+    xi_sql = xvars_sql[i]
+    xj_sql = xvars_sql[j]
+    xi_name = xvar_names[i]
+    xj_name = xvar_names[j]
+    pair_exprs = c(pair_exprs, glue("SUM(({xi_sql})*({xj_sql})) AS sum_{xi_name}_{xj_name}"))
   }
   
   # CTE structure for HC1 meat computation
@@ -887,14 +924,14 @@ execute_moments_strategy = function(inputs) {
   }
   n_total = moments_df$n_total
 
-  vars_all = c("(Intercept)", inputs$xvars)
+  vars_all = c("(Intercept)", xvar_names)
   p = length(vars_all)
   XtX = matrix(0, p, p, dimnames = list(vars_all, vars_all))
   Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
 
   XtX["(Intercept)", "(Intercept)"] = n_total
   Xty["(Intercept)", ] = moments_df$sum_y
-  for (x in inputs$xvars) {
+  for (x in xvar_names) {
     sx = moments_df[[paste0("sum_", x)]]
     sxx = moments_df[[paste0("sum_", x, "_", x)]]
     sxy = moments_df[[paste0("sum_", x, "_y")]]
@@ -902,7 +939,7 @@ execute_moments_strategy = function(inputs) {
     XtX[x, x] = sxx
     Xty[x, ] = sxy
   }
-  xpairs = gen_xvar_pairs(inputs$xvars)
+  xpairs = gen_xvar_pairs(xvar_names)
   for (pair in xpairs) {
     xi = pair[1]
     xj = pair[2]
@@ -933,7 +970,8 @@ execute_moments_strategy = function(inputs) {
     meat = compute_meat_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
-      vars = inputs$xvars,
+      vars = xvar_names,
+      vars_sql = xvars_sql,
       yvar = inputs$yvar,
       betahat = betahat,
       is_athena = is_athena,
@@ -945,7 +983,8 @@ execute_moments_strategy = function(inputs) {
     meat = compute_meat_cluster_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
-      vars = inputs$xvars,
+      vars = xvar_names,
+      vars_sql = xvars_sql,
       yvar = inputs$yvar,
       betahat = betahat,
       cluster_var = inputs$cluster_var,
@@ -976,7 +1015,7 @@ execute_moments_strategy = function(inputs) {
     vcov = vcov_mat,
     fml = inputs$fml,
     yvar = inputs$yvar,
-    xvars = inputs$xvars,
+    xvars = standardize_coef_names(inputs$xvars),
     fe = NULL,
     query_string = moments_sql,
     nobs = 1L,
@@ -994,25 +1033,50 @@ execute_moments_strategy = function(inputs) {
 #' 
 #' @keywords internal
 execute_demean_strategy = function(inputs) {
-  all_vars = c(inputs$yvar, inputs$xvars)
+  # Handle interactions: expand to SQL expressions
+
+  if (isTRUE(inputs$has_interactions)) {
+    table_ref = sub("^FROM\\s+", "", inputs$from_statement, ignore.case = TRUE)
+    sql_design = sql_model_matrix(
+      inputs$fml,
+      inputs$conn,
+      table_ref,
+      expand = "all",
+      fe_vars = inputs$fe
+    )
+    xvars_sql = sql_design$select_exprs
+    xvar_names = sql_design$col_names
+  } else {
+    xvars_sql = inputs$xvars
+    xvar_names = inputs$xvars
+  }
+  
+  all_var_names = c(inputs$yvar, xvar_names)
+  all_var_sql = c(inputs$yvar, xvars_sql)
   
   if (length(inputs$fe) == 1) {
     # Single FE: simple within-group demeaning
     fe1 = inputs$fe[1]
-
+    
+    # Build base CTE with expanded columns
+    base_select = c(fe1, inputs$yvar)
+    for (i in seq_along(xvar_names)) {
+      base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
+    }
+    
     means_cols = paste(
-      sprintf("AVG(%s) AS %s_mean", all_vars, all_vars),
+      sprintf("AVG(%s) AS %s_mean", all_var_names, all_var_names),
       collapse = ", "
     )
     tilde_exprs = paste(
-      sprintf("(b.%s - gm.%s_mean) AS %s_tilde", all_vars, all_vars, all_vars),
+      sprintf("(b.%s - gm.%s_mean) AS %s_tilde", all_var_names, all_var_names, all_var_names),
       collapse = ",\n       "
     )
 
     # CTE part (reusable for HC1 meat computation)
     cte_sql = paste0(
       "WITH base AS (
-      SELECT * ",
+      SELECT ", paste(base_select, collapse = ", "), " ",
       inputs$from_statement,
       "
       ),
@@ -1056,27 +1120,33 @@ execute_demean_strategy = function(inputs) {
     # Two FE: double demeaning
     fe1 = inputs$fe[1]
     fe2 = inputs$fe[2]
+    
+    # Build base CTE with expanded columns
+    base_select = c(fe1, fe2, inputs$yvar)
+    for (i in seq_along(xvar_names)) {
+      base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
+    }
 
     unit_means_cols = paste(
-      sprintf("AVG(%s) AS %s_u", all_vars, all_vars),
+      sprintf("AVG(%s) AS %s_u", all_var_names, all_var_names),
       collapse = ", "
     )
     time_means_cols = paste(
-      sprintf("AVG(%s) AS %s_t", all_vars, all_vars),
+      sprintf("AVG(%s) AS %s_t", all_var_names, all_var_names),
       collapse = ", "
     )
     overall_cols = paste(
-      sprintf("AVG(%s) AS %s_o", all_vars, all_vars),
+      sprintf("AVG(%s) AS %s_o", all_var_names, all_var_names),
       collapse = ", "
     )
     tilde_exprs = paste(
       sprintf(
         "(b.%s - um.%s_u - tm.%s_t + o.%s_o) AS %s_tilde",
-        all_vars,
-        all_vars,
-        all_vars,
-        all_vars,
-        all_vars
+        all_var_names,
+        all_var_names,
+        all_var_names,
+        all_var_names,
+        all_var_names
       ),
       collapse = ",\n       "
     )
@@ -1084,7 +1154,7 @@ execute_demean_strategy = function(inputs) {
     # CTE part (reusable for HC1 meat computation)
     cte_sql = paste0(
       "WITH base AS (
-      SELECT * ",
+      SELECT ", paste(base_select, collapse = ", "), " ",
       inputs$from_statement,
       "
       ),
@@ -1150,37 +1220,30 @@ execute_demean_strategy = function(inputs) {
   }
 
   # Add moment terms for xvars (shared by both 1-FE and 2-FE cases)
-  for (x in inputs$xvars) {
+  # Use numeric indices for column aliases to avoid naming collisions
+  for (i in seq_along(xvar_names)) {
+    x = xvar_names[i]
     moment_terms = c(
       moment_terms,
       sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-        x,
-        inputs$yvar,
-        x,
-        inputs$yvar
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_y",
+        x, inputs$yvar, i
       ),
       sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-        x,
-        x,
-        x,
-        x
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_%d",
+        x, x, i, i
       )
     )
   }
-  xpairs = gen_xvar_pairs(inputs$xvars)
+  xpairs = gen_xvar_pairs(xvar_names)
   for (pair in xpairs) {
-    xi = pair[1]
-    xj = pair[2]
+    i = match(pair[1], xvar_names)  # larger index (i > j in gen_xvar_pairs)
+    j = match(pair[2], xvar_names)  # smaller index
     moment_terms = c(
       moment_terms,
       sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%s_%s",
-        xi,
-        xj,
-        xi,
-        xj
+        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_%d",
+        pair[2], pair[1], j, i  # store as sum_smaller_larger
       )
     )
   }
@@ -1221,32 +1284,36 @@ execute_demean_strategy = function(inputs) {
   n_fe1 = demean_df$n_fe1
   n_fe2 = demean_df$n_fe2
 
-  vars_all = inputs$xvars # No intercept for FE models
-  p = length(vars_all)
-  XtX = matrix(0, p, p, dimnames = list(vars_all, vars_all))
-  Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
+  p = length(xvar_names)
+  XtX = matrix(0, p, p, dimnames = list(xvar_names, xvar_names))
+  Xty = matrix(0, p, 1, dimnames = list(xvar_names, ""))
 
-  for (x in inputs$xvars) {
-    XtX[x, x] = demean_df[[sprintf("sum_%s_%s", x, x)]]
-    Xty[x, ] = demean_df[[sprintf("sum_%s_%s", x, inputs$yvar)]]
+  for (i in seq_along(xvar_names)) {
+    XtX[i, i] = demean_df[[sprintf("sum_%d_%d", i, i)]]
+    Xty[i, ] = demean_df[[sprintf("sum_%d_y", i)]]
   }
-  if (length(inputs$xvars) > 1) {
-    for (i in seq_along(inputs$xvars)) {
-      if (i == 1) {
-        next
-      }
+  if (length(xvar_names) > 1) {
+    for (i in seq_along(xvar_names)) {
+      if (i == 1) next
       for (j in seq_len(i - 1)) {
-        xi = inputs$xvars[i]
-        xj = inputs$xvars[j]
-        XtX[xi, xj] = XtX[xj, xi] = demean_df[[sprintf("sum_%s_%s", xi, xj)]]
+        # Pairs stored as sum_j_i where j < i
+        XtX[i, j] = XtX[j, i] = demean_df[[sprintf("sum_%d_%d", j, i)]]
       }
     }
   }
 
+  # Detect and handle collinearity
+  collin = detect_collinearity(XtX, Xty, verbose = inputs$verbose)
+  XtX = collin$XtX
+  Xty = collin$Xty
+  xvar_names_kept = collin$keep_names
+  collin_vars = collin$drop_names
+
   solve_result = solve_with_fallback(XtX, Xty)
   betahat = solve_result$betahat
   XtX_inv = solve_result$XtX_inv
-  rownames(betahat) = vars_all
+  rownames(betahat) = xvar_names_kept
+  p_kept = length(xvar_names_kept)
 
   rss = as.numeric(
     demean_df$sum_y_sq -
@@ -1254,17 +1321,17 @@ execute_demean_strategy = function(inputs) {
       t(betahat) %*% XtX %*% betahat
   )
   df_fe = n_fe1 + n_fe2 - 1
-  df_res = max(n_total - p - df_fe, 1)
+  df_res = max(n_total - p_kept - df_fe, 1)
   
   # Compute meat matrix if needed (HC1 or cluster)
   meat = NULL
-  n_params_cluster = p + df_fe  # K for CR1 correction
+  n_params_cluster = p_kept + df_fe  # K for CR1 correction
   is_athena = inherits(inputs$conn, "AthenaConnection")
   if (inputs$vcov_type_req == "hc1") {
     meat = compute_meat_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
-      vars = inputs$xvars,
+      vars = xvar_names_kept,
       yvar = inputs$yvar,
       betahat = betahat,
       is_athena = is_athena
@@ -1273,7 +1340,7 @@ execute_demean_strategy = function(inputs) {
     meat = compute_meat_cluster_sql(
       conn = inputs$conn,
       cte_sql = cte_sql,
-      vars = inputs$xvars,
+      vars = xvar_names_kept,
       yvar = inputs$yvar,
       betahat = betahat,
       cluster_var = inputs$cluster_var,
@@ -1284,7 +1351,7 @@ execute_demean_strategy = function(inputs) {
       nested_levels = count_nested_fe_levels(
         inputs$conn, inputs$from_statement, inputs$fe, inputs$cluster_var
       )
-      n_params_cluster = p + df_fe - nested_levels
+      n_params_cluster = p_kept + df_fe - nested_levels
     }
   }
   
@@ -1308,7 +1375,8 @@ execute_demean_strategy = function(inputs) {
     vcov = vcov_mat,
     fml = inputs$fml,
     yvar = inputs$yvar,
-    xvars = inputs$xvars,
+    xvars = standardize_coef_names(xvar_names_kept),
+    collin.var = standardize_coef_names(collin_vars),
     fe = inputs$fe,
     query_string = demean_sql,
     nobs = 1L,
@@ -1328,7 +1396,6 @@ execute_demean_strategy = function(inputs) {
 #'
 #' @keywords internal
 execute_mundlak_strategy = function(inputs) {
-  xvars = inputs$xvars
   yvar = inputs$yvar
   fe = inputs$fe
   n_fe = length(fe)
@@ -1337,41 +1404,89 @@ execute_mundlak_strategy = function(inputs) {
     stop("mundlak strategy requires at least one fixed effect")
   }
 
+  # Handle interactions: expand to SQL expressions
+  if (isTRUE(inputs$has_interactions)) {
+    table_ref = sub("^FROM\\s+", "", inputs$from_statement, ignore.case = TRUE)
+    sql_design = sql_model_matrix(
+      inputs$fml,
+      inputs$conn,
+      table_ref,
+      expand = "all",
+      fe_vars = inputs$fe
+    )
+    xvars_sql = sql_design$select_exprs
+    xvar_names = sql_design$col_names
+  } else {
+    xvars_sql = inputs$xvars
+    xvar_names = inputs$xvars
+  }
+  
+  # Build base CTE with expanded columns AND original xvars (for group means)
+  base_select = c(fe, yvar, inputs$xvars)
+  for (i in seq_along(xvar_names)) {
+    # Only add expanded terms that aren't already in original xvars
+    if (!xvar_names[i] %in% inputs$xvars) {
+      base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
+    }
+  }
+
   # Build group means CTEs and join clauses for each FE
   cte_parts = character(0)
   join_parts = character(0)
   xbar_all = character(0)
 
+  # Build group means CTEs using ORIGINAL numeric xvars only
+  # (can't compute AVG on factors; their means are handled via expanded dummies)
+  # This follows the Mundlak/CRE approach of controlling for correlation
+  # between original covariates and the FE
+  if (isTRUE(inputs$has_interactions)) {
+    # Filter to numeric vars only (factors are in sql_design$factor_levels)
+    factor_vars = names(sql_design$factor_levels)
+    numeric_xvars = setdiff(inputs$xvars, factor_vars)
+  } else {
+    numeric_xvars = inputs$xvars
+  }
+  
   for (k in seq_along(fe)) {
     fe_k = fe[k]
     suffix = paste0("_bar_", fe_k)
-    xbar_k = paste0(xvars, suffix)
-    xbar_all = c(xbar_all, xbar_k)
-
-    means_cols = paste(sprintf("AVG(%s) AS %s", xvars, xbar_k), collapse = ", ")
-    cte_parts = c(cte_parts, sprintf(
-      "fe%d_means AS (SELECT %s, %s FROM base GROUP BY %s)",
-      k, fe_k, means_cols, fe_k
-    ))
+    
+    if (length(numeric_xvars) > 0) {
+      xbar_k = paste0(numeric_xvars, suffix)
+      xbar_all = c(xbar_all, xbar_k)
+      means_cols = paste(sprintf("AVG(%s) AS %s", numeric_xvars, xbar_k), collapse = ", ")
+      cte_parts = c(cte_parts, sprintf(
+        "fe%d_means AS (SELECT %s, %s FROM base GROUP BY %s)",
+        k, fe_k, means_cols, fe_k
+      ))
+    } else {
+      # No numeric vars - just select FE for joining
+      cte_parts = c(cte_parts, sprintf(
+        "fe%d_means AS (SELECT DISTINCT %s FROM base)",
+        k, fe_k
+      ))
+    }
     join_parts = c(join_parts, sprintf(
       "JOIN fe%d_means m%d ON b.%s = m%d.%s",
       k, k, fe_k, k, fe_k
     ))
   }
 
-  # Select columns for augmented table
-  aug_select_parts = "b.*"
+  # Select columns for augmented table (include FE for counting)
+  aug_select_parts = c(sprintf("b.%s", fe), sprintf("b.%s", yvar), sprintf("b.%s", xvar_names))
   for (k in seq_along(fe)) {
-    suffix = paste0("_bar_", fe[k])
-    xbar_k = paste0(xvars, suffix)
-    aug_select_parts = c(aug_select_parts, paste0("m", k, ".", xbar_k))
+    if (length(numeric_xvars) > 0) {
+      suffix = paste0("_bar_", fe[k])
+      xbar_k = paste0(numeric_xvars, suffix)
+      aug_select_parts = c(aug_select_parts, paste0("m", k, ".", xbar_k))
+    }
   }
   aug_select = paste(aug_select_parts, collapse = ", ")
 
-  # All regressors: original X plus all group means
-  all_regressors = c(xvars, xbar_all)
+  # All regressors: expanded X plus group means of numeric xvars
+  all_regressors = c(xvar_names, xbar_all)
 
-  # Build moment terms
+  # Build moment terms using numeric indices
   moment_terms = c(
     sql_count(inputs$conn, "n_total"),
     if (n_fe >= 1) sql_count(inputs$conn, "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
@@ -1381,12 +1496,12 @@ execute_mundlak_strategy = function(inputs) {
   )
 
   # sum(X_j) and sum(X_j * Y) for each regressor
-
-  for (v in all_regressors) {
+  for (i in seq_along(all_regressors)) {
+    v = all_regressors[i]
     moment_terms = c(
       moment_terms,
-      sprintf("SUM(CAST(%s AS FLOAT)) AS sum_%s", v, v),
-      sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%s_%s", v, yvar, v, yvar)
+      sprintf("SUM(CAST(%s AS FLOAT)) AS sum_%d", v, i),
+      sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%d_y", v, yvar, i)
     )
   }
 
@@ -1397,14 +1512,14 @@ execute_mundlak_strategy = function(inputs) {
       vj = all_regressors[j]
       moment_terms = c(
         moment_terms,
-        sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%s_%s", vi, vj, vi, vj)
+        sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%d_%d", vi, vj, i, j)
       )
     }
   }
 
   # CTE part (reusable for HC1 meat computation)
   cte_sql = paste0(
-    "WITH base AS (SELECT * ", inputs$from_statement, "),\n",
+    "WITH base AS (SELECT ", paste(base_select, collapse = ", "), " ", inputs$from_statement, "),\n",
     paste(cte_parts, collapse = ",\n"), ",\n",
     "augmented AS (SELECT ", aug_select, " FROM base b ", paste(join_parts, collapse = " "), ")"
   )
@@ -1444,23 +1559,21 @@ execute_mundlak_strategy = function(inputs) {
   Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
 
   # Intercept terms
-  XtX["(Intercept)", "(Intercept)"] = n_total
-  Xty["(Intercept)", ] = mundlak_df$sum_y
+  XtX[1, 1] = n_total
+  Xty[1, ] = mundlak_df$sum_y
 
-  # Regressor terms
-  for (v in all_regressors) {
-    XtX["(Intercept)", v] = XtX[v, "(Intercept)"] = mundlak_df[[paste0("sum_", v)]]
-    XtX[v, v] = mundlak_df[[paste0("sum_", v, "_", v)]]
-    Xty[v, ] = mundlak_df[[paste0("sum_", v, "_", yvar)]]
+  # Regressor terms (using numeric indices)
+  for (i in seq_along(all_regressors)) {
+    XtX[1, i + 1] = XtX[i + 1, 1] = mundlak_df[[sprintf("sum_%d", i)]]
+    XtX[i + 1, i + 1] = mundlak_df[[sprintf("sum_%d_%d", i, i)]]
+    Xty[i + 1, ] = mundlak_df[[sprintf("sum_%d_y", i)]]
   }
 
   # Cross-terms
   for (i in seq_along(all_regressors)) {
     for (j in seq_along(all_regressors)) {
       if (i < j) {
-        vi = all_regressors[i]
-        vj = all_regressors[j]
-        XtX[vi, vj] = XtX[vj, vi] = mundlak_df[[paste0("sum_", vi, "_", vj)]]
+        XtX[i + 1, j + 1] = XtX[j + 1, i + 1] = mundlak_df[[sprintf("sum_%d_%d", i, j)]]
       }
     }
   }
@@ -1530,7 +1643,7 @@ execute_mundlak_strategy = function(inputs) {
     vcov = vcov_mat,
     fml = inputs$fml,
     yvar = yvar,
-    xvars = xvars,
+    xvars = standardize_coef_names(xvar_names),
     fe = fe,
     query_string = mundlak_sql,
     nobs = 1L,
@@ -1552,13 +1665,42 @@ execute_compress_strategy = function(inputs) {
     from_statement = glue("FROM (SELECT * {from_statement})")
   }
 
-  group_cols = c(inputs$xvars, inputs$fe)
+  # Handle interactions: expand to SQL expressions
+  if (isTRUE(inputs$has_interactions)) {
+    # Extract table name from FROM statement for sql_model_matrix
+    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
+    
+    # Get SQL expansions for RHS terms (expand interactions only, keep main effects as-is)
+    sql_design = sql_model_matrix(
+      inputs$fml,
+      inputs$conn,
+      table_ref,
+      expand = "interactions",
+      fe_vars = inputs$fe
+    )
+    
+    # Build SELECT expressions with aliases
+    select_exprs = paste0(sql_design$select_exprs, " AS ", sql_design$col_names)
+    xvars_sql = paste(select_exprs, collapse = ", ")
+    xvar_names = sql_design$col_names
+  } else {
+    xvars_sql = paste(inputs$xvars, collapse = ", ")
+    xvar_names = inputs$xvars
+  }
+  
+  # FE columns (no expansion needed - used for grouping)
+  fe_sql = if (length(inputs$fe)) paste(inputs$fe, collapse = ", ") else NULL
+  
+  # Combined columns for SELECT and GROUP BY
+  all_cols_sql = if (!is.null(fe_sql)) paste(xvars_sql, fe_sql, sep = ", ") else xvars_sql
+  group_cols = if (!is.null(fe_sql)) c(xvar_names, inputs$fe) else xvar_names
   group_cols_sql = paste(group_cols, collapse = ", ")
+  
   query_string = paste0(
     "WITH cte AS (
     SELECT
         ",
-    group_cols_sql,
+    all_cols_sql,
     ",
         COUNT(*) AS n,
         SUM(",
@@ -1611,8 +1753,11 @@ execute_compress_strategy = function(inputs) {
     return(compressed_dat)
   }
 
+  # Build design matrix
+  # Use expanded column names if interactions were present
+  design_vars = if (isTRUE(inputs$has_interactions)) xvar_names else inputs$xvars
   X = sparse.model.matrix(
-    reformulate(c(inputs$xvars, inputs$fe)),
+    reformulate(c(design_vars, inputs$fe)),
     compressed_dat
   )
   if (ncol(X) == 0) {
@@ -1624,6 +1769,16 @@ execute_compress_strategy = function(inputs) {
   Yw = Y * wts
   XtX = crossprod(Xw)
   XtY = crossprod(Xw, Yw)
+
+  # Detect and handle collinearity
+  collin = detect_collinearity(XtX, XtY, verbose = inputs$verbose)
+  XtX = collin$XtX
+  XtY = collin$Xty
+  collin_vars = collin$drop_names
+  if (collin$collinear) {
+    keep_idx = match(collin$keep_names, colnames(X))
+    X = X[, keep_idx, drop = FALSE]
+  }
 
   solve_result = solve_with_fallback(XtX, XtY)
   betahat = solve_result$betahat
@@ -1686,6 +1841,13 @@ execute_compress_strategy = function(inputs) {
 
   coeftable = gen_coeftable(betahat, vcov_mat, max(nobs_orig - ncol(X), 1))
 
+  # Coefficient names for xvars (excluding intercept and FE dummies)
+  # Match coefficients that start with any design_var name
+  all_coef_names = rownames(coeftable)
+  all_coef_names = all_coef_names[all_coef_names != "(Intercept)"]
+  design_pattern = paste0("^(", paste(standardize_coef_names(design_vars), collapse = "|"), ")")
+  coef_names = all_coef_names[grepl(design_pattern, all_coef_names)]
+
   return(
     list(
       coeftable = coeftable,
@@ -1693,7 +1855,9 @@ execute_compress_strategy = function(inputs) {
       vcov = vcov_mat,
       fml = inputs$fml,
       yvar = inputs$yvar,
-      xvars = inputs$xvars,
+      xvars = standardize_coef_names(inputs$xvars),
+      collin.var = standardize_coef_names(collin_vars),
+      coef_names = coef_names,
       fe = inputs$fe,
       query_string = query_string,
       nobs = nobs_comp,
@@ -1704,24 +1868,6 @@ execute_compress_strategy = function(inputs) {
       df_residual = max(nobs_orig - ncol(X), 1)
     )
   )
-}
-
-#' Solve linear system using Cholesky but with QR fallback
-#' @keywords internal
-solve_with_fallback = function(XtX, Xty) {
-  Rch = tryCatch(chol(XtX), error = function(e) NULL)
-  if (is.null(Rch)) {
-    # Cholesky failed, use QR fallback
-    qr_decomp = qr(XtX)
-    betahat = qr.solve(qr_decomp, Xty)
-    XtX_inv = qr.solve(qr_decomp, diag(ncol(XtX)))
-  } else {
-    # Cholesky succeeded
-    betahat = backsolve(Rch, forwardsolve(Matrix::t(Rch), Xty))
-    XtX_inv = chol2inv(Rch)
-  }
-  dimnames(XtX_inv) = dimnames(XtX)
-  list(betahat = betahat, XtX_inv = XtX_inv)
 }
 
 #' Count levels of FE variables nested within cluster variable
@@ -1817,9 +1963,12 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
                             is_athena = FALSE, 
                             var_suffix = "_tilde",
                             cte_name = "demeaned",
-                            has_intercept = FALSE) {
-  # Build variable names with suffix
-  vars_sql = paste0(vars, var_suffix)
+                            has_intercept = FALSE,
+                            vars_sql = NULL) {
+  # Build variable SQL expressions (use provided or construct from suffix)
+  if (is.null(vars_sql)) {
+    vars_sql = paste0(vars, var_suffix)
+  }
   yvar_sql = paste0(yvar, var_suffix)
   
   # Extract beta values (betahat may be a matrix)
@@ -1841,37 +1990,28 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
     resid_expr = sprintf("(%s - (%s))", yvar_sql, beta_terms)
   }
   
-  # Build meat terms: SUM(e^2 * xi * xj) for all pairs including diagonal
-  # If has_intercept, include intercept as first "variable" (value = 1)
+  # Build meat terms using numeric indices to avoid naming collisions
+  # (variable names may contain underscores from interaction terms)
   meat_terms = character(0)
   
   if (has_intercept) {
-    # Intercept-intercept term: SUM(e^2 * 1 * 1) = SUM(e^2)
     meat_terms = c(meat_terms, sprintf(
-      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_intercept_intercept",
+      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_0_0",
       resid_expr, resid_expr
     ))
-    # Intercept-variable terms: SUM(e^2 * 1 * xj) = SUM(e^2 * xj)
     for (j in seq_along(vars)) {
-      vj = vars[j]
-      vj_sql = paste0(vj, var_suffix)
       meat_terms = c(meat_terms, sprintf(
-        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_intercept_%s",
-        resid_expr, resid_expr, vj_sql, vj
+        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_0_%d",
+        resid_expr, resid_expr, vars_sql[j], j
       ))
     }
   }
   
-  # Variable-variable terms
   for (i in seq_along(vars)) {
     for (j in i:length(vars)) {
-      vi = vars[i]
-      vj = vars[j]
-      vi_sql = paste0(vi, var_suffix)
-      vj_sql = paste0(vj, var_suffix)
       meat_terms = c(meat_terms, sprintf(
-        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_%s_%s",
-        resid_expr, resid_expr, vi_sql, vj_sql, vi, vj
+        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_%d_%d",
+        resid_expr, resid_expr, vars_sql[i], vars_sql[j], i, j
       ))
     }
   }
@@ -1898,20 +2038,19 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
   meat_mat = matrix(0, p, p, dimnames = list(vars_all, vars_all))
   
   if (has_intercept) {
-    meat_mat["(Intercept)", "(Intercept)"] = meat_df$meat_intercept_intercept
+    meat_mat[1, 1] = meat_df$meat_0_0
     for (j in seq_along(vars)) {
-      vj = vars[j]
-      val = meat_df[[sprintf("meat_intercept_%s", vj)]]
-      meat_mat["(Intercept)", vj] = meat_mat[vj, "(Intercept)"] = val
+      val = meat_df[[sprintf("meat_0_%d", j)]]
+      meat_mat[1, j + 1] = meat_mat[j + 1, 1] = val
     }
   }
   
   for (i in seq_along(vars)) {
     for (j in i:length(vars)) {
-      vi = vars[i]
-      vj = vars[j]
-      val = meat_df[[sprintf("meat_%s_%s", vi, vj)]]
-      meat_mat[vi, vj] = meat_mat[vj, vi] = val
+      val = meat_df[[sprintf("meat_%d_%d", i, j)]]
+      idx_i = if (has_intercept) i + 1 else i
+      idx_j = if (has_intercept) j + 1 else j
+      meat_mat[idx_i, idx_j] = meat_mat[idx_j, idx_i] = val
     }
   }
   meat_mat
@@ -1928,9 +2067,12 @@ compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
                                     is_athena = FALSE, 
                                     var_suffix = "_tilde",
                                     cte_name = "demeaned",
-                                    has_intercept = FALSE) {
-  # Build variable names with suffix
-  vars_sql = paste0(vars, var_suffix)
+                                    has_intercept = FALSE,
+                                    vars_sql = NULL) {
+  # Build variable SQL expressions (use provided or construct from suffix)
+  if (is.null(vars_sql)) {
+    vars_sql = paste0(vars, var_suffix)
+  }
   yvar_sql = paste0(yvar, var_suffix)
   
   # Extract beta values
@@ -1952,24 +2094,20 @@ compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
     resid_expr = sprintf("(%s - (%s))", yvar_sql, beta_terms)
   }
   
-  # Build cluster score terms: SUM(e * x_j) for each variable within cluster
+  # Build cluster score terms using numeric indices to avoid naming collisions
   score_terms = character(0)
   
   if (has_intercept) {
-    # Score for intercept: SUM(e * 1) = SUM(e)
     score_terms = c(score_terms, sprintf(
-      "SUM(CAST(%s AS FLOAT)) AS score_intercept",
+      "SUM(CAST(%s AS FLOAT)) AS score_0",
       resid_expr
     ))
   }
   
-  # Score for each variable: SUM(e * x_j)
   for (j in seq_along(vars)) {
-    vj = vars[j]
-    vj_sql = paste0(vj, var_suffix)
     score_terms = c(score_terms, sprintf(
-      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS score_%s",
-      resid_expr, vj_sql, vj
+      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS score_%d",
+      resid_expr, vars_sql[j], j
     ))
   }
   
@@ -2000,9 +2138,9 @@ compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
   
   # Extract score columns
   score_cols = if (has_intercept) {
-    c("score_intercept", paste0("score_", vars))
+    c("score_0", paste0("score_", seq_along(vars)))
   } else {
-    paste0("score_", vars)
+    paste0("score_", seq_along(vars))
   }
   
   # Sum outer products across clusters
@@ -2099,17 +2237,6 @@ gen_xvar_pairs = function(xvars) {
     }
   }
   pairs
-}
-
-#' Generate coefficient table from estimates and vcov matrix
-#' @keywords internal
-gen_coeftable = function(betahat, vcov_mat, df_residual) {
-  coefs = as.numeric(betahat)
-  names(coefs) = rownames(betahat)
-  ses = sqrt(Matrix::diag(vcov_mat))
-  tstats = coefs / ses
-  pvals = 2 * pt(-abs(tstats), df_residual)
-  cbind(estimate = coefs, std.error = ses, statistic = tstats, p.values = pvals)
 }
 
 #' Finalize dbreg result object

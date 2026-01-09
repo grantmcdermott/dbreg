@@ -54,6 +54,8 @@ website:
           contents:
             - text: gof
               file: man/gof.qmd
+            - text: sql_model_matrix
+              file: man/sql_model_matrix.qmd
         - section: "Base methods"
           contents:
             - text: coef.dbreg

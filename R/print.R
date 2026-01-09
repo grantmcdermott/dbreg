@@ -25,8 +25,14 @@ print.dbreg = function(x, fe = FALSE, ...) {
   ct = x[["coeftable"]]
   colnames(ct) = c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
   if (!isTRUE(fe) && !is.null(x$fe)) {
-    xvars = x[["xvars"]]
-    ct = ct[xvars, , drop = FALSE]
+    # Use coef_names if available (handles interactions), fall back to xvars
+    coef_names = x[["coef_names"]]
+    if (!is.null(coef_names)) {
+      ct = ct[coef_names, , drop = FALSE]
+    } else {
+      xvars = x[["xvars"]]
+      ct = ct[xvars, , drop = FALSE]
+    }
   }
   se_type = attr(x$vcov, "type")
   n_clusters = attr(x$vcov, "n_clusters")
@@ -81,6 +87,19 @@ print.dbreg = function(x, fe = FALSE, ...) {
   gof_vals = gof(x)
 
   print_coeftable(ct, gof_vals = gof_vals, has_fes = !is.null(x$fe))
+  
+  # Print collinearity info (like fixest)
+  collin_vars = x[["collin.var"]]
+  if (length(collin_vars) > 0) {
+    n_collin = length(collin_vars)
+    vars_str = paste(collin_vars, collapse = ", ")
+    if (n_collin == 1) {
+      cat(sprintf("1 variable was removed because of collinearity (%s)\n", vars_str))
+    } else {
+      cat(sprintf("%d variables were removed because of collinearity (%s)\n", n_collin, vars_str))
+    }
+  }
+  
   invisible(ct)
 }
 

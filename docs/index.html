@@ -191,6 +191,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#big-dataset" id="toc-big-dataset" class="nav-link" data-scroll-target="#big-dataset">Big dataset</a></li>
   </ul></li>
   <li><a href="#acceleration-strategies" id="toc-acceleration-strategies" class="nav-link" data-scroll-target="#acceleration-strategies">Acceleration strategies</a></li>
+  <li><a href="#bonus-binscatter-interactions" id="toc-bonus-binscatter-interactions" class="nav-link" data-scroll-target="#bonus-binscatter-interactions">Bonus: Binscatter + interactions</a></li>
   <li><a href="#limitations" id="toc-limitations" class="nav-link" data-scroll-target="#limitations">Limitations</a></li>
   </ul></li>
   </ul>
@@ -364,9 +365,44 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="acceleration-strategies">Acceleration strategies</h2>
 <p>All of the examples in this README have made use of the <code>"compress"</code> strategy. But the compression trick is not the only game in town and <code>dbreg</code> supports several other acceleration strategies: <code>"moments"</code>, <code>"demean"</code>, and <code>"mundlak"</code>. Depending on your data and regression requirements, one of these other strategies may better suit your problem. The good news is that (the default) <code>strategy = "auto"</code> option uses some intelligent heuristics to determine which strategy is (probably) optimal for each case. You can set the <code>verbose = TRUE</code> argument to get real-time feedback about the decision criteria being used. The <a href="https://grantmcdermott.com/dbreg/man/dbreg.html#acceleration-strategies">Acceleration Strategies</a> section of the <code>?dbreg</code> helpfile contains a lot detail about the different options and tradeoffs involved, so please do consult the documentation.</p>
 </section>
+<section id="bonus-binscatter-interactions" class="level2">
+<h2 class="anchored" data-anchor-id="bonus-binscatter-interactions">Bonus: Binscatter + interactions</h2>
+<p>The companion <code>dbbinsreg()</code> function provides a quick way to visualize relationships in large datasets. Here we plot average tips by month:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>   tip_amount <span class="sc">~</span> month, <span class="at">nbins =</span> <span class="dv">12</span>, <span class="at">line =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>   <span class="at">path =</span> <span class="st">"read_parquet('nyc-taxi/**/*.parquet')"</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><img src="man/figures/nyc-tips-by-month.png" class="img-fluid"></p>
+<p>The plot reveals a striking jump in tips starting in September. We can investigate whether this jump differed by taxi vendor using an interaction model. First, create a view with a post-September indicator:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(con, <span class="st">"</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="st">   CREATE VIEW nyc_post AS</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="st">   SELECT </span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="st">      tip_amount, vendor_name, month,</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="st">      CAST(month &gt;= 9 AS INTEGER) AS post</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="st">   FROM read_parquet('nyc-taxi/**/*.parquet')</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Then run a DiD-style regression:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>   tip_amount <span class="sc">~</span> post <span class="sc">*</span> vendor_name <span class="sc">|</span> month,</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>   <span class="at">conn =</span> con,</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>   <span class="at">table =</span> <span class="st">"nyc_post"</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Compressed OLS estimation, Dep. Var.: tip_amount </span></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Observations.: 178,544,324 (original) | 24 (compressed) </span></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Standard Errors: IID </span></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;                      Estimate Std. Error  t value  Pr(&gt;|t|)    </span></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; post                 0.226457   0.000768 295.0536 &lt; 2.2e-16 ***</span></span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; vendor_nameVTS      -0.009126   0.000349 -26.1327 &lt; 2.2e-16 ***</span></span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; post:vendor_nameVTS  0.006936   0.000615  11.2757 &lt; 2.2e-16 ***</span></span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; ---</span></span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1</span></span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; RMSE: 1.9                 Adj. R2: 0.002497</span></span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 variable was removed because of collinearity (month12)</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The results confirm a $0.23 jump in tips post-September, with a small additional increase for VTS taxis.</p>
+</section>
 <section id="limitations" class="level2">
 <h2 class="anchored" data-anchor-id="limitations">Limitations</h2>
-<p><strong>dbreg</strong> is a maturing package and there are a number of features that we still plan to add before submitting it to CRAN. (See our <a href="https://github.com/grantmcdermott/dbreg/issues/5">TO-DO</a> list.) We also don’t yet support some standard R operations like interaction terms in the formula. At the same time, the core <code>dbreg()</code> routine has been tested pretty thoroughly and should work in standard cases. Please help us by kicking the tyres and creating GitHub issues for both bug reports and feature requests.</p>
+<p><strong>dbreg</strong> is a maturing package and there are a number of features that we still plan to add before submitting it to CRAN. (See our <a href="https://github.com/grantmcdermott/dbreg/issues/5">TO-DO</a> list.) At the same time, the core <code>dbreg()</code> routine has been tested pretty thoroughly and should work in standard cases. Please help us by kicking the tyres and creating GitHub issues for both bug reports and feature requests.</p>
 
 
 </section>
