@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
-<title>predict.dbreg – dbreg</title>
+<title>sql_model_matrix – dbreg</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -174,7 +174,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
-        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/coef.dbreg.html">Base methods</a></li><li class="breadcrumb-item"><a href="../man/predict.dbreg.html">predict.dbreg</a></li></ol></nav>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/gof.html">utilities</a></li><li class="breadcrumb-item"><a href="../man/sql_model_matrix.html">sql_model_matrix</a></li></ol></nav>
         <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
         </a>
     </div>
@@ -226,7 +226,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="../man/sql_model_matrix.html" class="sidebar-item-text sidebar-link">
+  <a href="../man/sql_model_matrix.html" class="sidebar-item-text sidebar-link active">
  <span class="menu-text">sql_model_matrix</span></a>
   </div>
 </li>
@@ -255,7 +255,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="../man/predict.dbreg.html" class="sidebar-item-text sidebar-link active">
+  <a href="../man/predict.dbreg.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">predict.dbreg</span></a>
   </div>
 </li>
@@ -312,39 +312,38 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <h2 id="toc-title">On this page</h2>
    
   <ul>
-  <li><a href="#predict-method-for-dbreg-objects" id="toc-predict-method-for-dbreg-objects" class="nav-link active" data-scroll-target="#predict-method-for-dbreg-objects">Predict method for dbreg objects</a>
+  <li><a href="#construct-sql-expressions-for-a-design-matrix" id="toc-construct-sql-expressions-for-a-design-matrix" class="nav-link active" data-scroll-target="#construct-sql-expressions-for-a-design-matrix">Construct SQL expressions for a design matrix</a>
   <ul class="collapse">
   <li><a href="#description" id="toc-description" class="nav-link" data-scroll-target="#description">Description</a></li>
   <li><a href="#usage" id="toc-usage" class="nav-link" data-scroll-target="#usage">Usage</a></li>
   <li><a href="#arguments" id="toc-arguments" class="nav-link" data-scroll-target="#arguments">Arguments</a></li>
-  <li><a href="#predicting-on-demean-strategy-objects" id="toc-predicting-on-demean-strategy-objects" class="nav-link" data-scroll-target="#predicting-on-demean-strategy-objects">Predicting on "demean" strategy objects</a></li>
-  <li><a href="#see-also" id="toc-see-also" class="nav-link" data-scroll-target="#see-also">See Also</a></li>
+  <li><a href="#value" id="toc-value" class="nav-link" data-scroll-target="#value">Value</a></li>
   <li><a href="#examples" id="toc-examples" class="nav-link" data-scroll-target="#examples">Examples</a></li>
   </ul></li>
   </ul>
 </nav>
     </div>
 <!-- main -->
-<main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/coef.dbreg.html">Base methods</a></li><li class="breadcrumb-item"><a href="../man/predict.dbreg.html">predict.dbreg</a></li></ol></nav></header>
+<main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../man/gof.html">utilities</a></li><li class="breadcrumb-item"><a href="../man/sql_model_matrix.html">sql_model_matrix</a></li></ol></nav></header>
 
 
 
 
-<section id="predict-method-for-dbreg-objects" class="level2 unnumbered">
-<h2 class="unnumbered anchored" data-anchor-id="predict-method-for-dbreg-objects">Predict method for dbreg objects</h2>
+<section id="construct-sql-expressions-for-a-design-matrix" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="construct-sql-expressions-for-a-design-matrix">Construct SQL expressions for a design matrix</h2>
 <section id="description" class="level3">
 <h3 class="anchored" data-anchor-id="description">Description</h3>
-<p>Predict method for dbreg objects</p>
+<p>Expands formula terms into SQL SELECT expressions, handling factor one-hot encoding and interaction terms. Only the right-hand side of the formula is processed; the response variable (LHS) is ignored.</p>
 </section>
 <section id="usage" class="level3">
 <h3 class="anchored" data-anchor-id="usage">Usage</h3>
-<pre><code class="language-R">## S3 method for class 'dbreg'
-predict(
-  object,
-  newdata = NULL,
-  interval = c("none", "confidence", "prediction"),
-  level = 0.95,
-  ...
+<pre><code class="language-R">sql_model_matrix(
+  formula,
+  conn,
+  table,
+  expand = c("all", "interactions"),
+  sep = "_x_",
+  fe_vars = character()
 )
 </code></pre>
 </section>
@@ -353,121 +352,110 @@ predict(
 <table role="presentation">
 <tbody><tr>
 <td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="object">object</code>
+<code id="formula">formula</code>
 </td>
 <td>
-A ‘dbreg’ object.
+A formula (or Formula) object. Only RHS terms are expanded; the LHS (response variable) is ignored.
 </td>
 </tr>
 <tr>
 <td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="newdata">newdata</code>
+<code id="conn">conn</code>
 </td>
 <td>
-Data frame for predictions. Required for objects that were estimated using the ‘"mundlak"’ and ‘"moments"’ strategies, since ‘dbreg’ does not retain any data for these estimations.
+Database connection
 </td>
 </tr>
 <tr>
 <td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="interval">interval</code>
+<code id="table">table</code>
 </td>
 <td>
-Type of interval to compute: ‘"none"’ (default), ‘"confidence"’, or ‘"prediction"’. Note that ‘"confidence"’ intervals reflect uncertainty in the estimated mean, while ‘"prediction"’ intervals additionally account for residual variance. See <code>predict.lm</code> for details.
+Table name or FROM clause
 </td>
 </tr>
 <tr>
 <td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="level">level</code>
+<code id="expand">expand</code>
 </td>
 <td>
-Confidence level for intervals. Default is 0.95.
+Character: ‘"all"’ expands factors and interactions, ‘"interactions"’ only expands interaction terms (factors in main effects kept as-is for grouping)
 </td>
 </tr>
 <tr>
 <td style="white-space: collapse; font-family: monospace; vertical-align: top">
-<code id="...">…</code>
+<code id="sep">sep</code>
 </td>
 <td>
-Additional arguments (currently unused).
+Character separator for interaction term names. Default is ‘"<em>x</em>"’. Use ‘":"’ for standard R naming convention.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="fe_vars">fe_vars</code>
+</td>
+<td>
+Character vector of fixed effect variable names. These are treated as "in the model" for determining whether to drop reference levels in interactions.
 </td>
 </tr>
 </tbody></table>
 </section>
-<section id="predicting-on-demean-strategy-objects" class="level3">
-<h3 class="anchored" data-anchor-id="predicting-on-demean-strategy-objects">Predicting on "demean" strategy objects</h3>
-<p>Predicting on ‘dbreg’ objects should generally work as expected. However, predictions from ‘"demean"’ strategy models carry two important caveats:</p>
-<ol type="1">
-<li><p>Predictions require group means to transform back to the original scale. If ‘newdata’ contains the outcome variable, group means are computed from ‘newdata’ and used to return level predictions. If the outcome is absent, within-group predictions (deviations from group means) are returned instead, with a message.</p></li>
-<li><p>Confidence/prediction intervals are not supported. A demeaned model cannot account for uncertainty in the fixed-effects (since these were absorbed at estimation time), which in turn would yield intervals that are too narrow. Requesting intervals for ‘"demean"’ strategy models will return point predictions with a message. Users should re-estimate with a different strategy if intervals are needed.</p></li>
-</ol>
-</section>
-<section id="see-also" class="level3">
-<h3 class="anchored" data-anchor-id="see-also">See Also</h3>
-<p>[dbreg()] for examples.</p>
+<section id="value" class="level3">
+<h3 class="anchored" data-anchor-id="value">Value</h3>
+<p>List with: - ‘select_exprs’: character vector of SQL expressions - ‘col_names’: corresponding column names - ‘factor_levels’: list of factor levels by variable (for reference)</p>
 </section>
 <section id="examples" class="level3">
 <h3 class="anchored" data-anchor-id="examples">Examples</h3>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(<span class="st">"dbreg"</span>)</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>mod <span class="ot">=</span> <span class="fu">dbreg</span>(Temp <span class="sc">~</span> Wind <span class="sc">|</span> Month, <span class="at">data =</span> airquality)</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co"># coefficients</span></span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">coef</span>(mod)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(DBI)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(duckdb)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>con <span class="ot">=</span> <span class="fu">dbConnect</span>(<span class="fu">duckdb</span>())</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">duckdb_register</span>(con, <span class="st">"test"</span>, <span class="fu">data.frame</span>(<span class="at">x1 =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">3</span>, <span class="at">x2 =</span> <span class="fu">c</span>(<span class="st">"a"</span>, <span class="st">"b"</span>, <span class="st">"c"</span>)))</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">sql_model_matrix</span>(<span class="sc">~</span> x1 <span class="sc">+</span> x2, con, <span class="st">"test"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>     Wind 
--0.743388 </code></pre>
+<pre><code>$select_exprs
+[1] "x1"                                      
+[2] "CASE WHEN x2 = 'b' THEN 1.0 ELSE 0.0 END"
+[3] "CASE WHEN x2 = 'c' THEN 1.0 ELSE 0.0 END"
+
+$col_names
+[1] "x1"  "x2b" "x2c"
+
+$factor_levels
+$factor_levels$x2
+[1] "a" "b" "c"</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">coef</span>(mod, <span class="at">fe =</span> <span class="cn">TRUE</span>)  <span class="co"># include fixed effects</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sql_model_matrix</span>(<span class="sc">~</span> x1<span class="sc">:</span>x2, con, <span class="st">"test"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>(Intercept)        Wind      Month6      Month7      Month8      Month9 
-  74.188474   -0.743388   12.543643   16.362079   16.316286   10.279216 </code></pre>
+<pre><code>$select_exprs
+[1] "(x1) * (CASE WHEN x2 = 'a' THEN 1.0 ELSE 0.0 END)"
+[2] "(x1) * (CASE WHEN x2 = 'b' THEN 1.0 ELSE 0.0 END)"
+[3] "(x1) * (CASE WHEN x2 = 'c' THEN 1.0 ELSE 0.0 END)"
+
+$col_names
+[1] "x1_x_x2a" "x1_x_x2b" "x1_x_x2c"
+
+$factor_levels
+$factor_levels$x2
+[1] "a" "b" "c"</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># confidence intervals</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">confint</span>(mod)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sql_model_matrix</span>(<span class="sc">~</span> x1<span class="sc">:</span>x2, con, <span class="st">"test"</span>, <span class="at">sep =</span> <span class="st">":"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>         2.5 %     97.5 %
-Wind -1.037433 -0.4493427</code></pre>
+<pre><code>$select_exprs
+[1] "(x1) * (CASE WHEN x2 = 'a' THEN 1.0 ELSE 0.0 END)"
+[2] "(x1) * (CASE WHEN x2 = 'b' THEN 1.0 ELSE 0.0 END)"
+[3] "(x1) * (CASE WHEN x2 = 'c' THEN 1.0 ELSE 0.0 END)"
+
+$col_names
+[1] "x1:x2a" "x1:x2b" "x1:x2c"
+
+$factor_levels
+$factor_levels$x2
+[1] "a" "b" "c"</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># variance-covariance matrix</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">vcov</span>(mod)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output cell-output-stdout">
-<pre><code>            (Intercept)        Wind      Month6      Month7      Month8
-(Intercept)   4.2205624 -0.25730874 -1.57885933 -1.91972424 -1.95790554
-Wind         -0.2573087  0.02213869  0.03001816  0.05934598  0.06263108
-Month6       -1.5788593  0.03001816  2.54164270  1.31043885  1.31489316
-Month7       -1.9197242  0.05934598  1.31043885  2.61902713  1.39786250
-Month8       -1.9579055  0.06263108  1.31489316  1.39786250  2.63712696
-Month9       -1.6011594  0.03193685  1.27327443  1.31558217  1.32032119
-                 Month9
-(Intercept) -1.60115942
-Wind         0.03193685
-Month6       1.27327443
-Month7       1.31558217
-Month8       1.32032119
-Month9       2.54701213
-attr(,"type")
-[1] "iid"
-attr(,"rss")
-[1] 5604.977
-attr(,"tss")
-[1] 13617.88</code></pre>
-</div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co"># predictions</span></span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(<span class="fu">predict</span>(mod, <span class="at">newdata =</span> airquality))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output cell-output-stdout">
-<pre><code>[1] 68.68740 68.24137 64.82179 65.63951 63.55803 63.11199</code></pre>
-</div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(<span class="fu">predict</span>(mod, <span class="at">newdata =</span> airquality, <span class="at">interval =</span> <span class="st">"confidence"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output cell-output-stdout">
-<pre><code>       fit      lwr      upr
-1 68.68740 66.16842 71.20639
-2 68.24137 65.80451 70.67823
-3 64.82179 62.61130 67.03227
-4 65.63951 63.44749 67.83153
-5 63.55803 61.22919 65.88686
-6 63.11199 60.71775 65.50623</code></pre>
-</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbDisconnect</span>(con)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 
 

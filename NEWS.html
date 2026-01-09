@@ -230,6 +230,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(..., <span class="at">vcov =</span> <span class="sc">~</span>cluster_var)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Please note that these clustered SEs are computed <em>analytically</em> (not bootstrapped) and should thus add minimal overhead to your regressions. See the updated README for examples. (<a href="./issues/29">#29</a>)</p></li>
 <li><p>Added support for binscatter regressions on database backends via the <code>dbbinsreg()</code> function. This function attempts to mimic the main API of the <strong>binsreg</strong> package (modulo some simplifications), but should be much faster on big datasets. (<a href="./issues/32">#32</a>)</p></li>
+<li><p>Added support for interaction terms in formulas (e.g., <code>y ~ x1 * x2 | fe</code>). Interactions are expanded to SQL via the new (user-facing) <code>sql_model_matrix()</code> function and work with all acceleration strategies. Collinear terms (e.g., treatment main effects absorbed by unit FEs in DiD models) are automatically detected and dropped. (<a href="./issues/48">#48</a>)</p></li>
 </ul>
 <p>Other new features</p>
 <ul>
