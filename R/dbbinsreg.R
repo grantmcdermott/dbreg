@@ -274,14 +274,6 @@ dbbinsreg = function(
   # categorical. Could support moments/demean if we expand bins to dummy columns.
   if (strategy == "auto") strategy = "compress"
   
-  # Handle data input precedence (matching dbreg): table > data > path
-  if (!is.null(table)) {
-    # table takes precedence - data source is table name in conn
-    data = table
-  } else if (is.null(data) && !is.null(path)) {
-    data = path
-  }
-  
   # -------------------------------------------------------------------------
   # Process binsreg-style arguments: points, line, binspos
   # -------------------------------------------------------------------------
@@ -423,54 +415,25 @@ dbbinsreg = function(
     stop("nbins must be a positive integer")
   }
   
-  
-  # Set up database connection if needed
-  conn_managed = FALSE
-  is_duckdb = FALSE
-  if (is.null(conn)) {
-    conn = dbConnect(duckdb())
-    conn_managed = TRUE
-    is_duckdb = TRUE
-  } else {
-    # Check if user-provided connection is DuckDB
-    backend_info = detect_backend(conn)
-    is_duckdb = (backend_info$name == "duckdb")
-  }
+  # Set up database connection and data source using shared helper
+  db_setup = setup_db_connection(conn, table, data, path, caller = "dbbinsreg")
+  conn = db_setup$conn
+  conn_managed = db_setup$own_conn
+  table_name = db_setup$table_name
+  registered_table = db_setup$registered_table
+  is_duckdb = db_setup$is_duckdb
   
   # Detect backend for SQL compatibility
   backend_info = detect_backend(conn)
   backend = backend_info$name
   
-  # Cleanup function
+  # Cleanup function for connection
   cleanup = function() {
     if (conn_managed && dbIsValid(conn)) {
       dbDisconnect(conn, shutdown = TRUE)
     }
   }
   on.exit(cleanup(), add = TRUE)
-  
-  # Process data input
-  registered_table = NULL  # DuckDB registered view (needs duckdb_unregister)
-  
-  if (is.character(data)) {
-    # Table name provided
-    table_name = data
-  } else if (is.data.frame(data)) {
-    # Coerce to base data.frame (handles tibbles, data.tables, etc.)
-    data = as.data.frame(data)
-    # Register R dataframe with DuckDB (zero-copy)
-    if (!is_duckdb) {
-      stop("In-memory data frames are only supported with DuckDB connections. ",
-           "Use `table` or `path` for other backends.")
-    }
-    table_name = sprintf("__dbbinsreg_%s", 
-                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-    duckdb_register(conn, table_name, data)
-    registered_table = table_name
-  } else {
-    stop("data must be a data frame or table name (character)")
-  }
-
   
   # Cleanup registered table
   cleanup_registered = function() {

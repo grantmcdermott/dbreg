@@ -417,75 +417,11 @@ process_dbreg_inputs = function(
   vcov_type_req = vcov
   cluster_var = cluster
 
-  own_conn = FALSE
-
-  # If table is tbl_lazy and conn is NULL, try to infer conn from the table
-  if (is.null(conn) && inherits(table, "tbl_lazy")) {
-    inferred_con = tryCatch(dbplyr::remote_con(table), error = function(e) NULL)
-    if (!is.null(inferred_con) && dbIsValid(inferred_con)) {
-      conn = inferred_con
-    } else {
-      stop(
-        "Could not extract a valid database connection from the provided tbl_lazy. ",
-        "The connection may be closed or invalid. ",
-        "Either provide `conn` explicitly or ensure the tbl_lazy has an active connection."
-      )
-    }
-  }
-
-  # Create default connection if still NULL (for data.frame or path inputs)
-  if (is.null(conn)) {
-    conn = dbConnect(duckdb(), shutdown = TRUE)
-    own_conn = TRUE
-  }
-
-  # FROM clause
-  if (!is.null(table)) {
-    if (is.character(table)) {
-      # Original behavior: table name
-      from_statement = glue("FROM {table}")
-    } else if (inherits(table, "tbl_lazy")) {
-      # lazy table: render SQL
-      rendered_sql = tryCatch(dbplyr::sql_render(table), error = function(e) {
-        NULL
-      })
-      if (is.null(rendered_sql)) {
-        stop("Failed to render SQL for provided tbl_lazy.")
-      }
-      from_statement = paste0("FROM (", rendered_sql, ") AS lazy_subquery")
-      # Connection should already be set (either explicitly or inferred above)
-      if (!dbIsValid(conn)) {
-        stop(
-          "Could not obtain a valid database connection. ",
-          "Either provide `conn` explicitly or ensure the tbl_lazy has an active connection."
-        )
-      }
-    } else {
-      stop("`table` must be character or tbl_lazy object.")
-    }
-  } else if (!is.null(data)) {
-    if (!inherits(data, "data.frame")) {
-      stop("`data` must be data.frame.")
-    }
-    # Coerce to base data.frame (handles tibbles, data.tables, etc.)
-    data = as.data.frame(data)
-    temp_name = sprintf("tmp_table_dbreg_%s", 
-                       gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-    duckdb_register(conn, temp_name, data)
-    from_statement = paste("FROM", temp_name)
-  } else if (!is.null(path)) {
-    if (!is.character(path)) {
-      stop("`path` must be character.")
-    }
-    if (!(grepl("^read|^scan", path) && grepl("'", path))) {
-      path = gsub('"', "'", path)
-      from_statement = glue("FROM '{path}'")
-    } else {
-      from_statement = glue("FROM {path}")
-    }
-  } else {
-    stop("Provide one of `table`, `data`, or `path`.")
-  }
+  # Set up database connection and data source using shared helper
+  db_setup = setup_db_connection(conn, table, data, path, caller = "dbreg")
+  conn = db_setup$conn
+  own_conn = db_setup$own_conn
+  from_statement = db_setup$from_statement
 
   # Parse formula
   fml = Formula(fml)
@@ -610,6 +546,11 @@ backend_supports_count_big = function(conn) {
 
 # detect SQL backend
 detect_backend = function(conn) {
+  # First check connection class for DuckDB (dbms.name may be empty)
+  if (inherits(conn, "duckdb_connection")) {
+    return(list(name = "duckdb", supports_count_big = FALSE))
+  }
+  
   info = try(dbGetInfo(conn), silent = TRUE)
   if (inherits(info, "try-error")) {
     return(list(name = "unknown", supports_count_big = FALSE))
