@@ -492,8 +492,6 @@ process_dbreg_inputs = function(
   )
 }
 
-# Note: sql_count, detect_backend, and backend_supports_count_big are now in utils.R
-
 #' Choose regression strategy based on inputs and auto logic
 #' @keywords internal
 choose_strategy = function(inputs) {
