@@ -315,3 +315,223 @@ parse_vcov_args = function(vcov, cluster = NULL, valid_types = c("iid", "hc1")) 
     cluster_var = cluster_var
   )
 }
+
+# =============================================================================
+# SQL dialect helpers
+# =============================================================================
+
+#' Check if backend supports COUNT_BIG
+#' 
+#' SQL Server and Azure SQL use COUNT_BIG for large tables to avoid overflow.
+#' 
+#' @param conn A DBI database connection object.
+#' @return Logical: TRUE if backend supports COUNT_BIG, FALSE otherwise.
+#' @keywords internal
+backend_supports_count_big = function(conn) {
+  info = try(dbGetInfo(conn), silent = TRUE)
+  if (inherits(info, "try-error")) {
+    return(FALSE)
+  }
+  dbms = tolower(paste(info$dbms.name, collapse = " "))
+  grepl("sql server|azure sql|microsoft sql server", dbms)
+}
+
+#' Detect SQL backend from connection
+#' 
+#' Returns backend name and capabilities for SQL dialect handling.
+#' 
+#' @param conn A DBI database connection object.
+#' @return List with `name` (character) and `supports_count_big` (logical).
+#' @keywords internal
+detect_backend = function(conn) {
+  # First check connection class for DuckDB (dbms.name may be empty)
+  if (inherits(conn, "duckdb_connection")) {
+    return(list(name = "duckdb", supports_count_big = FALSE))
+  }
+
+  
+  info = try(dbGetInfo(conn), silent = TRUE)
+  if (inherits(info, "try-error")) {
+    return(list(name = "unknown", supports_count_big = FALSE))
+  }
+  dbms = tolower(paste(info$dbms.name, collapse = " "))
+  list(
+    name = if (grepl("duckdb", dbms)) {
+      "duckdb"
+    } else if (grepl("sql server|azure sql|microsoft sql server", dbms)) {
+      "sqlserver"
+    } else if (grepl("postgres", dbms)) {
+      "postgres"
+    } else if (grepl("sqlite", dbms)) {
+      "sqlite"
+    } else if (grepl("mysql|mariadb", dbms)) {
+      "mysql"
+    } else if (grepl("spark", dbms)) {
+      "spark"
+    } else if (grepl("athena|presto|trino", dbms)) {
+      "athena"
+    } else {
+      "other"
+    },
+    supports_count_big = grepl(
+      "sql server|azure sql|microsoft sql server",
+      dbms
+    )
+  )
+}
+
+#' Generate SQL COUNT expression with proper casting
+#' 
+#' Returns an aliased COUNT expression that handles:
+#' - COUNT_BIG for SQL Server (avoids int overflow on large tables)
+#' - CAST to BIGINT for other backends
+#' - DISTINCT counting when needed
+#' 
+#' @param conn Database connection (used to detect backend)
+#' @param alias Column alias for the count result
+#' @param expr Expression to count (default "*")
+#' @param distinct Logical; if TRUE, count distinct values
+#' @return SQL expression string like "CAST(COUNT(*) AS BIGINT) AS n"
+#' @keywords internal
+sql_count = function(conn, alias, expr = "*", distinct = FALSE) {
+  bd = detect_backend(conn)
+  if (distinct) {
+    glue(
+      "{if (bd$supports_count_big) paste0('COUNT_BIG(DISTINCT ', expr, ')') else paste0('CAST(COUNT(DISTINCT ', expr, ') AS BIGINT)')} AS {alias}"
+    )
+  } else {
+    if (bd$supports_count_big) {
+      glue("COUNT_BIG({expr}) AS {alias}")
+    } else {
+      glue("CAST(COUNT({expr}) AS BIGINT) AS {alias}")
+    }
+  }
+}
+
+#' Get simple COUNT expression for backend
+#' 
+#' Returns just the count expression without alias (for use in aggregations).
+#' 
+#' @param backend Backend name from detect_backend()
+#' @return SQL expression: "COUNT_BIG(*)" for SQL Server, "COUNT(*)" otherwise
+#' @keywords internal
+sql_count_expr = function(backend) {
+  if (backend == "sqlserver") "COUNT_BIG(*)" else "COUNT(*)"
+}
+
+#' Get backend-specific RANDOM() expression
+#' 
+#' Different SQL backends use different syntax for random number generation.
+#' 
+#' @param backend Backend name from detect_backend()
+#' @return SQL expression for random value (e.g., "RANDOM()", "NEWID()", "RAND()")
+#' @keywords internal
+sql_random = function(backend) {
+  switch(backend,
+    "duckdb" = "RANDOM()",
+    "sqlserver" = "NEWID()",
+    "postgres" = "RANDOM()",
+    "sqlite" = "RANDOM()",
+    "mysql" = "RAND()",
+    "RANDOM()"  # default fallback
+  )
+}
+
+#' Build efficient sample query (backend-specific)
+#' 
+#' Uses native SAMPLE/TABLESAMPLE when available, falls back to ORDER BY RANDOM().
+#' 
+#' @param select_clause The SELECT clause (e.g., "*" or "col1, col2")
+#' @param table_name Table to sample from
+#' @param where_clause WHERE clause without "WHERE" keyword (or NULL)
+#' @param n Number of rows to sample
+#' @param backend Backend name from detect_backend()
+#' @return Complete SQL query for sampling
+#' @keywords internal
+sql_sample = function(select_clause, table_name, where_clause, n, backend) {
+  where_sql = if (!is.null(where_clause)) paste("WHERE", where_clause) else ""
+  
+  if (backend == "duckdb") {
+    # DuckDB: efficient reservoir sampling
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} USING SAMPLE {n} ROWS")
+  } else if (backend == "spark") {
+    # Spark SQL: TABLESAMPLE with ROWS
+    glue("SELECT {select_clause} FROM {table_name} TABLESAMPLE ({n} ROWS) {where_sql}")
+  } else if (backend %in% c("athena", "presto", "trino")) {
+    # Athena/Presto/Trino: TABLESAMPLE BERNOULLI only supports percentages
+    # Fall back to ORDER BY RANDOM() for exact row counts
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY RANDOM() LIMIT {n}")
+  } else if (backend == "postgres") {
+    # PostgreSQL: TABLESAMPLE BERNOULLI only supports percentages
+    random_expr = sql_random(backend)
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY {random_expr} LIMIT {n}")
+  } else if (backend == "sqlserver") {
+    # SQL Server: TABLESAMPLE is block-level, not row-level; use TOP with NEWID()
+    glue("SELECT TOP {n} {select_clause} FROM {table_name} {where_sql} ORDER BY NEWID()")
+  } else {
+    # SQLite, MySQL, others: ORDER BY RANDOM() LIMIT n
+    random_expr = sql_random(backend)
+    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY {random_expr} LIMIT {n}")
+  }
+}
+
+#' Apply row limit to a SQL query (backend-specific)
+#' 
+#' SQL Server uses TOP after SELECT, others use LIMIT at end.
+#' 
+#' @param query The SQL query string
+#' @param n Number of rows to limit to
+#' @param backend Backend name from detect_backend()
+#' @return SQL query with appropriate LIMIT/TOP clause
+#' @keywords internal
+sql_limit = function(query, n, backend) {
+  if (backend == "sqlserver") {
+    # SQL Server uses TOP n after SELECT
+    sub("^SELECT", paste("SELECT TOP", n), query, ignore.case = TRUE)
+  } else {
+    # Others use LIMIT at the end
+    paste(query, "LIMIT", n)
+  }
+}
+
+#' Generate a temp table name with optional SQL Server prefix
+#' 
+#' SQL Server uses # prefix for local temp tables.
+#' 
+#' @param base_name Base name for the temp table
+#' @param backend Backend name from detect_backend()
+#' @return Temp table name (with # prefix for SQL Server)
+#' @keywords internal
+temp_table_name = function(base_name, backend) {
+  if (backend == "sqlserver") {
+    paste0("#", base_name)
+  } else {
+    base_name
+  }
+}
+
+#' Create a temp table from a SELECT query
+#' 
+#' Handles SQL dialect differences:
+#' - SQL Server: SELECT ... INTO #table FROM (SELECT ...) AS __subq
+#' - Others: CREATE TEMPORARY TABLE name AS SELECT ...
+#' 
+#' @param conn Database connection
+#' @param table_name Name for the temp table
+#' @param select_sql The SELECT statement (without CREATE TABLE)
+#' @param backend Backend name from detect_backend()
+#' @keywords internal
+create_temp_table_as = function(conn, table_name, select_sql, backend) {
+  if (backend == "sqlserver") {
+    # SQL Server: SELECT ... INTO #table FROM ...
+    sql = sub("^SELECT", paste0("SELECT * INTO ", table_name, " FROM (SELECT"), 
+               select_sql, ignore.case = TRUE)
+    sql = paste0(sql, ") AS __subq")
+    dbExecute(conn, sql)
+  } else {
+    # Standard SQL: CREATE TEMPORARY TABLE name AS SELECT ...
+    sql = glue("CREATE TEMPORARY TABLE {table_name} AS {select_sql}")
+    dbExecute(conn, sql)
+  }
+}
+

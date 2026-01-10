@@ -458,7 +458,7 @@ dbbinsreg = function(
   n_rows_orig = NULL  # Track original dataset size
   if (partition_method != "manual") {
     # Get row count and unique x count in one query
-    count_expr = dbbinsreg_sql_count(backend)
+    count_expr = sql_count_expr(backend)
     count_sql = glue("
       SELECT {count_expr} AS n, COUNT(DISTINCT {x_name}) AS n_unique
       FROM {table_name} 
@@ -512,11 +512,11 @@ dbbinsreg = function(
         # Create temp table with sampled data (all columns needed for regression)
         sample_table_base = sprintf("__dbbinsreg_%s_sample", 
                                     gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-        sample_table = dbbinsreg_temp_table_name(sample_table_base, backend)
+        sample_table = temp_table_name(sample_table_base, backend)
         
         # Pass to sample helper query generator (to handle different SQL dialects)
-        sample_sql = dbbinsreg_sql_sample("*", table_name, where_clause, sample_size, backend)
-        dbbinsreg_create_temp_table_as(conn, sample_table, sample_sql, backend)
+        sample_sql = sql_sample("*", table_name, where_clause, sample_size, backend)
+        create_temp_table_as(conn, sample_table, sample_sql, backend)
         
         # Get x values from sample table for break computation
         x_sample = dbGetQuery(conn, glue("SELECT {x_name} FROM {sample_table}"))[[x_name]]
@@ -529,7 +529,7 @@ dbbinsreg = function(
         }
       } else {
         # Just sample x values for break computation
-        sample_sql = dbbinsreg_sql_sample(x_name, table_name, where_clause, sample_size, backend)
+        sample_sql = sql_sample(x_name, table_name, where_clause, sample_size, backend)
         sampled_data = dbGetQuery(conn, sample_sql)
         x_sample = sampled_data[[x_name]]
         sampled_table_name = NULL
@@ -644,135 +644,20 @@ dbbinsreg = function(
 # Internal SQL helpers for backend-agnostic operations
 # =============================================================================
 
-#' Get backend-specific random ordering expression
-#' @param backend Backend name from detect_backend()
-#' @return SQL expression for random ordering
-#' @keywords internal
-dbbinsreg_sql_random = function(backend) {
-  switch(backend,
-    "duckdb" = "RANDOM()",
-    "sqlserver" = "NEWID()",
-    "postgres" = "RANDOM()",
-    "sqlite" = "RANDOM()",
-    "mysql" = "RAND()",
-    "RANDOM()"  # default fallback
-  )
-}
-
-#' Build efficient sample query (backend-specific)
-#' 
-#' Uses native SAMPLE/TABLESAMPLE when available, falls back to ORDER BY RANDOM()
-#' 
-#' FIXME: Currently uses simple random sampling. When FEs are specified, rare
-#' groups could be excluded from the sample. Consider adding stratified sampling
-#' (e.g., via window functions: ROW_NUMBER() OVER (PARTITION BY fe ORDER BY RANDOM()))
-#' to ensure representation from all FE groups.
-#' 
-#' @param select_clause The SELECT clause (e.g., "*" or "col1, col2")
-#' @param table_name Table to sample from
-#' @param where_clause WHERE clause without "WHERE" keyword (or NULL)
-#' @param n Number of rows to sample
-#' @param backend Backend name from detect_backend()
-#' @return Complete SQL query for sampling
-#' @keywords internal
-dbbinsreg_sql_sample = function(select_clause, table_name, where_clause, n, backend) {
-  where_sql = if (!is.null(where_clause)) paste("WHERE", where_clause) else ""
-  
-  if (backend == "duckdb") {
-    # DuckDB: efficient reservoir sampling
-    glue("SELECT {select_clause} FROM {table_name} {where_sql} USING SAMPLE {n} ROWS")
-  } else if (backend == "spark") {
-    # Spark SQL: TABLESAMPLE with ROWS
-    glue("SELECT {select_clause} FROM {table_name} TABLESAMPLE ({n} ROWS) {where_sql}")
-  } else if (backend %in% c("athena", "presto", "trino")) {
-    # Athena/Presto/Trino: TABLESAMPLE BERNOULLI only supports percentages
-    # Fall back to ORDER BY RANDOM() for exact row counts
-    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY RANDOM() LIMIT {n}")
-  } else if (backend == "postgres") {
-    # PostgreSQL: TABLESAMPLE BERNOULLI only supports percentages
-    # Fall back to ORDER BY for exact row count
-    random_expr = dbbinsreg_sql_random(backend)
-    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY {random_expr} LIMIT {n}")
-  } else if (backend == "sqlserver") {
-    # SQL Server: TABLESAMPLE is block-level, not row-level; use TOP with NEWID()
-    glue("SELECT TOP {n} {select_clause} FROM {table_name} {where_sql} ORDER BY NEWID()")
-  } else {
-    # SQLite, MySQL, others: ORDER BY RANDOM() LIMIT n
-    random_expr = dbbinsreg_sql_random(backend)
-    glue("SELECT {select_clause} FROM {table_name} {where_sql} ORDER BY {random_expr} LIMIT {n}")
-  }
-}
-
-#' Get backend-specific count expression
-#' @param backend Backend name from detect_backend()
-#' @return SQL expression for counting rows
-#' @keywords internal
-dbbinsreg_sql_count = function(backend) {
-  if (backend == "sqlserver") "COUNT_BIG(*)" else "COUNT(*)"
-}
+# Note: Most SQL dialect helpers have been moved to utils.R:
+#   - detect_backend(), sql_count(), sql_count_expr()
+#   - sql_random(), sql_sample(), sql_limit()
+#   - temp_table_name(), create_temp_table_as()
+# 
+# Only sql_ntile() remains here as it's specific to binscatter.
 
 #' Get NTILE window function expression
 #' @param x_name Column name to partition by
 #' @param n_bins Number of bins
 #' @return SQL NTILE expression
 #' @keywords internal
-dbbinsreg_sql_ntile = function(x_name, n_bins) {
-
+sql_ntile = function(x_name, n_bins) {
   glue("NTILE({n_bins}) OVER (ORDER BY {x_name})")
-}
-
-#' Apply row limit to a SQL query (backend-specific)
-#' @param query The SQL query string
-#' @param n Number of rows to limit to
-#' @param backend Backend name from detect_backend()
-#' @return SQL query with appropriate LIMIT/TOP clause
-#' @keywords internal
-dbbinsreg_sql_limit = function(query, n, backend) {
-  if (backend == "sqlserver") {
-    # SQL Server uses TOP n after SELECT
-    sub("^SELECT", paste("SELECT TOP", n), query, ignore.case = TRUE)
-  } else {
-    # Others use LIMIT at the end
-    paste(query, "LIMIT", n)
-  }
-}
-
-
-#' Generate a temp table name with optional SQL Server prefix
-#' @param base_name Base name for the temp table
-#' @param backend Backend name from detect_backend()
-#' @return Temp table name (with # prefix for SQL Server)
-#' @keywords internal
-dbbinsreg_temp_table_name = function(base_name, backend) {
-  # SQL Server uses # prefix for local temp tables
-  if (backend == "sqlserver") {
-    paste0("#", base_name)
-  } else {
-    base_name
-  }
-}
-
-
-#' Create a temp table from a SELECT query
-#' @param conn Database connection
-#' @param table_name Name for the temp table
-#' @param select_sql The SELECT statement (without CREATE TABLE)
-#' @param backend Backend name from detect_backend()
-#' @keywords internal
-dbbinsreg_create_temp_table_as = function(conn, table_name, select_sql, backend) {
-  if (backend == "sqlserver") {
-    # SQL Server: SELECT ... INTO #table FROM ...
-    # We need to insert INTO clause after SELECT
-    # Assume select_sql starts with "SELECT"
-    sql = sub("^SELECT", paste0("SELECT * INTO ", table_name, " FROM (SELECT"), 
-               select_sql, ignore.case = TRUE)
-    sql = paste0(sql, ") AS __subq")
-    dbExecute(conn, sql)
-  } else {
-    # Standard SQL: CREATE TEMPORARY TABLE name AS SELECT ...
-    sql = glue("CREATE TEMPORARY TABLE {table_name} AS {select_sql}")
-    dbExecute(conn, sql)
-  }
 }
 
 
@@ -783,6 +668,7 @@ dbbinsreg_create_temp_table_as = function(conn, table_name, select_sql, backend)
 #' 1. Fits a model with points parameters (points.p, points.s) for data.dots
 #' 2. Fits a model with line parameters (line.p, line.s) for data.line
 #' 3. Combines results into single dbbinsreg output
+
 #' 
 #' @keywords internal
 execute_separate_binsreg = function(inputs) {
@@ -1249,23 +1135,23 @@ execute_constrained_binsreg = function(inputs) {
   # Get backend info
   backend_info = detect_backend(conn)
   backend = backend_info$name
-  count_expr = dbbinsreg_sql_count(backend)
+  count_expr = sql_count_expr(backend)
   
   # Create temp table name for binned data (with # prefix for SQL Server)
   base_table_name = sprintf("__dbbinsreg_%s_binned", 
                             gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-  binned_table = dbbinsreg_temp_table_name(base_table_name, backend)
+  binned_table = temp_table_name(base_table_name, backend)
   
   # Step 1: Create binned data table with bin assignments
   if (partition_method == "quantile") {
     # NTILE-based quantile binning
-    ntile_expr = dbbinsreg_sql_ntile(x_name, B)
+    ntile_expr = sql_ntile(x_name, B)
     select_sql = glue("
       SELECT *, {ntile_expr} AS bin
       FROM {table_name}
       WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
     ")
-    dbbinsreg_create_temp_table_as(conn, binned_table, select_sql, backend)
+    create_temp_table_as(conn, binned_table, select_sql, backend)
     
   } else if (partition_method == "equal") {
     # Equal-width binning using window functions for min/max
@@ -1284,7 +1170,7 @@ execute_constrained_binsreg = function(inputs) {
         ) t1
       ) t2
     ")
-    dbbinsreg_create_temp_table_as(conn, binned_table, select_sql, backend)
+    create_temp_table_as(conn, binned_table, select_sql, backend)
     
   } else if (partition_method == "manual") {
     # Manual breaks: assign bin based on user-specified breakpoints
@@ -1305,7 +1191,7 @@ execute_constrained_binsreg = function(inputs) {
       WHERE {x_name} IS NOT NULL AND {y_name} IS NOT NULL
         AND {x_name} >= {breaks[1]} AND {x_name} <= {breaks[length(breaks)]}
     ")
-    dbbinsreg_create_temp_table_as(conn, binned_table, select_sql, backend)
+    create_temp_table_as(conn, binned_table, select_sql, backend)
     
     # Update B to match number of bins from breaks
     B = n_bins
@@ -1395,7 +1281,7 @@ execute_constrained_binsreg = function(inputs) {
   # Create new table with basis columns (replace binned table)
   base_spline_name = sprintf("__dbbinsreg_%s_spline", 
                              gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-  spline_table = dbbinsreg_temp_table_name(base_spline_name, backend)
+  spline_table = temp_table_name(base_spline_name, backend)
   
   basis_cols_sql = paste(basis_exprs, collapse = ",\n           ")
   spline_select_sql = glue("
@@ -1403,7 +1289,7 @@ execute_constrained_binsreg = function(inputs) {
            {basis_cols_sql}
     FROM {binned_table}
   ")
-  dbbinsreg_create_temp_table_as(conn, spline_table, spline_select_sql, backend)
+  create_temp_table_as(conn, spline_table, spline_select_sql, backend)
   on.exit(try(DBI::dbRemoveTable(conn, spline_table, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
   
   # Step 4: Build formula for dbreg

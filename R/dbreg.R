@@ -492,71 +492,7 @@ process_dbreg_inputs = function(
   )
 }
 
-#' Check if the database backend supports COUNT_BIG
-#'
-#' This function checks whether the provided database connection is to a backend
-#' that supports the `COUNT_BIG` function, such as SQL Server or Azure SQL.
-#'
-#' @param conn A DBI database connection object.
-#'
-#' @return Logical value: `TRUE` if the backend supports `COUNT_BIG`, `FALSE` otherwise.
-#' @examples
-#' \dontrun{
-#'   con = DBI::dbConnect(odbc::odbc(), ...)
-#'   backend_supports_count_big(con)
-#' }
-#' @keywords internal
-backend_supports_count_big = function(conn) {
-  info = try(dbGetInfo(conn), silent = TRUE)
-  if (inherits(info, "try-error")) {
-    return(FALSE)
-  }
-  dbms = tolower(paste(info$dbms.name, collapse = " "))
-  grepl("sql server|azure sql|microsoft sql server", dbms)
-}
-
-# detect SQL backend
-detect_backend = function(conn) {
-  # First check connection class for DuckDB (dbms.name may be empty)
-  if (inherits(conn, "duckdb_connection")) {
-    return(list(name = "duckdb", supports_count_big = FALSE))
-  }
-  
-  info = try(dbGetInfo(conn), silent = TRUE)
-  if (inherits(info, "try-error")) {
-    return(list(name = "unknown", supports_count_big = FALSE))
-  }
-  dbms = tolower(paste(info$dbms.name, collapse = " "))
-  list(
-    name = if (grepl("duckdb", dbms)) {
-      "duckdb"
-    } else if (grepl("sql server|azure sql|microsoft sql server", dbms)) {
-      "sqlserver"
-    } else {
-      "other"
-    },
-    supports_count_big = grepl(
-      "sql server|azure sql|microsoft sql server",
-      dbms
-    )
-  )
-}
-
-# sql_count: returns an expression fragment for use inside SELECT when possible.
-sql_count = function(conn, alias, expr = "*", distinct = FALSE) {
-  bd = detect_backend(conn)
-  if (distinct) {
-    glue(
-      "{if (bd$supports_count_big) paste0('COUNT_BIG(DISTINCT ', expr, ')') else paste0('CAST(COUNT(DISTINCT ', expr, ') AS BIGINT)')} AS {alias}"
-    )
-  } else {
-    if (bd$supports_count_big) {
-      glue("COUNT_BIG({expr}) AS {alias}")
-    } else {
-      glue("CAST(COUNT({expr}) AS BIGINT) AS {alias}")
-    }
-  }
-}
+# Note: sql_count, detect_backend, and backend_supports_count_big are now in utils.R
 
 #' Choose regression strategy based on inputs and auto logic
 #' @keywords internal
