@@ -640,27 +640,6 @@ dbbinsreg = function(
   return(result)
 }
 
-# =============================================================================
-# Internal SQL helpers for backend-agnostic operations
-# =============================================================================
-
-# Note: Most SQL dialect helpers have been moved to utils.R:
-#   - detect_backend(), sql_count(), sql_count_expr()
-#   - sql_random(), sql_sample(), sql_limit()
-#   - temp_table_name(), create_temp_table_as()
-# 
-# Only sql_ntile() remains here as it's specific to binscatter.
-
-#' Get NTILE window function expression
-#' @param x_name Column name to partition by
-#' @param n_bins Number of bins
-#' @return SQL NTILE expression
-#' @keywords internal
-sql_ntile = function(x_name, n_bins) {
-  glue("NTILE({n_bins}) OVER (ORDER BY {x_name})")
-}
-
-
 #' Execute separate binsreg models for points and line
 #' 
 #' When points and line have different (p,s) parameters, we need to fit two separate

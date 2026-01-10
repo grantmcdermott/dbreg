@@ -419,6 +419,15 @@ sql_count_expr = function(backend) {
   if (backend == "sqlserver") "COUNT_BIG(*)" else "COUNT(*)"
 }
 
+#' Get NTILE window function expression
+#' @param x_name Column name to partition by
+#' @param n_bins Number of bins
+#' @return SQL NTILE expression
+#' @keywords internal
+sql_ntile = function(x_name, n_bins) {
+  glue("NTILE({n_bins}) OVER (ORDER BY {x_name})")
+}
+
 #' Get backend-specific RANDOM() expression
 #' 
 #' Different SQL backends use different syntax for random number generation.
