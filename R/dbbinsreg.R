@@ -385,6 +385,12 @@ dbbinsreg = function(
   y_name = fml_parsed$yvar
   fe = fml_parsed$fe
   
+  # Check for interactions - dbbinsreg does not support them
+  if (fml_parsed$has_interactions) {
+    stop("dbbinsreg does not support interaction terms (e.g., x * z or x:z). ",
+         "Please specify controls as separate additive terms (e.g., y ~ x + z).")
+  }
+  
   # For dbbinsreg: first RHS variable is the running variable, rest are controls
   rhs1_vars = fml_parsed$xvars
   x_name = rhs1_vars[1]
