@@ -321,28 +321,13 @@ dbreg = function(
 
   verbose = isTRUE(verbose)
   ssc = match.arg(ssc)
-  # Parse vcov: can be string or formula (for clustering)
-  # Check formula first before any string operations
-  if (inherits(vcov, "formula")) {
-    cluster = vcov
-    vcov = "cluster"
-  } else if (is.character(vcov)) {
-    vcov = tolower(vcov[1])
-    vcov = match.arg(vcov, c("iid", "hc1"))
-  } else {
-    stop("vcov must be a character string ('iid', 'hc1') or a formula for clustering")
-  }
-  # Parse cluster argument
-  if (!is.null(cluster)) {
-    if (inherits(cluster, "formula")) {
-      cluster_vars = all.vars(cluster)
-      if (length(cluster_vars) != 1) {
-        stop("Only single-variable clustering is currently supported")
-      }
-      cluster = cluster_vars
-    }
-    vcov = "cluster"
-  }
+  
+ 
+  # Parse vcov/cluster arguments using shared helper
+  vcov_parsed = parse_vcov_args(vcov, cluster, valid_types = c("iid", "hc1"))
+  vcov = vcov_parsed$vcov_type
+  cluster = vcov_parsed$cluster_var
+  
   strategy = match.arg(strategy)
   if (strategy == "within") strategy = "demean"  # alias
 
@@ -423,28 +408,14 @@ process_dbreg_inputs = function(
   own_conn = db_setup$own_conn
   from_statement = db_setup$from_statement
 
-  # Parse formula
-  fml = Formula(fml)
-  yvar = all.vars(formula(fml, lhs = 1, rhs = 0))
-  if (length(yvar) != 1) {
-    stop("Exactly one outcome variable required.")
-  }
-
-  # Get term structure (preserves interactions)
-  rhs1 = formula(fml, lhs = 0, rhs = 1)
-  tt = terms(rhs1)
-  term_labels = attr(tt, "term.labels")
-  xvars = all.vars(rhs1)  # unique variable names (for column validation)
-  has_interactions = any(grepl(":", term_labels))
-  
-  fe = if (length(fml)[2] > 1) {
-    all.vars(formula(fml, lhs = 0, rhs = 2))
-  } else {
-    NULL
-  }
-  if (!length(xvars)) {
-    stop("No regressors on RHS.")
-  }
+  # Parse formula using shared helper
+  fml_parsed = parse_regression_formula(fml)
+  fml = fml_parsed$fml
+  yvar = fml_parsed$yvar
+  xvars = fml_parsed$xvars
+  term_labels = fml_parsed$term_labels
+  has_interactions = fml_parsed$has_interactions
+  fe = fml_parsed$fe
 
   # Heuristic for continuous regressors (only if data passed)
   is_continuous = function(v) {

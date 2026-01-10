@@ -204,3 +204,114 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
   )
 }
 
+
+#' Parse regression formula
+#'
+#' Parses a formula using the Formula package and extracts components needed
+#' for regression: outcome variable, RHS variables, term labels, and fixed effects.
+#'
+#' @param fml A formula object (will be converted to Formula)
+#'
+#' @return A list containing:
+#'   \item{fml}{The Formula object}
+#'   \item{yvar}{Character, the outcome variable name}
+#'   \item{xvars}{Character vector of unique variable names on RHS part 1}
+#'   \item{term_labels}{Character vector of term labels (preserves interactions like "a:b")}
+#'   \item{has_interactions}{Logical, TRUE if any interaction terms present}
+#'   \item{fe}{Character vector of fixed effect variable names, or NULL if none}
+#'
+#' @keywords internal
+#' @importFrom Formula Formula
+parse_regression_formula = function(fml) {
+  fml = Formula::Formula(fml)
+  
+
+  # Extract outcome variable (LHS)
+  yvar = all.vars(stats::formula(fml, lhs = 1, rhs = 0))
+  if (length(yvar) != 1) {
+    stop("Exactly one outcome variable required.")
+  }
+  
+  # Extract RHS part 1: variables and term structure
+  rhs1 = stats::formula(fml, lhs = 0, rhs = 1)
+  tt = stats::terms(rhs1)
+  term_labels = attr(tt, "term.labels")
+  xvars = all.vars(rhs1)  # unique variable names
+  has_interactions = any(grepl(":", term_labels))
+  
+  if (!length(xvars)) {
+    stop("No regressors on RHS.")
+  }
+  
+  # Extract fixed effects (RHS part 2, after |)
+  fe = if (length(fml)[2] > 1) {
+    all.vars(stats::formula(fml, lhs = 0, rhs = 2))
+  } else {
+    NULL
+  }
+  
+  list(
+    fml = fml,
+    yvar = yvar,
+    xvars = xvars,
+    term_labels = term_labels,
+    has_interactions = has_interactions,
+    fe = fe
+  )
+}
+
+
+#' Parse variance-covariance and clustering arguments
+#'
+#' Parses the vcov and cluster arguments to determine the variance-covariance
+#' type and extract any clustering variable.
+#'
+#' @param vcov Character string ("iid", "hc1") or formula for clustering (e.g., ~firm)
+#' @param cluster Optional separate cluster argument (formula or character)
+#' @param valid_types Character vector of valid vcov type strings. Default is
+#'   c("iid", "hc1"). Case-insensitive matching is used.
+#'
+#' @return A list containing:
+#'   \item{vcov_type}{Character string: "iid", "hc1", or "cluster"}
+#'   \item{cluster_var}{Character name of cluster variable, or NULL if not clustered}
+#'
+#' @keywords internal
+parse_vcov_args = function(vcov, cluster = NULL, valid_types = c("iid", "hc1")) {
+  vcov_type = NULL
+  cluster_var = NULL
+  
+ 
+  # Handle vcov: can be string or formula (for clustering)
+  if (inherits(vcov, "formula")) {
+    cluster_var = all.vars(vcov)
+    if (length(cluster_var) != 1) {
+      stop("Only single-variable clustering is currently supported")
+    }
+    vcov_type = "cluster"
+  } else if (is.character(vcov)) {
+    vcov_type = tolower(vcov[1])
+    vcov_type = match.arg(vcov_type, valid_types)
+  } else if (!is.null(vcov)) {
+    stop("vcov must be a character string or a formula for clustering")
+  }
+  
+  # Handle separate cluster argument (overrides vcov if provided)
+  if (!is.null(cluster)) {
+    if (inherits(cluster, "formula")) {
+      cluster_var = all.vars(cluster)
+      if (length(cluster_var) != 1) {
+        stop("Only single-variable clustering is currently supported")
+      }
+    } else if (is.character(cluster)) {
+      cluster_var = cluster[1]
+    } else {
+      stop("cluster must be a formula (e.g., ~firm) or character string")
+    }
+    vcov_type = "cluster"
+  }
+  
+  list(
+    vcov_type = vcov_type,
+    cluster_var = cluster_var
+  )
+}

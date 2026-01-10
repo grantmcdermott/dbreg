@@ -374,41 +374,21 @@ dbbinsreg = function(
     vcov = "HC1"
   }
   
-  # Extract cluster variable if vcov is a formula
-  cluster_var = NULL
-  if (inherits(vcov, "formula")) {
-    cluster_var = all.vars(vcov)
-    if (length(cluster_var) != 1) {
-      stop("vcov formula must specify exactly one clustering variable (e.g., ~cluster_id)")
-    }
-  }
+  # Parse vcov arguments using shared helper (dbbinsreg accepts more vcov types)
+  vcov_parsed = parse_vcov_args(vcov, cluster = NULL, valid_types = c("iid", "hc1", "hc0", "hc2", "hc3"))
+  cluster_var = vcov_parsed$cluster_var
+  # Note: we keep vcov as-is for dbbinsreg (not normalized to vcov_type)
   
-  # Parse formula using Formula package (same pattern as dbreg)
+  # Parse formula using shared helper
+  fml_parsed = parse_regression_formula(fml)
+  fml = fml_parsed$fml
+  y_name = fml_parsed$yvar
+  fe = fml_parsed$fe
   
-  fml = Formula(fml)
-  
-  # Extract y variable (LHS)
-  y_name = all.vars(formula(fml, lhs = 1, rhs = 0))
-  if (length(y_name) != 1) {
-    stop("Exactly one outcome variable required on LHS of formula")
-  }
-  
-  # Extract RHS part 1: x variable (first) and controls (rest)
-  # Formula: y ~ x + controls | fe
-  rhs1_vars = all.vars(formula(fml, lhs = 0, rhs = 1))
-  if (length(rhs1_vars) < 1) {
-    stop("At least one variable (the running variable) required on RHS of formula")
-  }
-  
-  x_name = rhs1_vars[1]  # First variable is the running variable
+  # For dbbinsreg: first RHS variable is the running variable, rest are controls
+  rhs1_vars = fml_parsed$xvars
+  x_name = rhs1_vars[1]
   controls = if (length(rhs1_vars) > 1) rhs1_vars[-1] else NULL
-  
-  # Extract fixed effects (second RHS component after |, if present)
-  fe = if (length(fml)[2] > 1) {
-    all.vars(formula(fml, lhs = 0, rhs = 2))
-  } else {
-    NULL
-  }
   
   # Validate derived parameters
   if (!is.numeric(B) || B < 1) {
