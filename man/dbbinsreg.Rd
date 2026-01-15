@@ -269,7 +269,7 @@ dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
 
 # For plot customization, save the model object so you can pass additional args
 # to (tiny)plot.dbbinsreg
-bs = dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
+bs = dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, plot = FALSE)
 plot(bs, theme = "clean", main = "A simple binscatter example")
 
 # Alternatively: you can also set a global (tiny)plot theme

@@ -5,9 +5,9 @@
 \alias{tinyplot.dbbinsreg}
 \title{Plot method for dbbinsreg objects}
 \usage{
-\method{plot}{dbbinsreg}(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...)
+\method{plot}{dbbinsreg}(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, lty = 1, ...)
 
-\method{tinyplot}{dbbinsreg}(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...)
+\method{tinyplot}{dbbinsreg}(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, lty = 1, ...)
 }
 \arguments{
 \item{x}{A \code{dbbinsreg} object}
@@ -22,6 +22,8 @@ confidence intervals).}
 available in the object.}
 
 \item{line}{Logical. Show the line overlay if available? Default is \code{TRUE.}}
+
+\item{lty}{Integer or string. Line type for line overlay.}
 
 \item{...}{Additional arguments passed to \verb{\code{\link[tinyplot]{tinyplot}}, e.g. }theme\verb{, }main\verb{, }file`, etc.}
 }
@@ -44,7 +46,7 @@ dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
 
 # For plot customization, save the model object so you can pass additional args
 # to (tiny)plot.dbbinsreg
-bs = dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
+bs = dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, plot = FALSE)
 plot(bs, theme = "clean", main = "A simple binscatter example")
 
 # Alternatively: you can also set a global (tiny)plot theme
