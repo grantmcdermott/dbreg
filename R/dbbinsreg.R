@@ -68,6 +68,8 @@
 #'   row-level data (i.e., no pre-aggregation).
 #' @param plot Logical. If `TRUE` (default), a plot is produced as a side effect.
 #'   Set to `FALSE` to suppress plotting.
+#' @param ... Additional arguments passed to \code{\link{plot.dbbinsreg}}, which
+#'   may in turn be passed to \code{\link[tinyplot]{tinyplot}}.
 #'
 #' @return A list of class "dbbinsreg" containing:
 #' \describe{
@@ -194,13 +196,13 @@
 #' # Canonical binscatter: bin means (default)
 #' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
 #' 
-#' # For plot customization, save the model object so you can pass additional args
-#' # to (tiny)plot.dbbinsreg
-#' bs = dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
-#' plot(bs, theme = "clean", main = "A simple binscatter example")
+#' # You can pass additional plotting arguments via ... to (tiny)plot.dbbinsreg
+#' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10,
+#'           main = "A simple binscatter example", theme = "clean")
 #' 
-#' # Alternatively: you can also set a global (tiny)plot theme
-#' tinyplot::tinytheme("classic")
+#' # Alternatively, save the object and plot later
+#' bs = dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, plot = FALSE)
+#' plot(bs, main = "Same example, different theme", theme = "classic")
 #' 
 #' # Piecewise linear (p = 1), no smoothness (s = 0)
 #' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
@@ -219,7 +221,9 @@
 #' dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, cb = TRUE)
 #' 
 #' # Accounting for Diet "fixed effects" helps to resolve the situation
-#' dbbinsreg(weight ~ Time | Diet, data = ChickWeight, nbins = 10, cb = TRUE)
+#' # (We'll also add a line and change the theme for a nicer plot)
+#' dbbinsreg(weight ~ Time | Diet, data = ChickWeight, nbins = 10, cb = TRUE,
+#'           line = c(1, 1), theme = "clean")
 #' 
 #' #
 #' ## DBI connection ----
@@ -228,14 +232,14 @@
 #' con = dbConnect(duckdb::duckdb())
 #' dbWriteTable(con, "cw", as.data.frame(ChickWeight))
 #' 
-#' dbbinsreg(weight ~ Time | Diet, conn = con, table = "cw", nbins = 10)
+#' dbbinsreg(weight ~ Time | Diet, conn = con, table = "cw", nbins = 10,
+#'           theme = "clean")
 #' # etc.
 #' 
 #' # See ?dbreg for more connection examples
 #' 
 #' # Clean up
 #' dbDisconnect(con)
-#' tinyplot::tinytheme() # reset plot theme
 #'
 #' 
 #' @export
@@ -260,13 +264,16 @@ dbbinsreg = function(
   strategy = c("auto", "compress"),
   plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
-  dots = NULL
+  dots = NULL,
+  ...
 ) {
   
   # Handle dots as alias for points (binsreg compatibility)
   if (!is.null(dots)) {
     points = dots
   }
+
+  # dots = list(...) ## unused at present (passed directly to plot.dbbinsreg)
   
   # Validate strategy
   strategy = match.arg(strategy)
@@ -685,7 +692,7 @@ dbbinsreg = function(
   
   # Plot if requested
   if (isTRUE(inputs$plot)) {
-    plot(result)
+    plot(result, ...)
   }
   
   return(result)
