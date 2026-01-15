@@ -17,12 +17,27 @@
 #' @param cb Logical. Show confidence bands as a ribbon? Default is `TRUE` if
 #' available in the object.
 #' @param line Logical. Show the line overlay if available? Default is `TRUE.`
-#' @param lty Integer or string. Line type for line overlay.
-#' @param ... Additional arguments passed to `\code{\link[tinyplot]{tinyplot}},
-#' e.g. `theme`, `main`, `file`, etc.
+#' @param lty Integer or character string. Line type for line overlay.
+#' @param theme Character string. One of the valid plot themes supported by
+#' \code{\link[tinyplot]{tinytheme}}. The default `"basic"` theme is a light
+#' adaptation of the standard base graphics aesthetic, featuring filled points
+#' and a background grid. Various other themes are supported (e.g., `"clean"`,
+#' `"minimal"`, `"classic"`, etc.), while passing `NULL` switches the theme off
+#' entirely.
+#' @param ... Additional arguments passed to \code{\link[tinyplot]{tinyplot}},
+#' e.g. `main`, `sub`, `file`, etc.
 #' @inherit dbbinsreg examples
 #' @export
-plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, lty = 1, ...) {
+plot.dbbinsreg = function(
+  x,
+  type = NULL,
+  ci = TRUE,
+  cb = TRUE,
+  line = TRUE,
+  lty = 1,
+  theme = "basic",
+  ...
+) {
   # Extract metadata
   opt = x$opt
   x_var = opt$x_var
@@ -58,6 +73,7 @@ plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, lty
     ylab = y_var,
     type = "n",
     na.action = stats::na.omit,
+    theme = theme,
     ...
   )
 

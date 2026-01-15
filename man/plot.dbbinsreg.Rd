@@ -5,9 +5,27 @@
 \alias{tinyplot.dbbinsreg}
 \title{Plot method for dbbinsreg objects}
 \usage{
-\method{plot}{dbbinsreg}(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, lty = 1, ...)
+\method{plot}{dbbinsreg}(
+  x,
+  type = NULL,
+  ci = TRUE,
+  cb = TRUE,
+  line = TRUE,
+  lty = 1,
+  theme = "basic",
+  ...
+)
 
-\method{tinyplot}{dbbinsreg}(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, lty = 1, ...)
+\method{tinyplot}{dbbinsreg}(
+  x,
+  type = NULL,
+  ci = TRUE,
+  cb = TRUE,
+  line = TRUE,
+  lty = 1,
+  theme = "basic",
+  ...
+)
 }
 \arguments{
 \item{x}{A \code{dbbinsreg} object}
@@ -23,10 +41,17 @@ available in the object.}
 
 \item{line}{Logical. Show the line overlay if available? Default is \code{TRUE.}}
 
-\item{lty}{Integer or string. Line type for line overlay.}
+\item{lty}{Integer or character string. Line type for line overlay.}
+
+\item{theme}{Character string. One of the valid plot themes supported by
+\code{\link[tinyplot]{tinytheme}}. The default \code{"basic"} theme is a light
+adaptation of the standard base graphics aesthetic, featuring filled points
+and a background grid. Various other themes are supported (e.g., \code{"clean"},
+\code{"minimal"}, \code{"classic"}, etc.), while passing \code{NULL} switches the theme off
+entirely.}
 
 \item{...}{Additional arguments passed to \code{\link[tinyplot]{tinyplot}},
-e.g. \code{theme}, \code{main}, \code{file}, etc.}
+e.g. \code{main}, \code{sub}, \code{file}, etc.}
 }
 \description{
 Visualizes binned regression results from \code{\link{dbbinsreg}}.
@@ -45,13 +70,13 @@ Uses tinyplot for rendering but works with both \code{plot()} and
 # Canonical binscatter: bin means (default)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10)
 
-# For plot customization, save the model object so you can pass additional args
-# to (tiny)plot.dbbinsreg
-bs = dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, plot = FALSE)
-plot(bs, theme = "clean", main = "A simple binscatter example")
+# You can pass additional plotting arguments via ... to (tiny)plot.dbbinsreg
+dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10,
+          main = "A simple binscatter example", theme = "clean")
 
-# Alternatively: you can also set a global (tiny)plot theme
-tinyplot::tinytheme("classic")
+# Alternatively, save the object and plot later
+bs = dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, plot = FALSE)
+plot(bs, main = "Same example, different theme", theme = "classic")
 
 # Piecewise linear (p = 1), no smoothness (s = 0)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, points = c(1, 0))
@@ -70,7 +95,9 @@ set.seed(99)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, cb = TRUE)
 
 # Accounting for Diet "fixed effects" helps to resolve the situation
-dbbinsreg(weight ~ Time | Diet, data = ChickWeight, nbins = 10, cb = TRUE)
+# (We'll also make add a line and change the theme for a nicer plot)
+dbbinsreg(weight ~ Time | Diet, data = ChickWeight, nbins = 10, cb = TRUE,
+          line = c(1, 1), theme = "clean")
 
 #
 ## DBI connection ----
@@ -79,14 +106,14 @@ library(DBI)
 con = dbConnect(duckdb::duckdb())
 dbWriteTable(con, "cw", as.data.frame(ChickWeight))
 
-dbbinsreg(weight ~ Time | Diet, conn = con, table = "cw", nbins = 10)
+dbbinsreg(weight ~ Time | Diet, conn = con, table = "cw", nbins = 10,
+          theme = "clean")
 # etc.
 
 # See ?dbreg for more connection examples
 
 # Clean up
 dbDisconnect(con)
-tinyplot::tinytheme() # reset plot theme
 
 
 }
