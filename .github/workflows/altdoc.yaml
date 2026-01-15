@@ -36,16 +36,15 @@ jobs:
         run: ./run.sh install_all
 
       - name: Altdoc and deps
-        run: ./run.sh install_r altdoc future.apply
+        run: ./run.sh install_r altdoc
 
       - name: Build site
         run: |
           # If parallel = TRUE in render_docs()
-          future::plan(future::multicore)
           install.packages(".", repos = NULL, type = "source")
           install.packages("pkgload")
           pkgload::load_all()
-          altdoc::render_docs(parallel = TRUE, freeze = FALSE)
+          altdoc::render_docs(freeze = TRUE)
         shell: Rscript {0}
 
       - name: Deploy to GitHub pages 🚀
