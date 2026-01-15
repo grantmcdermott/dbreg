@@ -270,7 +270,7 @@ relationships in large datasets. Here we plot average tips by month:
 
 ``` r
 dbbinsreg(
-   tip_amount ~ month, nbins = 12, line = TRUE,
+   tip_amount ~ month, nbins = 12,
    path = "read_parquet('nyc-taxi/**/*.parquet')"
 )
 ```
@@ -279,7 +279,7 @@ dbbinsreg(
 
     #> Binscatter Plot
     #> Formula: tip_amount ~ month 
-    #> points = c(0,0) | line = c(0,0) | nbins = 11 (quantile-spaced)
+    #> points = c(0,0) | line = NULL | nbins = 11 (quantile-spaced)
     #> Observations: 178,544,324 (original) | 11 (compressed)
 
 The plot reveals a striking jump in tips starting in September. We can

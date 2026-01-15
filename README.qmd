@@ -1,6 +1,5 @@
 ---
 format: gfm
-freeze: true
 ---
 
 <!-- README.md is generated from README.qmd. Please edit that file -->
@@ -230,7 +229,7 @@ relationships in large datasets. Here we plot average tips by month:
 ```{r}
 #| label: nyc-binsreg
 dbbinsreg(
-   tip_amount ~ month, nbins = 12, line = TRUE,
+   tip_amount ~ month, nbins = 12,
    path = "read_parquet('nyc-taxi/**/*.parquet')"
 )
 ```
