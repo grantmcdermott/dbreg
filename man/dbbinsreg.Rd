@@ -25,7 +25,8 @@ dbbinsreg(
   strategy = c("auto", "compress"),
   plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
-  dots = NULL
+  dots = NULL,
+  ...
 )
 }
 \arguments{
@@ -135,6 +136,9 @@ by supplying \code{verbose = TRUE}, or set globally via
 
 \item{dots}{Alias for \code{points} for \code{\link[binsreg]{binsreg}} compatibility.
 If not \code{NULL}, overrides the \code{points} argument.}
+
+\item{...}{Additional arguments passed to \code{\link{plot.dbbinsreg}}, which
+may in turn be passed to \code{\link[tinyplot]{tinyplot}}.}
 }
 \value{
 A list of class "dbbinsreg" containing:

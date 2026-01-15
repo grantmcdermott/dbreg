@@ -68,6 +68,8 @@
 #'   row-level data (i.e., no pre-aggregation).
 #' @param plot Logical. If `TRUE` (default), a plot is produced as a side effect.
 #'   Set to `FALSE` to suppress plotting.
+#' @param ... Additional arguments passed to \code{\link{plot.dbbinsreg}}, which
+#'   may in turn be passed to \code{\link[tinyplot]{tinyplot}}.
 #'
 #' @return A list of class "dbbinsreg" containing:
 #' \describe{
@@ -260,13 +262,16 @@ dbbinsreg = function(
   strategy = c("auto", "compress"),
   plot = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
-  dots = NULL
+  dots = NULL,
+  ...
 ) {
   
   # Handle dots as alias for points (binsreg compatibility)
   if (!is.null(dots)) {
     points = dots
   }
+
+  # dots = list(...) ## unused at present (passed directly to plot.dbbinsreg)
   
   # Validate strategy
   strategy = match.arg(strategy)
@@ -685,7 +690,7 @@ dbbinsreg = function(
   
   # Plot if requested
   if (isTRUE(inputs$plot)) {
-    plot(result)
+    plot(result, ...)
   }
   
   return(result)

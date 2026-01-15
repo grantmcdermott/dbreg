@@ -25,7 +25,8 @@ available in the object.}
 
 \item{lty}{Integer or string. Line type for line overlay.}
 
-\item{...}{Additional arguments passed to \verb{\code{\link[tinyplot]{tinyplot}}, e.g. }theme\verb{, }main\verb{, }file`, etc.}
+\item{...}{Additional arguments passed to \code{\link[tinyplot]{tinyplot}},
+e.g. \code{theme}, \code{main}, \code{file}, etc.}
 }
 \description{
 Visualizes binned regression results from \code{\link{dbbinsreg}}.
