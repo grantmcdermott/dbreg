@@ -45,7 +45,7 @@ plot.dbbinsreg = function(
   
   # Grab plot dimensions up front (so added layers don't get clipped)
   has_pts = !is.null(x[["points"]])
-  has_ln = !is.null(x[["line"]])
+  has_ln = isTRUE(line) && !is.null(x[["line"]])
   if (!(has_pts || has_ln)) {
     warning("No data to plot (neither points nor line available)")
     return(invisible(x))
@@ -87,7 +87,6 @@ plot.dbbinsreg = function(
   }
 
   if (has_ln) {
-    # smooth_line = !is.null(x$knot) && (is.atomic(x$knot) || )
     line_params = x[["opt"]][["line"]]
     smooth_line = length(line_params) == 2 && line_params[2] > 0
     if (smooth_line) {
@@ -100,7 +99,10 @@ plot.dbbinsreg = function(
       # For non-smooth lines we use a trick of inserting NAs in between bins,
       # so that each bin is plotted separately.
       line_data = x[["line"]]
-      idx = unlist(lapply(split(seq_len(nrow(line_data)), line_data$bin), function(x) c(x, NA)))
+      idx = unlist(lapply(
+        split(seq_len(nrow(line_data)), line_data$bin),
+        function(i) c(i, NA)
+      ))
       line_data = line_data[idx[-length(idx)], ]
       tinyplot::tinyplot_add(
         data = line_data,
