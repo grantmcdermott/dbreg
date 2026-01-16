@@ -35,8 +35,9 @@ jobs:
       - name: Dependencies
         run: ./run.sh install_all
 
-      - name: Altdoc and deps
-        run: ./run.sh install_r altdoc
+      - name: Install altdoc from GitHub
+        #run: ./run.sh install_r altdoc
+        run: ./run.sh install_github etiennebacher/altdoc#354
 
       - name: Build site
         run: |
