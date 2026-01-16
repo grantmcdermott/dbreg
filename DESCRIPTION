@@ -58,7 +58,7 @@ Suggests:
   tinytest
 Enhances:
   dbplyr
-Config/Needs/website: altdoc (>= 0.6.0), future.apply
+Config/Needs/website: etiennebacher/altdoc#354
 Encoding: UTF-8
 RoxygenNote: 7.3.3
 License: MIT + file LICENSE
