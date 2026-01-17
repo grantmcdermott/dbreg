@@ -223,8 +223,6 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
 #' @keywords internal
 parse_regression_formula = function(fml) {
   fml = Formula::Formula(fml)
-  
-
   # Extract outcome variable (LHS)
   yvar = all.vars(stats::formula(fml, lhs = 1, rhs = 0))
   if (length(yvar) != 1) {
