@@ -126,4 +126,3 @@ plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...
 #' @importFrom tinyplot tinyplot
 #' @export
 tinyplot.dbbinsreg = plot.dbbinsreg
-

@@ -221,7 +221,6 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
 #'   \item{fe}{Character vector of fixed effect variable names, or NULL if none}
 #'
 #' @keywords internal
-#' @importFrom Formula Formula
 parse_regression_formula = function(fml) {
   fml = Formula::Formula(fml)
   
