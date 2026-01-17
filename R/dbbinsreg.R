@@ -647,7 +647,6 @@ dbbinsreg = function(
 #' 1. Fits a model with points parameters (points.p, points.s) for data.dots
 #' 2. Fits a model with line parameters (line.p, line.s) for data.line
 #' 3. Combines results into single dbbinsreg output
-
 #' 
 #' @keywords internal
 execute_separate_binsreg = function(inputs) {
