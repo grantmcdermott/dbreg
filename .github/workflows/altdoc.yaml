@@ -37,7 +37,7 @@ jobs:
 
       - name: Install altdoc from GitHub
         #run: ./run.sh install_r altdoc
-        run: ./run.sh install_github etiennebacher/altdoc#354
+        run: ./run.sh install_github etiennebacher/altdoc
 
       - name: Build site
         run: |
