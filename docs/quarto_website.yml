@@ -27,8 +27,8 @@ website:
         file: man/dbreg.qmd
     right:
       - icon: github
-        href: $ALTDOC_PACKAGE_URL_GITHUB
-        aria-label: $ALTDOC_PACKAGE_NAME GitHub
+        href: https://github.com/grantmcdermott/dbreg
+        aria-label: dbreg GitHub
         target: _blank
       - icon: bluesky
         href: https://bsky.app/profile/gmcd.bsky.social
