@@ -17,106 +17,109 @@
 #' @param cb Logical. Show confidence bands as a ribbon? Default is `TRUE` if
 #' available in the object.
 #' @param line Logical. Show the line overlay if available? Default is `TRUE.`
-#' @param ... Additional arguments passed to `\code{\link[tinyplot]{tinyplot}},
-#' e.g. `theme`, `main`, `file`, etc.
+#' @param lty Integer or character string. Line type for line overlay.
+#' @param theme Character string. One of the valid plot themes supported by
+#' \code{\link[tinyplot]{tinytheme}}. The default `"basic"` theme is a light
+#' adaptation of the standard base graphics aesthetic, featuring filled points
+#' and a background grid. Various other themes are supported (e.g., `"clean"`,
+#' `"minimal"`, `"classic"`, etc.), while passing `NULL` switches the theme off
+#' entirely.
+#' @param ... Additional arguments passed to \code{\link[tinyplot]{tinyplot}},
+#' e.g. `main`, `sub`, `file`, etc.
 #' @inherit dbbinsreg examples
 #' @export
-plot.dbbinsreg = function(x, type = NULL, ci = TRUE, cb = TRUE, line = TRUE, ...) {
+plot.dbbinsreg = function(
+  x,
+  type = NULL,
+  ci = TRUE,
+  cb = TRUE,
+  line = TRUE,
+  lty = 1,
+  theme = "basic",
+  ...
+) {
   # Extract metadata
   opt = x$opt
   x_var = opt$x_var
   y_var = opt$y_var
+  
+  # Grab plot dimensions up front (so added layers don't get clipped)
+  has_pts = !is.null(x[["points"]])
+  has_ln = isTRUE(line) && !is.null(x[["line"]])
+  if (!(has_pts || has_ln)) {
+    warning("No data to plot (neither points nor line available)")
+    return(invisible(x))
+  }
+  has_ci = ci && has_pts && all(c("lwr", "upr") %in% names(x[["points"]])) && !all(is.na(x[["points"]][["lwr"]]))
+  has_cb = cb && has_pts && all(c("cb_lwr", "cb_upr") %in% names(x[["points"]])) && !all(is.na(x[["points"]][["cb_lwr"]]))
+  pts_cols = c("fit", if (has_ci) c("lwr", "upr"), if (has_cb) c("cb_lwr", "cb_upr"))
+  pts_range = if (has_pts) range(x[["points"]][, pts_cols], na.rm = TRUE, finite = TRUE)
+  ln_range = if (has_ln) range(x[["line"]][, "fit"], na.rm = TRUE, finite = TRUE)
+  y_lim = range(c(pts_range, ln_range), na.rm = TRUE, finite = TRUE)
+  x_lim = range(c(
+    if (has_pts) x[["points"]][["x"]],
+    if (has_ln) x[["line"]][["x"]]
+  ), na.rm = TRUE, finite = TRUE)
 
-  # Start with points (the main binscatter points)
-  if (!is.null(x$points)) {
-    pts = x$points
-    
-    # Check if CB is available and requested
-    has_cb = cb && all(c("cb_lwr", "cb_upr") %in% names(pts)) && !all(is.na(pts$cb_lwr))
-    
-    # Plot CB ribbon first (so it's behind the points)
-    if (has_cb) {
-      tinyplot::tinyplot(
-        fit ~ x,
-        data = pts,
-        ymin = cb_lwr,
-        ymax = cb_upr,
-        type = "ribbon",
-        xlab = x_var,
-        ylab = y_var,
-        lty = 0, # FIXME
-        ...
-      )
-      # Add points/CI on top
-      if (ci && all(c("lwr", "upr") %in% names(pts)) && !all(is.na(pts$lwr))) {
-        if (is.null(type)) type = "pointrange"
-        tinyplot::tinyplot_add(
-          fit ~ x,
-          data = pts,
-          ymin = pts$lwr,
-          ymax = pts$upr,
-          type = type,
-          lty = 1 # FIXME
-        )
-      } else {
-        tinyplot::tinyplot_add(
-          fit ~ x,
-          data = pts,
-          type = "p"
-        )
-      }
-    } else if (ci && all(c("lwr", "upr") %in% names(pts)) && !all(is.na(pts$lwr))) {
-      # CI only (no CB)
-      if (is.null(type)) type = "pointrange"
-      tinyplot::tinyplot(
-        fit ~ x,
-        data = pts,
-        ymin = pts$lwr,
-        ymax = pts$upr,
-        type = type,
-        xlab = x_var,
-        ylab = y_var,
-        ...
+  pts = if (has_pts) x[["points"]] else data.frame(x = NA, fit = NA, lwr = NA, upr = NA)
+
+  # Start with empty layer
+  tinyplot::tinyplot(
+    fit ~ x,
+    data = pts,
+    xlim = x_lim,
+    ylim = y_lim,
+    xlab = x_var,
+    ylab = y_var,
+    type = "n",
+    na.action = stats::na.omit,
+    theme = theme,
+    ...
+  )
+
+  if (has_cb) {
+    tinyplot::tinyplot_add(
+      ymin = pts$cb_lwr,
+      ymax = pts$cb_upr,
+      type = "ribbon",
+      lty = 0
+    )
+  }
+
+  if (has_ln) {
+    line_params = x[["opt"]][["line"]]
+    smooth_line = length(line_params) == 2 && line_params[2] > 0
+    if (smooth_line) {
+      tinyplot::tinyplot_add(
+        data = x[["line"]],
+        type = "l",
+        lty = lty
       )
     } else {
-      # No CI or CB
-      tinyplot::tinyplot(
-        fit ~ x,
-        data = pts,
-        type = type,
-        xlab = x_var,
-        ylab = y_var,
-        ...
-      )
-    }
-    
-    # Overlay line if available and requested
-    if (line && !is.null(x$line)) {
-      line_data = x$line
+      # For non-smooth lines we use a trick of inserting NAs in between bins,
+      # so that each bin is plotted separately.
+      line_data = x[["line"]]
+      idx = unlist(lapply(
+        split(seq_len(nrow(line_data)), line_data$bin),
+        function(i) c(i, NA)
+      ))
+      line_data = line_data[idx[-length(idx)], ]
       tinyplot::tinyplot_add(
-        fit ~ x, data = line_data,
-        ymin = NULL, ymax = NULL,
+        data = line_data,
         type = "l",
-        lty = 1, # FIXME
-        lwd = 2,
-        col = "steelblue"
+        lty = lty,
+        na.action = stats::na.pass
       )
     }
-  } else if (!is.null(x$line)) {
-    # No points, just show line
-    if (is.null(type)) type = "l"
-    line_data = x$line
-    tinyplot::tinyplot(
-      fit ~ x,
-      data = line_data,
+  }
+
+  if (has_pts) {
+    type = if (!is.null(type)) type else if (has_ci) "pointrange" else "p"
+    tinyplot::tinyplot_add(
       type = type,
-      xlab = x_var,
-      ylab = y_var,
-      lty = 1, # FIXME
-      ...
+      ymin = pts$lwr,
+      ymax = pts$upr
     )
-  } else {
-    warning("No data to plot (neither points nor line available)")
   }
   
   invisible(x)
