@@ -23,6 +23,7 @@
 #' @importFrom stats terms
 #' @export
 #' @examples
+#' \dontrun{
 #' library(DBI)
 #' library(duckdb)
 #' con = dbConnect(duckdb())
@@ -31,6 +32,7 @@
 #' sql_model_matrix(~ x1:x2, con, "test")
 #' sql_model_matrix(~ x1:x2, con, "test", sep = ":")
 #' dbDisconnect(con)
+#' }
 sql_model_matrix = function(
   formula,
   conn,

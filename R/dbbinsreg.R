@@ -187,6 +187,7 @@
 #'   \code{\link[binsreg]{binsreg}} for the original implementation.
 #' @importFrom stats quantile
 #' @examples
+#' \dontrun{
 #' #
 #' ## In-memory data ----
 #' 
@@ -240,7 +241,7 @@
 #' 
 #' # Clean up
 #' dbDisconnect(con)
-#'
+#' }
 #' 
 #' @export
 dbbinsreg = function(
