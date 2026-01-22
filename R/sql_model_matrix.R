@@ -21,19 +21,16 @@
 #'   - `col_names`: corresponding column names
 #'   - `factor_levels`: list of factor levels by variable (for reference)
 #' @importFrom stats terms
+#' @export
 #' @examples
-#' \dontrun{
 #' library(DBI)
 #' library(duckdb)
-#' library(dbreg)
 #' con = dbConnect(duckdb())
 #' duckdb_register(con, "test", data.frame(x1 = 1:3, x2 = c("a", "b", "c")))
 #' sql_model_matrix(~ x1 + x2, con, "test")
 #' sql_model_matrix(~ x1:x2, con, "test")
 #' sql_model_matrix(~ x1:x2, con, "test", sep = ":")
 #' dbDisconnect(con)
-#' }
-#' @export
 sql_model_matrix = function(
   formula,
   conn,
