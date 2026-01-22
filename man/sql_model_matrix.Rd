@@ -43,13 +43,3 @@ Expands formula terms into SQL SELECT expressions, handling factor one-hot
 encoding and interaction terms. Only the right-hand side of the formula is
 processed; the response variable (LHS) is ignored.
 }
-\examples{
-library(DBI)
-library(duckdb)
-con = dbConnect(duckdb())
-duckdb_register(con, "test", data.frame(x1 = 1:3, x2 = c("a", "b", "c")))
-sql_model_matrix(~ x1 + x2, con, "test")
-sql_model_matrix(~ x1:x2, con, "test")
-sql_model_matrix(~ x1:x2, con, "test", sep = ":")
-dbDisconnect(con)
-}

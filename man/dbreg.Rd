@@ -272,6 +272,7 @@ dbreg(weight ~ Time * Diet | Chick, data = ChickWeight)
 # too (e.g., odbc, bigrquery, noctua (AWS Athena),  etc.) See:
 # https://r-dbi.org/backends/
 
+\dontrun{
 library(DBI)
 con = dbConnect(duckdb::duckdb())
 dbWriteTable(con, "cw", as.data.frame(ChickWeight))
@@ -313,6 +314,7 @@ unlink(tmp)
 # big (~180 million row) dataset of Hive-partioned parquet files, see the
 # package website:
 # https://grantmcdermott.com/dbreg/
+}
 }
 \references{
 Arkhangelsky, D. & Imbens, G. (2024)
