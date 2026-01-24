@@ -61,7 +61,6 @@ Uses tinyplot for rendering but works with both \code{plot()} and
 \code{tinyplot()} generics.
 }
 \examples{
-\dontrun{
 #
 ## In-memory data ----
 
@@ -115,6 +114,5 @@ dbbinsreg(weight ~ Time | Diet, conn = con, table = "cw", nbins = 10,
 
 # Clean up
 dbDisconnect(con)
-}
 
 }

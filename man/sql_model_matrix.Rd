@@ -44,7 +44,6 @@ encoding and interaction terms. Only the right-hand side of the formula is
 processed; the response variable (LHS) is ignored.
 }
 \examples{
-\dontrun{
 library(DBI)
 library(duckdb)
 con = dbConnect(duckdb())
@@ -53,5 +52,4 @@ sql_model_matrix(~ x1 + x2, con, "test")
 sql_model_matrix(~ x1:x2, con, "test")
 sql_model_matrix(~ x1:x2, con, "test", sep = ":")
 dbDisconnect(con)
-}
 }

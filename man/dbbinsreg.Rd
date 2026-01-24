@@ -262,7 +262,6 @@ of data in R and pass them via the \code{binspos} argument as a numeric vector.
 }
 
 \examples{
-\dontrun{
 #
 ## In-memory data ----
 
@@ -316,7 +315,6 @@ dbbinsreg(weight ~ Time | Diet, conn = con, table = "cw", nbins = 10,
 
 # Clean up
 dbDisconnect(con)
-}
 
 }
 \references{

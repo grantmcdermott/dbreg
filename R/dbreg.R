@@ -220,7 +220,6 @@
 #' @importFrom glue glue glue_sql
 #'
 #' @examples
-#' \dontrun{
 #' ## In-memory data ----
 #' 
 #' # We can pass in-memory R data frames to an ephemeral DuckDB connection via
@@ -299,7 +298,6 @@
 #' # big (~180 million row) dataset of Hive-partioned parquet files, see the
 #' # package website:
 #' # https://grantmcdermott.com/dbreg/
-#' }
 #' @export
 dbreg = function(
   fml,
