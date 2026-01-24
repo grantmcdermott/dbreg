@@ -323,7 +323,7 @@ dbreg = function(
   
  
   # Parse vcov/cluster arguments using shared helper
-  vcov_parsed = parse_vcov_args(vcov, cluster, valid_types = c("iid", "hc1"))
+  vcov_parsed = parse_vcov_args(vcov, cluster)
   vcov = vcov_parsed$vcov_type
   cluster = vcov_parsed$cluster_var
   
@@ -402,7 +402,7 @@ process_dbreg_inputs = function(
   cluster_var = cluster
 
   # Set up database connection and data source using shared helper
-  db_setup = setup_db_connection(conn, table, data, path, caller = "dbreg")
+  db_setup = setup_db_connection(conn, table, data, path)
   conn = db_setup$conn
   own_conn = db_setup$own_conn
   from_statement = db_setup$from_statement
