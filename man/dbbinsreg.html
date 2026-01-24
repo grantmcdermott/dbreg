@@ -837,7 +837,7 @@ points = c(0,0) | line = NULL | nbins = 10 (quantile-spaced)
 Observations: 578 (original) | 10 (compressed)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Accounting for Diet "fixed effects" helps to resolve the situation</span></span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="co"># (We'll also make add a line and change the theme for a nicer plot)</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="co"># (We'll also add a line and change the theme for a nicer plot)</span></span>
 <span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="fu">dbbinsreg</span>(weight <span class="sc">~</span> Time <span class="sc">|</span> Diet, <span class="at">data =</span> ChickWeight, <span class="at">nbins =</span> <span class="dv">10</span>, <span class="at">cb =</span> <span class="cn">TRUE</span>,</span>
 <span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>          <span class="at">line =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>), <span class="at">theme =</span> <span class="st">"clean"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
