@@ -186,7 +186,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <ul>
   <li><a href="#news" id="toc-news" class="nav-link active" data-scroll-target="#news">News</a>
   <ul class="collapse">
-  <li><a href="#dev-version" id="toc-dev-version" class="nav-link" data-scroll-target="#dev-version">dev version</a></li>
+  <li><a href="#dbreg-0.0.3" id="toc-dbreg-0.0.3" class="nav-link" data-scroll-target="#dbreg-0.0.3">dbreg 0.0.3</a></li>
   <li><a href="#dbreg-0.0.2" id="toc-dbreg-0.0.2" class="nav-link" data-scroll-target="#dbreg-0.0.2">dbreg 0.0.2</a></li>
   <li><a href="#duckreg-0.0.1" id="toc-duckreg-0.0.1" class="nav-link" data-scroll-target="#duckreg-0.0.1">duckreg 0.0.1</a></li>
   </ul></li>
@@ -202,8 +202,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="news" class="level1">
 <h1>News</h1>
 <p><em>This NEWS file is best viewed on our <a href="https://grantmcdermott.com/dbreg/NEWS.html">website</a>.</em></p>
-<section id="dev-version" class="level2">
-<h2 class="anchored" data-anchor-id="dev-version">dev version</h2>
+<section id="dbreg-0.0.3" class="level2">
+<h2 class="anchored" data-anchor-id="dbreg-0.0.3">dbreg 0.0.3</h2>
+<p><em><strong>dbreg</strong> v0.0.3 is a big release, containing many new features and some important breaking changes. We have closed out most of items on our <a href="https://github.com/grantmcdermott/dbreg/issues/5">TODO</a> list and this will probably be our final “beta” release before submitting to CRAN.</em></p>
 <p>Website</p>
 <ul>
 <li>We finally have a package website: <a href="https://grantmcdermott.com/dbreg/index.html">grantmcdermott.com/dbreg</a> 🎉</li>
@@ -235,7 +236,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(..., <span class="at">vcov =</span> <span class="sc">~</span>cluster_var)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Please note that these clustered SEs are computed <em>analytically</em> (not bootstrapped) and should thus add minimal overhead to your regressions. See the updated README for examples. (<a href="./issues/29">#29</a>)</p></li>
 <li><p>Added support for binscatter regressions on database backends via the <code>dbbinsreg()</code> function. This function attempts to mimic the main API of the <strong>binsreg</strong> package (modulo some simplifications), but should be much faster on big datasets. (<a href="./issues/32">#32</a>)</p></li>
-<li><p>Added support for interaction terms in formulas (e.g., <code>y ~ x1 * x2 | fe</code>). Interactions are expanded to SQL via the new (user-facing) <code>sql_model_matrix()</code> function and work with all acceleration strategies. Collinear terms (e.g., treatment main effects absorbed by unit FEs in DiD models) are automatically detected and dropped. (<a href="./issues/48">#48</a>)</p></li>
+<li><p>Added support for interaction terms in formulas (e.g., <code>y ~ x1 * x2 | fe</code>). Interactions are expanded to SQL via the new (user-facing) <code>sql_model_matrix()</code> function and work with all acceleration strategies. Collinear terms (e.g., treatment main effects absorbed by unit FEs in DiD models) are automatically detected and dropped. (<a href="./issues/48">#48</a>)</p>
+<ul>
+<li><p>Note that interactions support also enables basic event-study estimations, although the reference period needs to be specified manually, e.g.:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(<span class="st">"base_did"</span>, <span class="at">package =</span> <span class="st">"fixest"</span>)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>did <span class="ot">=</span> <span class="fu">transform</span>(base_did, <span class="at">period =</span> <span class="fu">factor</span>(period))</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>did<span class="sc">$</span>period <span class="ot">=</span> <span class="fu">relevel</span>(did<span class="sc">$</span>period, <span class="at">ref =</span> <span class="st">"5"</span>)</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(y <span class="sc">~</span> x1 <span class="sc">+</span> treat<span class="sc">:</span>period <span class="sc">|</span> id <span class="sc">+</span> period, <span class="at">data =</span> did)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+</ul></li>
 </ul>
 <p>Other new features</p>
 <ul>
@@ -244,7 +252,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Aside: Improved documentation and messaging (when <code>verbose = TRUE</code>) should also help users understand the <code>"auto"</code> strategy decision tree.</li>
 </ul></li>
 <li>Enabled weights for double demean (within) specification. (<a href="./issues/13">#13</a>)</li>
-<li>Esimations now report some goodness-of-fit statistics like R2 and RMSE, powered by the (user-facing) <code>gof()</code> function. (<a href="./issues/21">#21</a>)</li>
+<li>Estimations now report some goodness-of-fit statistics like R2 and RMSE, powered by the (user-facing) <code>gof()</code> function. (<a href="./issues/21">#21</a>)</li>
 <li>Added support for various <code>*.dbreg</code> methods (<a href="./issues/21">#21</a>, <a href="./issues/30">#30</a>):
 <ul>
 <li>From <strong>stats</strong>: <code>coef()</code>, <code>confint()</code>, <code>predict()</code>, and <code>vcov()</code>.</li>
@@ -258,7 +266,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Improved integration for running regressions on AWS Athena datasets via the <strong>noctua</strong> package/driver. (<a href="./issues/8">#8</a>)</li>
 <li>Automatically drop incomplete cases (i.e., missing values) prior to any aggregation steps, avoiding mismatched matrices during estimation. (<a href="./issues/19">#19</a>)</li>
 <li>User-specified <code>compress_ratio</code> values should now bind in all cases. Previously, these could sometimes be silently ignored due to internal overrides. Also, clarify in the argument documentation that the default (automatic) <code>compress_ratio</code> threshold can vary based on heuristics related to model structure. (<a href="./issues/25">#25</a>)</li>
-<li>Correctly estimate HC1 standard errors for the <code>"moments"</code>, <code>"demean"</code>, and <code>"mundlak"</code> strategies. While the old analytic HC1 approach worked (and still does) for the <code>"compress"</code> case, it led to misleading SEs for these other strategies. The fix does impose some additional computational overhead, since it requires a second pass over the data to calculate the individual errors and “meat” of the sandwich matrix. But testing suggests that this leads to a &lt;2 increase in total estimation time, which seems a reasonable tradeoff for heteroskedastic-robust SEs. (<a href="./issues/27">#27</a>)</li>
+<li>Correctly estimate HC1 standard errors for the <code>"moments"</code>, <code>"demean"</code>, and <code>"mundlak"</code> strategies. While the old analytic HC1 approach worked (and still does) for the <code>"compress"</code> case, it led to misleading SEs for these other strategies. The fix does impose some additional computational overhead, since it requires a second pass over the data to calculate the individual errors and “meat” of the sandwich matrix. But testing suggests that this leads to a &lt;2x increase in total estimation time, which seems a reasonable tradeoff for heteroskedastic-robust SEs. (<a href="./issues/27">#27</a>)</li>
 <li>Fixed a bug for in-memory <code>dbreg(..., data = &lt;data&gt;)</code> cases, where factor variables in X could cause the <code>"compress"</code> strategy to fail. (<a href="./issues/41">#41</a>)</li>
 </ul>
 <p>Internals</p>
