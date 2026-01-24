@@ -44,6 +44,12 @@ install.packages(
 )
 ```
 
+We plan to submit **dbreg** to CRAN in 2026Q1. See our
+[TO-DO](https://github.com/grantmcdermott/dbreg/issues/5) list for an
+idea of what still needs to be completed. Until then, please help us by
+kicking the tyres and creating GitHub issues for both bug reports and
+feature requests.
+
 ## Quickstart
 
 ### Small dataset
@@ -214,10 +220,14 @@ dbreg(
 Result: we get the same coefficient and standard error estimates as
 earlier.
 
-> \[!TIP\] If you don’t want to create a persistent database (and
-> materialize data), a nice alternative is `CREATE VIEW`. This lets you
-> define subsets or computed columns on-the-fly. For example, to regress
-> on Q1 2012 data with a day-of-week fixed effect:
+> [!TIP]
+>
+> ### Create Temporary Views
+>
+> If you don’t want to create a persistent database (and materialize
+> data), a nice alternative is `CREATE VIEW`. This lets you define
+> subsets or computed columns on-the-fly. For example, to regress on Q1
+> 2012 data with a day-of-week fixed effect:
 >
 > ``` r
 > dbExecute(con, "
@@ -245,23 +255,6 @@ dbRemoveTable(con, "taxi")
 dbDisconnect(con)
 unlink("nyc.db") # remove from disk
 ```
-
-## Acceleration strategies
-
-All of the examples in this README have made use of the `"compress"`
-strategy. But the compression trick is not the only game in town and
-`dbreg` supports several other acceleration strategies: `"moments"`,
-`"demean"`, and `"mundlak"`. Depending on your data and regression
-requirements, one of these other strategies may better suit your
-problem. The good news is that (the default) `strategy = "auto"` option
-uses some intelligent heuristics to determine which strategy is
-(probably) optimal for each case. You can set the `verbose = TRUE`
-argument to get real-time feedback about the decision criteria being
-used. The [Acceleration
-Strategies](https://grantmcdermott.com/dbreg/man/dbreg.html#acceleration-strategies)
-section of the `?dbreg` helpfile contains a lot detail about the
-different options and tradeoffs involved, so please do consult the
-documentation.
 
 ## Bonus: Binscatter + interactions
 
@@ -328,22 +321,77 @@ dbreg(
 The results confirm a \$0.23 jump in tips post-September, with a small
 additional increase for VTS taxis.
 
-## Limitations
+## Acceleration strategies and limitations
 
-**dbreg** is a maturing package and there are a number of features that
-we still plan to add before submitting it to CRAN. (See our
-[TO-DO](https://github.com/grantmcdermott/dbreg/issues/5) list.) At the
-same time, the core `dbreg()` routine has been tested pretty thoroughly
-and should work in standard cases. Please help us by kicking the tyres
-and creating GitHub issues for both bug reports and feature requests.
+All of the examples in this README have made use of the `"compress"`
+strategy. But the compression trick is not the only game in town and
+`dbreg` supports several other acceleration strategies: `"moments"`,
+`"demean"`, and `"mundlak"`. Depending on your data and regression
+requirements, one of these other strategies may better suit your
+problem. The good news is that (the default) `strategy = "auto"` option
+uses some intelligent heuristics to determine which strategy is
+(probably) optimal for each case. You can set the `verbose = TRUE`
+argument to get real-time feedback about the decision criteria being
+used. The [Acceleration
+Strategies](https://grantmcdermott.com/dbreg/man/dbreg.html#acceleration-strategies)
+section of the `?dbreg` helpfile contains a lot detail about the
+different options and tradeoffs involved, so please do consult the
+documentation.
 
-[^1]: To be clear, this dataset would occupy significantly more RAM than
-    8.5 GB if we loaded it into R’s memory, due to data serialization
-    and the switch to richer representation formats (e.g., ordered
-    factors require more memory). So there’s a good chance that just
-    trying to load this raw dataset into R would cause your whole system
-    to crash… never mind doing any statistical analysis on it.
+In brief, we can say that **dbreg** works best when the fixed effects
+are low-dimensional relative to the data size, yielding high compression
+ratios, which in turn enable the remarkable speed-ups that we have
+demonstrated above. In the specific case of the NYC taxi data, we are
+able to compress 180 million rows down to just 70k observations exactly
+because the FE groups (month × vendor) only have 24 unique combinations.
+Compression becomes less effective for “true” panel data (repeated cross
+sections) with high-dimensional unit and time FE, where N \>\> T. In
+such cases, grouping by (X, unit, time) yields little to no compression
+since each combination is essentially unique. The `"demean"` and
+`"mundlak"` strategies provide a nice alternative here, since they
+reduce dimensionality by taking covariate averages. While this is not as
+efficient as the `"compress"` approach, all computation is done on the
+database backend and this means we can run really big regressions
+without crashing our R session.
 
-[^2]: If we provided an explicit `dbreg(..., strategy = "compress")`
+Please note that [**fixest**](https://lrberge.github.io/fixest/) remains
+an *excellent* choice for datasets that fit in R’s memory, especially
+for high-dimensional FE problems where its iterative demeaning algorithm
+remains best in class.
+
+## Acknowledgements
+
+**dbreg** is indebted to the following open-source projects:
+
+- [duckreg](https://github.com/py-econometrics/duckreg) ([Lal *et al.*,
+  2024](https://arxiv.org/abs/2410.09952)). The original Python package
+  that inspired this R implementation.
+- [etwfe](https://grantmcdermott.com/etwfe/) (McDermott). A prior R
+  implementation that employs compression-based estimation (albeit in a
+  narrower context).
+- [fixest](https://lrberge.github.io/fixest/) (Bergé *et al*, 2026). For
+  its elegant formula syntax and user API, which we deliberately try to
+  emulate alongside its performance philosophy.
+- [DBI](https://dbi.r-dbi.org/) (R-SIG-DB, Wickham & Müller). The R
+  database interface layer, which handles all of our SQL parsing and
+  backend connectivity under the hood.
+- [DuckDB](https://duckdb.org/) (Mühleisen & Raasveldt). The amazingly
+  powerful embedded analytics engine, which powers all of our default
+  operations.
+
+We also build on the following theory papers:
+
+- [Arkhangelsky & Imbens (2024)](https://doi.org/10.1093/restud/rdad089)
+- [Mundlak (1978)](https://doi.org/10.2307/1913646)
+- [Wang *et al.* (2021)](https://doi.org/10.48550/arXiv.2102.11297)
+
+[^1]:  To be clear, this dataset would occupy significantly more RAM
+    than 8.5 GB if we loaded it into R’s memory, due to data
+    serialization and the switch to richer representation formats (e.g.,
+    ordered factors require more memory). So there’s a good chance that
+    just trying to load this raw dataset into R would cause your whole
+    system to crash… never mind doing any statistical analysis on it.
+
+[^2]:  If we provided an explicit `dbreg(..., strategy = "compress")`
     argument (thus skipping the automatic strategy determination), then
     the total computation time drops to *less than 1 second*…
