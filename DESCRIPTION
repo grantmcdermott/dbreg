@@ -1,8 +1,8 @@
 Package: dbreg
 Type: Package
 Title: Fast Regressions on Database Backends
-Version: 0.0.2.99
-Date: 2025-12-28
+Version: 0.0.3
+Date: 2026-01-24
 Authors@R:
   c(
     person(

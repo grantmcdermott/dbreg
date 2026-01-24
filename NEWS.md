@@ -2,7 +2,12 @@
 
 _This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg/NEWS.html)._
 
-## dev version
+## dbreg 0.0.3
+
+_**dbreg** v0.0.3 is a big release, containing many new features and some
+important breaking changes. We have have closed out most of items on our
+[TODO](https://github.com/grantmcdermott/dbreg/issues/5) list and this will
+probably be our final "beta" release before submitting to CRAN._
 
 Website
 
@@ -68,6 +73,16 @@ Major new features
   `sql_model_matrix()` function and work with all acceleration strategies.
   Collinear terms (e.g., treatment main effects absorbed by unit FEs in DiD
   models) are automatically detected and dropped. (#48)
+
+  - Note that interactions support also enables basic event-study estimations,
+    although the reference period needs to be specified manually, e.g.:
+
+    ```r
+    data("base_did", package = "fixest")
+    did = transform(base_did, period = factor(period))
+    did$period = relevel(did$period, ref = "5")
+    dbreg(y ~ x1 + treat:period | id + period, data = did)
+    ```
 
 Other new features
 
