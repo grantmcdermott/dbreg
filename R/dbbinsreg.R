@@ -1186,7 +1186,7 @@ execute_constrained_binsreg = function(inputs) {
   }
   
   # Ensure cleanup of temp table
-  on.exit(try(DBI::dbRemoveTable(conn, binned_table, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
+  on.exit(try(dbRemoveTable(conn, binned_table, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
   
   # Compute bin geometry (boundaries and counts) using direct SQL
   geo_sql = glue("
@@ -1276,7 +1276,7 @@ execute_constrained_binsreg = function(inputs) {
     FROM {binned_table}
   ")
   create_temp_table_as(conn, spline_table, spline_select_sql, backend)
-  on.exit(try(DBI::dbRemoveTable(conn, spline_table, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
+  on.exit(try(dbRemoveTable(conn, spline_table, fail_if_missing = FALSE), silent = TRUE), add = TRUE)
   
   # Step 4: Build formula for dbreg
   # y ~ basis_terms [+ controls] [| fe]

@@ -113,7 +113,7 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
   # If table is tbl_lazy and conn is NULL, try to infer conn from the table
   if (is.null(conn) && inherits(table, "tbl_lazy")) {
     inferred_con = tryCatch(dbplyr::remote_con(table), error = function(e) NULL)
-    if (!is.null(inferred_con) && DBI::dbIsValid(inferred_con)) {
+    if (!is.null(inferred_con) && dbIsValid(inferred_con)) {
       conn = inferred_con
     } else {
       stop(
@@ -126,7 +126,7 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
 
   # Create default connection if still NULL (for data.frame or path inputs)
   if (is.null(conn)) {
-    conn = DBI::dbConnect(duckdb::duckdb(), shutdown = TRUE)
+    conn = dbConnect(duckdb(), shutdown = TRUE)
     own_conn = TRUE
     is_duckdb = TRUE
   } else {
@@ -140,7 +140,7 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
     if (is.character(table)) {
       # Table name as string
       table_name = table
-      from_statement = glue::glue("FROM {table}")
+      from_statement = glue("FROM {table}")
     } else if (inherits(table, "tbl_lazy")) {
       # Lazy table: render SQL as subquery
       rendered_sql = tryCatch(dbplyr::sql_render(table), error = function(e) NULL)
@@ -150,7 +150,7 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
       from_statement = paste0("FROM (", rendered_sql, ") AS lazy_subquery")
       table_name = paste0("(", rendered_sql, ") AS lazy_subquery")
       # Verify connection is valid
-      if (!DBI::dbIsValid(conn)) {
+      if (!dbIsValid(conn)) {
         stop(
           "Could not obtain a valid database connection. ",
           "Either provide `conn` explicitly or ensure the tbl_lazy has an active connection."
@@ -173,7 +173,7 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
     temp_name = sprintf("__%s_%s",
                         caller,
                         gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-    duckdb::duckdb_register(conn, temp_name, data)
+    duckdb_register(conn, temp_name, data)
     registered_table = temp_name
     table_name = temp_name
     from_statement = paste("FROM", temp_name)
@@ -184,10 +184,10 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
     # Handle path: check if it's already a read_* function call or raw path
     if (!(grepl("^read|^scan", path) && grepl("'", path))) {
       path = gsub('"', "'", path)
-      from_statement = glue::glue("FROM '{path}'")
-      table_name = glue::glue("'{path}'")
+      from_statement = glue("FROM '{path}'")
+      table_name = glue("'{path}'")
     } else {
-      from_statement = glue::glue("FROM {path}")
+      from_statement = glue("FROM {path}")
       table_name = path
     }
   } else {
@@ -222,16 +222,16 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
 #'
 #' @keywords internal
 parse_regression_formula = function(fml) {
-  fml = Formula::Formula(fml)
+  fml = Formula(fml)
   # Extract outcome variable (LHS)
-  yvar = all.vars(stats::formula(fml, lhs = 1, rhs = 0))
+  yvar = all.vars(formula(fml, lhs = 1, rhs = 0))
   if (length(yvar) != 1) {
     stop("Exactly one outcome variable required.")
   }
   
   # Extract RHS part 1: variables and term structure
-  rhs1 = stats::formula(fml, lhs = 0, rhs = 1)
-  tt = stats::terms(rhs1)
+  rhs1 = formula(fml, lhs = 0, rhs = 1)
+  tt = terms(rhs1)
   term_labels = attr(tt, "term.labels")
   xvars = all.vars(rhs1)  # unique variable names
   has_interactions = any(grepl(":", term_labels))
@@ -242,7 +242,7 @@ parse_regression_formula = function(fml) {
   
   # Extract fixed effects (RHS part 2, after |)
   fe = if (length(fml)[2] > 1) {
-    all.vars(stats::formula(fml, lhs = 0, rhs = 2))
+    all.vars(formula(fml, lhs = 0, rhs = 2))
   } else {
     NULL
   }

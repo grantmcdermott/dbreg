@@ -216,7 +216,7 @@
 #' @importFrom duckdb duckdb duckdb_register duckdb_unregister
 #' @importFrom Formula Formula
 #' @importFrom Matrix chol2inv crossprod Diagonal sparse.model.matrix
-#' @importFrom stats aggregate as.formula formula pt reformulate setNames
+#' @importFrom stats aggregate as.formula formula pt reformulate setNames terms
 #' @importFrom glue glue glue_sql
 #'
 #' @examples
