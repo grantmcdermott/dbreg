@@ -139,7 +139,7 @@
 #'    finite samples.
 #'
 #' The relative efficiency of each of these strategies depends on the size and
-#' structure of the data, as well the number of unique regressors and FE. For
+#' structure of the data, as well as the number of unique regressors and FE. For
 #' (quote unquote) "standard" cases, the `"compress"` strategy can yield
 #' remarkable performance gains and should justifiably be viewed as a good
 #' default. However, the compression approach tends to be less efficient for

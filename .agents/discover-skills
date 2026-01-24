@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -Eo pipefail
+IFS=$'\n\t'
+
+# Discover available skills in both project and global directories
+# Usage: .agents/discover-skills
+
+PROJECT_SKILLS_DIR=".skills"
+PROJECT_SKILLS_DIR_LEGACY=".claude/skills"
+GLOBAL_SKILLS_DIR="$HOME/.skills"
+GLOBAL_SKILLS_DIR_LEGACY="$HOME/.claude/skills"
+
+process_skills_directory() {
+  local skills_dir="$1"
+  local location_label="$2"
+
+  if [[ ! -d "$skills_dir" ]]; then
+    return 0
+  fi
+
+  local count=0
+  # Count skills first
+  while IFS= read -r -d '' skill_file; do
+    count=$((count + 1))
+  done < <(find "$skills_dir" -type f -name 'SKILL.md' -print0)
+
+  if [[ $count -eq 0 ]]; then
+    return 0
+  fi
+
+  echo "$location_label ($count skill(s)):"
+  # Generate underline matching label length
+  local len=${#location_label}
+  if [[ $len -gt 0 ]]; then
+    local underline=""
+    for ((i=0; i<len; i++)); do
+      underline+="="
+    done
+    echo "$underline"
+  fi
+  echo ""
+
+  # Iterate SKILL.md files robustly (handles spaces)
+  while IFS= read -r -d '' skill_file; do
+    skill_dir=$(dirname "$skill_file")
+    skill_name=$(basename "$skill_dir")
+
+    # Check for YAML frontmatter
+    if head -n 1 "$skill_file" | grep -q "^---$"; then
+      # Extract lines between first pair of --- delimiters
+      frontmatter=$(awk 'BEGIN{inside=0; c=0} /^---$/ {inside=!inside; if(++c==3) exit} inside==1 {print}' "$skill_file")
+      name=$(printf '%s\n' "$frontmatter" | awk -F': *' '/^name:/ {sub(/^name: */,"",$0); print substr($0, index($0,$2))}' 2>/dev/null)
+      description=$(printf '%s\n' "$frontmatter" | awk -F': *' '/^description:/ {sub(/^description: */,"",$0); print substr($0, index($0,$2))}' 2>/dev/null)
+
+      echo "Skill: ${name:-$skill_name}"
+      echo "Path: $skill_file"
+      if [[ -n "$description" ]]; then
+        echo "Description: $description"
+      fi
+    else
+      echo "Skill: $skill_name"
+      echo "Path: $skill_file"
+      echo "Description:"
+      head -n 5 "$skill_file"
+    fi
+
+    echo ""
+    echo "---"
+    echo ""
+  done < <(find "$skills_dir" -type f -name 'SKILL.md' -print0)
+}
+
+echo "Available Skills:"
+echo "=================="
+echo ""
+
+# Check project skills (new location first, then legacy)
+process_skills_directory "$PROJECT_SKILLS_DIR" "Project Skills (.skills)"
+process_skills_directory "$PROJECT_SKILLS_DIR_LEGACY" "Project Skills (.claude/skills - legacy)"
+
+# Check global skills (new location first, then legacy)
+process_skills_directory "$GLOBAL_SKILLS_DIR" "Personal Skills (~/.skills)"
+process_skills_directory "$GLOBAL_SKILLS_DIR_LEGACY" "Personal Skills (~/.claude/skills - legacy)"
+
+# If no skills found at all
+if [[ ! -d "$PROJECT_SKILLS_DIR" && ! -d "$PROJECT_SKILLS_DIR_LEGACY" && ! -d "$GLOBAL_SKILLS_DIR" && ! -d "$GLOBAL_SKILLS_DIR_LEGACY" ]]; then
+  echo "No skills directories found."
+  echo "- Project skills: $PROJECT_SKILLS_DIR (or $PROJECT_SKILLS_DIR_LEGACY)"
+  echo "- Personal skills: $GLOBAL_SKILLS_DIR (or $GLOBAL_SKILLS_DIR_LEGACY)"
+fi

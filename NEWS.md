@@ -2,7 +2,12 @@
 
 _This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg/NEWS.html)._
 
-## dev version
+## dbreg 0.0.3
+
+_**dbreg** v0.0.3 is a big release, containing many new features and some
+important breaking changes. We have closed out most of items on our
+[TODO](https://github.com/grantmcdermott/dbreg/issues/5) list and this will
+probably be our final "beta" release before submitting to CRAN._
 
 Website
 
@@ -69,6 +74,16 @@ Major new features
   Collinear terms (e.g., treatment main effects absorbed by unit FEs in DiD
   models) are automatically detected and dropped. (#48)
 
+  - Note that interactions support also enables basic event-study estimations,
+    although the reference period needs to be specified manually, e.g.:
+
+    ```r
+    data("base_did", package = "fixest")
+    did = transform(base_did, period = factor(period))
+    did$period = relevel(did$period, ref = "5")
+    dbreg(y ~ x1 + treat:period | id + period, data = did)
+    ```
+
 Other new features
 
 - The `"auto"` strategy logic now considers a `compress_nmax` threshold, which
@@ -82,7 +97,7 @@ Other new features
   - Aside: Improved documentation and messaging (when `verbose = TRUE`) should
     also help users understand the `"auto"` strategy decision tree.
 - Enabled weights for double demean (within) specification. (#13)
-- Esimations now report some goodness-of-fit statistics like R2 and RMSE,
+- Estimations now report some goodness-of-fit statistics like R2 and RMSE,
   powered by the (user-facing) `gof()` function. (#21) 
 - Added support for various `*.dbreg` methods (#21, #30):
   - From **stats**: `coef()`, `confint()`, `predict()`, and `vcov()`.
@@ -111,7 +126,7 @@ Bug fixes
   strategies. The fix does impose some additional computational overhead, since
   it requires a second pass over the data to calculate the individual errors
   and "meat" of the sandwich matrix. But testing suggests that this leads to a
-  <2 increase in total estimation time, which seems a reasonable tradeoff for
+  <2x increase in total estimation time, which seems a reasonable tradeoff for
   heteroskedastic-robust SEs. (#27)
 - Fixed a bug for in-memory `dbreg(..., data = <data>)` cases, where factor
   variables in X could cause the `"compress"` strategy to fail. (#41) 

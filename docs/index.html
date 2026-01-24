@@ -193,9 +193,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#small-dataset" id="toc-small-dataset" class="nav-link" data-scroll-target="#small-dataset">Small dataset</a></li>
   <li><a href="#big-dataset" id="toc-big-dataset" class="nav-link" data-scroll-target="#big-dataset">Big dataset</a></li>
   </ul></li>
-  <li><a href="#acceleration-strategies" id="toc-acceleration-strategies" class="nav-link" data-scroll-target="#acceleration-strategies">Acceleration strategies</a></li>
   <li><a href="#bonus-binscatter-interactions" id="toc-bonus-binscatter-interactions" class="nav-link" data-scroll-target="#bonus-binscatter-interactions">Bonus: Binscatter + interactions</a></li>
-  <li><a href="#limitations" id="toc-limitations" class="nav-link" data-scroll-target="#limitations">Limitations</a></li>
+  <li><a href="#acceleration-strategies-and-limitations" id="toc-acceleration-strategies-and-limitations" class="nav-link" data-scroll-target="#acceleration-strategies-and-limitations">Acceleration strategies and limitations</a></li>
+  <li><a href="#acknowledgements" id="toc-acknowledgements" class="nav-link" data-scroll-target="#acknowledgements">Acknowledgements</a></li>
   </ul></li>
   </ul>
 </nav>
@@ -224,6 +224,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>   <span class="st">"dbreg"</span>,</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>   <span class="at">repos =</span> <span class="fu">c</span>(<span class="st">"https://grantmcdermott.r-universe.dev"</span>, <span class="fu">getOption</span>(<span class="st">"repos"</span>))</span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>We plan to submit <strong>dbreg</strong> to CRAN in 2026Q1. See our <a href="https://github.com/grantmcdermott/dbreg/issues/5">TO-DO</a> list for an idea of what still needs to be completed. Until then, please help us by kicking the tyres and creating GitHub issues for both bug reports and feature requests.</p>
 </section>
 <section id="quickstart" class="level2">
 <h2 class="anchored" data-anchor-id="quickstart">Quickstart</h2>
@@ -244,7 +245,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; ---</span></span>
 <span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1</span></span>
 <span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; RMSE: 124,221,786.3         Adj. R2: 0.215289</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>Behind the scenes, <strong>dbreg</strong> has compressed the original dataset down from nearly 40,000 observations to only 210, before running the final (weighted) regression on this much smaller data object. This compression procedure trick follows <a href="https://doi.org/10.48550/arXiv.2102.11297">Wang _et. al.&nbsp;(2021)</a> and effectively allows us to compute on a much lighter object, saving time and memory. We can confirm that it still gives the same result as running <code>fixest::feols</code> on the full dataset:</p>
+<p>Behind the scenes, <strong>dbreg</strong> has compressed the original dataset down from nearly 40,000 observations to only 210, before running the final (weighted) regression on this much smaller data object. This compression procedure trick follows <a href="https://doi.org/10.48550/arXiv.2102.11297">Wang <em>et al.</em> (2021)</a> and effectively allows us to compute on a much lighter object, saving time and memory. We can confirm that it still gives the same result as running <code>fixest::feols</code> on the full dataset:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">feols</span>(Euros <span class="sc">~</span> dist_km <span class="sc">|</span> Destination <span class="sc">+</span> Origin, <span class="at">data =</span> trade, <span class="at">vcov =</span> <span class="st">'hc1'</span>)</span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; OLS estimation, Dep. Var.: Euros</span></span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Observations: 38,325</span></span>
@@ -302,7 +303,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; RMSE: 1.7                 Adj. R2: 0.243549</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="option-2-persistent-database" class="level4">
-<h4 class="anchored" data-anchor-id="option-2-persistent-database">Option 2: Persistent database</h4>
+<h4 class="anchored">Option 2: Persistent database</h4>
 <p>While querying on-the-fly with our default DuckDB backend is both convenient and extremely performant, you can also run regressions against existing tables in a persistent database connection. This could be DuckDB, but it could also be <em>any</em> other <a href="https://r-dbi.org/backends/">supported backend</a>. All you need to do is specify the appropriate <code>conn</code> and <code>table</code> arguments.</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># load the DBI package to connect to a persistent database</span></span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(DBI)</span>
@@ -340,7 +341,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; RMSE: 1.7                 Adj. R2: 0.243549</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Result: we get the same coefficient and standard error estimates as earlier.</p>
 <blockquote class="blockquote">
-<p>[!TIP] If you don’t want to create a persistent database (and materialize data), a nice alternative is <code>CREATE VIEW</code>. This lets you define subsets or computed columns on-the-fly. For example, to regress on Q1 2012 data with a day-of-week fixed effect:</p>
+<p>[!TIP]</p>
+<h3 id="create-temporary-views" class="anchored" data-anchor-id="option-2-persistent-database">Create Temporary Views</h3>
+<p>If you don’t want to create a persistent database (and materialize data), a nice alternative is <code>CREATE VIEW</code>. This lets you define subsets or computed columns on-the-fly. For example, to regress on Q1 2012 data with a day-of-week fixed effect:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(con, <span class="st">"</span></span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="st">   CREATE VIEW nyc_subset AS</span></span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="st">   SELECT</span></span>
@@ -364,10 +367,6 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="fu">unlink</span>(<span class="st">"nyc.db"</span>) <span class="co"># remove from disk</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 </section>
-</section>
-<section id="acceleration-strategies" class="level2">
-<h2 class="anchored" data-anchor-id="acceleration-strategies">Acceleration strategies</h2>
-<p>All of the examples in this README have made use of the <code>"compress"</code> strategy. But the compression trick is not the only game in town and <code>dbreg</code> supports several other acceleration strategies: <code>"moments"</code>, <code>"demean"</code>, and <code>"mundlak"</code>. Depending on your data and regression requirements, one of these other strategies may better suit your problem. The good news is that (the default) <code>strategy = "auto"</code> option uses some intelligent heuristics to determine which strategy is (probably) optimal for each case. You can set the <code>verbose = TRUE</code> argument to get real-time feedback about the decision criteria being used. The <a href="https://grantmcdermott.com/dbreg/man/dbreg.html#acceleration-strategies">Acceleration Strategies</a> section of the <code>?dbreg</code> helpfile contains a lot detail about the different options and tradeoffs involved, so please do consult the documentation.</p>
 </section>
 <section id="bonus-binscatter-interactions" class="level2">
 <h2 class="anchored" data-anchor-id="bonus-binscatter-interactions">Bonus: Binscatter + interactions</h2>
@@ -416,9 +415,28 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 variable was removed because of collinearity (month12)</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The results confirm a $0.23 jump in tips post-September, with a small additional increase for VTS taxis.</p>
 </section>
-<section id="limitations" class="level2">
-<h2 class="anchored" data-anchor-id="limitations">Limitations</h2>
-<p><strong>dbreg</strong> is a maturing package and there are a number of features that we still plan to add before submitting it to CRAN. (See our <a href="https://github.com/grantmcdermott/dbreg/issues/5">TO-DO</a> list.) At the same time, the core <code>dbreg()</code> routine has been tested pretty thoroughly and should work in standard cases. Please help us by kicking the tyres and creating GitHub issues for both bug reports and feature requests.</p>
+<section id="acceleration-strategies-and-limitations" class="level2">
+<h2 class="anchored" data-anchor-id="acceleration-strategies-and-limitations">Acceleration strategies and limitations</h2>
+<p>All of the examples in this README have made use of the <code>"compress"</code> strategy. But the compression trick is not the only game in town and <code>dbreg</code> supports several other acceleration strategies: <code>"moments"</code>, <code>"demean"</code>, and <code>"mundlak"</code>. Depending on your data and regression requirements, one of these other strategies may better suit your problem. The good news is that (the default) <code>strategy = "auto"</code> option uses some intelligent heuristics to determine which strategy is (probably) optimal for each case. You can set the <code>verbose = TRUE</code> argument to get real-time feedback about the decision criteria being used. The <a href="https://grantmcdermott.com/dbreg/man/dbreg.html#acceleration-strategies">Acceleration Strategies</a> section of the <code>?dbreg</code> helpfile contains a lot of detail about the different options and tradeoffs involved, so please do consult the documentation.</p>
+<p>In brief, we can say that <strong>dbreg</strong> works best when the fixed effects are low-dimensional relative to the data size, yielding high compression ratios, which in turn enable the remarkable speed-ups that we have demonstrated above. In the specific case of the NYC taxi data, we are able to compress 180 million rows down to just 70k observations exactly because the FE groups (month × vendor) only have 24 unique combinations. Compression becomes less effective for “true” panel data (repeated cross sections) with high-dimensional unit and time FE, where N &gt;&gt; T. In such cases, grouping by (X, unit, time) yields little to no compression since each combination is essentially unique. The <code>"demean"</code> and <code>"mundlak"</code> strategies provide a nice alternative here, since they reduce dimensionality by taking covariate averages. While this is not as efficient as the <code>"compress"</code> approach, all computation is done on the database backend and this means we can run really big regressions without crashing our R session.</p>
+<p>Please note that <a href="https://lrberge.github.io/fixest/"><strong>fixest</strong></a> remains an <em>excellent</em> choice for datasets that fit in R’s memory, especially for high-dimensional FE problems where its iterative demeaning algorithm remains best in class.</p>
+</section>
+<section id="acknowledgements" class="level2">
+<h2 class="anchored" data-anchor-id="acknowledgements">Acknowledgements</h2>
+<p><strong>dbreg</strong> is indebted to the following open-source projects:</p>
+<ul>
+<li><a href="https://github.com/py-econometrics/duckreg">duckreg</a> (<a href="https://arxiv.org/abs/2410.09952">Lal <em>et al.</em>, 2024</a>). The original Python package that inspired this R implementation.</li>
+<li><a href="https://grantmcdermott.com/etwfe/">etwfe</a> (McDermott). A prior R implementation that employs compression-based estimation (albeit in a narrower context).</li>
+<li><a href="https://lrberge.github.io/fixest/">fixest</a> (Bergé <em>et al</em>, 2026). For its elegant formula syntax and user API, which we deliberately try to emulate alongside its performance philosophy.</li>
+<li><a href="https://dbi.r-dbi.org/">DBI</a> (R-SIG-DB, Wickham &amp; Müller). The R database interface layer, which handles all of our SQL parsing and backend connectivity under the hood.</li>
+<li><a href="https://duckdb.org/">DuckDB</a> (Mühleisen &amp; Raasveldt). The amazingly powerful embedded analytics engine, which powers all of our default operations.</li>
+</ul>
+<p>We also build on the following theory papers:</p>
+<ul>
+<li><a href="https://doi.org/10.1093/restud/rdad089">Arkhangelsky &amp; Imbens (2024)</a></li>
+<li><a href="https://doi.org/10.2307/1913646">Mundlak (1978)</a></li>
+<li><a href="https://doi.org/10.48550/arXiv.2102.11297">Wang <em>et al.</em> (2021)</a></li>
+</ul>
 
 
 </section>
