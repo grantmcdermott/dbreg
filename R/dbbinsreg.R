@@ -90,9 +90,9 @@
 #' @section Comparison with binsreg:
 #' 
 #' The \code{dbbinsreg} function is deeply inspired by the \pkg{binsreg}
-#' package (Cattaneo et. al., 2024). The main difference is that
+#' package (Cattaneo et al., 2024). The main difference is that
 #' \code{dbbinsreg} performs most of its computation on a database backend,
-#' employing various acceration strategies, which makes it particularly suitable
+#' employing various acceleration strategies, which makes it particularly suitable
 #' for large datasets (which may not fit in memory). At the same time, the
 #' database backend introduces its own set of tradeoffs. We cover the most
 #' important points of similarity and difference below.

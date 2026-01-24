@@ -77,8 +77,8 @@ dbreg(Euros ~ dist_km | Destination + Origin, data = trade, vcov = 'hc1')
 Behind the scenes, **dbreg** has compressed the original dataset down
 from nearly 40,000 observations to only 210, before running the final
 (weighted) regression on this much smaller data object. This compression
-procedure trick follows [Wang \_et.
-al. (2021)](https://doi.org/10.48550/arXiv.2102.11297) and effectively
+procedure trick follows [Wang *et al.*
+(2021)](https://doi.org/10.48550/arXiv.2102.11297) and effectively
 allows us to compute on a much lighter object, saving time and memory.
 We can confirm that it still gives the same result as running
 `fixest::feols` on the full dataset:
@@ -334,7 +334,7 @@ uses some intelligent heuristics to determine which strategy is
 argument to get real-time feedback about the decision criteria being
 used. The [Acceleration
 Strategies](https://grantmcdermott.com/dbreg/man/dbreg.html#acceleration-strategies)
-section of the `?dbreg` helpfile contains a lot detail about the
+section of the `?dbreg` helpfile contains a lot of detail about the
 different options and tradeoffs involved, so please do consult the
 documentation.
 
