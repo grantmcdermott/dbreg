@@ -10,3 +10,5 @@ nyc-taxi/
 ^altdoc$
 ^_quarto$
 vignettes/
+.here
+README.qmd

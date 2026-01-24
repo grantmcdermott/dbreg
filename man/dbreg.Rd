@@ -234,7 +234,6 @@ strategy decision criteria.}
 }
 
 \examples{
-#
 ## In-memory data ----
 
 # We can pass in-memory R data frames to an ephemeral DuckDB connection via

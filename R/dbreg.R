@@ -216,11 +216,10 @@
 #' @importFrom duckdb duckdb duckdb_register duckdb_unregister
 #' @importFrom Formula Formula
 #' @importFrom Matrix chol2inv crossprod Diagonal sparse.model.matrix
-#' @importFrom stats aggregate as.formula formula pt reformulate setNames
+#' @importFrom stats aggregate as.formula formula pt reformulate setNames terms
 #' @importFrom glue glue glue_sql
 #'
 #' @examples
-#' #
 #' ## In-memory data ----
 #' 
 #' # We can pass in-memory R data frames to an ephemeral DuckDB connection via
@@ -321,28 +320,13 @@ dbreg = function(
 
   verbose = isTRUE(verbose)
   ssc = match.arg(ssc)
-  # Parse vcov: can be string or formula (for clustering)
-  # Check formula first before any string operations
-  if (inherits(vcov, "formula")) {
-    cluster = vcov
-    vcov = "cluster"
-  } else if (is.character(vcov)) {
-    vcov = tolower(vcov[1])
-    vcov = match.arg(vcov, c("iid", "hc1"))
-  } else {
-    stop("vcov must be a character string ('iid', 'hc1') or a formula for clustering")
-  }
-  # Parse cluster argument
-  if (!is.null(cluster)) {
-    if (inherits(cluster, "formula")) {
-      cluster_vars = all.vars(cluster)
-      if (length(cluster_vars) != 1) {
-        stop("Only single-variable clustering is currently supported")
-      }
-      cluster = cluster_vars
-    }
-    vcov = "cluster"
-  }
+  
+ 
+  # Parse vcov/cluster arguments using shared helper
+  vcov_parsed = parse_vcov_args(vcov, cluster)
+  vcov = vcov_parsed$vcov_type
+  cluster = vcov_parsed$cluster_var
+  
   strategy = match.arg(strategy)
   if (strategy == "within") strategy = "demean"  # alias
 
@@ -417,98 +401,20 @@ process_dbreg_inputs = function(
   vcov_type_req = vcov
   cluster_var = cluster
 
-  own_conn = FALSE
+  # Set up database connection and data source using shared helper
+  db_setup = setup_db_connection(conn, table, data, path)
+  conn = db_setup$conn
+  own_conn = db_setup$own_conn
+  from_statement = db_setup$from_statement
 
-  # If table is tbl_lazy and conn is NULL, try to infer conn from the table
-  if (is.null(conn) && inherits(table, "tbl_lazy")) {
-    inferred_con = tryCatch(dbplyr::remote_con(table), error = function(e) NULL)
-    if (!is.null(inferred_con) && dbIsValid(inferred_con)) {
-      conn = inferred_con
-    } else {
-      stop(
-        "Could not extract a valid database connection from the provided tbl_lazy. ",
-        "The connection may be closed or invalid. ",
-        "Either provide `conn` explicitly or ensure the tbl_lazy has an active connection."
-      )
-    }
-  }
-
-  # Create default connection if still NULL (for data.frame or path inputs)
-  if (is.null(conn)) {
-    conn = dbConnect(duckdb(), shutdown = TRUE)
-    own_conn = TRUE
-  }
-
-  # FROM clause
-  if (!is.null(table)) {
-    if (is.character(table)) {
-      # Original behavior: table name
-      from_statement = glue("FROM {table}")
-    } else if (inherits(table, "tbl_lazy")) {
-      # lazy table: render SQL
-      rendered_sql = tryCatch(dbplyr::sql_render(table), error = function(e) {
-        NULL
-      })
-      if (is.null(rendered_sql)) {
-        stop("Failed to render SQL for provided tbl_lazy.")
-      }
-      from_statement = paste0("FROM (", rendered_sql, ") AS lazy_subquery")
-      # Connection should already be set (either explicitly or inferred above)
-      if (!dbIsValid(conn)) {
-        stop(
-          "Could not obtain a valid database connection. ",
-          "Either provide `conn` explicitly or ensure the tbl_lazy has an active connection."
-        )
-      }
-    } else {
-      stop("`table` must be character or tbl_lazy object.")
-    }
-  } else if (!is.null(data)) {
-    if (!inherits(data, "data.frame")) {
-      stop("`data` must be data.frame.")
-    }
-    # Coerce to base data.frame (handles tibbles, data.tables, etc.)
-    data = as.data.frame(data)
-    temp_name = sprintf("tmp_table_dbreg_%s", 
-                       gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
-    duckdb_register(conn, temp_name, data)
-    from_statement = paste("FROM", temp_name)
-  } else if (!is.null(path)) {
-    if (!is.character(path)) {
-      stop("`path` must be character.")
-    }
-    if (!(grepl("^read|^scan", path) && grepl("'", path))) {
-      path = gsub('"', "'", path)
-      from_statement = glue("FROM '{path}'")
-    } else {
-      from_statement = glue("FROM {path}")
-    }
-  } else {
-    stop("Provide one of `table`, `data`, or `path`.")
-  }
-
-  # Parse formula
-  fml = Formula(fml)
-  yvar = all.vars(formula(fml, lhs = 1, rhs = 0))
-  if (length(yvar) != 1) {
-    stop("Exactly one outcome variable required.")
-  }
-
-  # Get term structure (preserves interactions)
-  rhs1 = formula(fml, lhs = 0, rhs = 1)
-  tt = terms(rhs1)
-  term_labels = attr(tt, "term.labels")
-  xvars = all.vars(rhs1)  # unique variable names (for column validation)
-  has_interactions = any(grepl(":", term_labels))
-  
-  fe = if (length(fml)[2] > 1) {
-    all.vars(formula(fml, lhs = 0, rhs = 2))
-  } else {
-    NULL
-  }
-  if (!length(xvars)) {
-    stop("No regressors on RHS.")
-  }
+  # Parse formula using shared helper
+  fml_parsed = parse_regression_formula(fml)
+  fml = fml_parsed$fml
+  yvar = fml_parsed$yvar
+  xvars = fml_parsed$xvars
+  term_labels = fml_parsed$term_labels
+  has_interactions = fml_parsed$has_interactions
+  fe = fml_parsed$fe
 
   # Heuristic for continuous regressors (only if data passed)
   is_continuous = function(v) {
@@ -583,67 +489,6 @@ process_dbreg_inputs = function(
     any_continuous = any_continuous,
     own_conn = own_conn
   )
-}
-
-#' Check if the database backend supports COUNT_BIG
-#'
-#' This function checks whether the provided database connection is to a backend
-#' that supports the `COUNT_BIG` function, such as SQL Server or Azure SQL.
-#'
-#' @param conn A DBI database connection object.
-#'
-#' @return Logical value: `TRUE` if the backend supports `COUNT_BIG`, `FALSE` otherwise.
-#' @examples
-#' \dontrun{
-#'   con = DBI::dbConnect(odbc::odbc(), ...)
-#'   backend_supports_count_big(con)
-#' }
-#' @keywords internal
-backend_supports_count_big = function(conn) {
-  info = try(dbGetInfo(conn), silent = TRUE)
-  if (inherits(info, "try-error")) {
-    return(FALSE)
-  }
-  dbms = tolower(paste(info$dbms.name, collapse = " "))
-  grepl("sql server|azure sql|microsoft sql server", dbms)
-}
-
-# detect SQL backend
-detect_backend = function(conn) {
-  info = try(dbGetInfo(conn), silent = TRUE)
-  if (inherits(info, "try-error")) {
-    return(list(name = "unknown", supports_count_big = FALSE))
-  }
-  dbms = tolower(paste(info$dbms.name, collapse = " "))
-  list(
-    name = if (grepl("duckdb", dbms)) {
-      "duckdb"
-    } else if (grepl("sql server|azure sql|microsoft sql server", dbms)) {
-      "sqlserver"
-    } else {
-      "other"
-    },
-    supports_count_big = grepl(
-      "sql server|azure sql|microsoft sql server",
-      dbms
-    )
-  )
-}
-
-# sql_count: returns an expression fragment for use inside SELECT when possible.
-sql_count = function(conn, alias, expr = "*", distinct = FALSE) {
-  bd = detect_backend(conn)
-  if (distinct) {
-    glue(
-      "{if (bd$supports_count_big) paste0('COUNT_BIG(DISTINCT ', expr, ')') else paste0('CAST(COUNT(DISTINCT ', expr, ') AS BIGINT)')} AS {alias}"
-    )
-  } else {
-    if (bd$supports_count_big) {
-      glue("COUNT_BIG({expr}) AS {alias}")
-    } else {
-      glue("CAST(COUNT({expr}) AS BIGINT) AS {alias}")
-    }
-  }
 }
 
 #' Choose regression strategy based on inputs and auto logic

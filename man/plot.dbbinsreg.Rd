@@ -95,7 +95,7 @@ set.seed(99)
 dbbinsreg(weight ~ Time, data = ChickWeight, nbins = 10, cb = TRUE)
 
 # Accounting for Diet "fixed effects" helps to resolve the situation
-# (We'll also make add a line and change the theme for a nicer plot)
+# (We'll also add a line and change the theme for a nicer plot)
 dbbinsreg(weight ~ Time | Diet, data = ChickWeight, nbins = 10, cb = TRUE,
           line = c(1, 1), theme = "clean")
 
@@ -114,6 +114,5 @@ dbbinsreg(weight ~ Time | Diet, conn = con, table = "cw", nbins = 10,
 
 # Clean up
 dbDisconnect(con)
-
 
 }
