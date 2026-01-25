@@ -27,9 +27,9 @@ on their computing needs and setup.
 
 The **dbreg** R package is inspired by, and has similar aims to, the
 [duckreg](https://github.com/py-econometrics/duckreg) Python package.
-This implementation offers some idiomatic, R-focused features like a
-formula interface and “pretty” print methods. But our long-term goal is
-that these two packages should be aligned in terms of core feature
+This implementation is backend agnostic and also offers some idiomatic,
+R-focused features like a formula interface and "pretty" print methods. But our
+long-term goal is that two packages should be aligned in terms of core feature
 parity.
 
 ## Install
