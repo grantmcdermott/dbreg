@@ -211,14 +211,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
 <p>Breaking changes</p>
 <ul>
-<li>The behaviour of the <code>"mundlak"</code> strategy has been changed. (<a href="./issues/24">#24</a>)
+<li>The behaviour of the <code>"mundlak"</code> strategy has been changed. (<a href="https://github.com/grantmcdermott/dbreg/issues/24">#24</a>)
 <ul>
 <li>The old <code>"mundlak"</code> strategy is remapped to the new <code>"demean"</code> (alias <code>"within"</code>) strategy, to better reflect the fact that this strategy invokes a (double) demeaning transformation. Users who want the old behaviour should thus use <code>"demean"</code> instead of <code>"mundlak"</code>.</li>
 <li>Simultaneously, we now provide a revised <code>"mundlak"</code> strategy that implements a “true” Mundlak/CRE estimator; see New features below.</li>
 </ul></li>
-<li>For estimations with two fixed effects on <em>unbalanced</em> panels, <code>strategy="auto"</code> now errors when the compression limits are exceeded. It does this to avoid silently selecting a different estimand (i.e., Mundlak/CRE instead of TWFE). For these ambiguous cases, users will now be prompted to explicitly choose <code>"compress"</code> (with higher limits) or <code>"mundlak"</code> (different model and thus potentially different coefficients). (<a href="./issues/24">#24</a>)</li>
-<li>The default <code>verbose</code> behaviour is changed to <code>FALSE</code>. Users can revert to the old behaviour for a single call (i.e., <code>dbreg(..., verbose = TRUE)</code>), or set it globally (i.e., <code>options(dbreg.verbose = TRUE)</code>). (<a href="./issues/33">#33</a>)</li>
-<li>Technically not a breaking change, since we currently support backwards compatibility, but several minor arguments have been renamed/superseded. (<a href="./issues/34">#34</a>)
+<li>For estimations with two fixed effects on <em>unbalanced</em> panels, <code>strategy="auto"</code> now errors when the compression limits are exceeded. It does this to avoid silently selecting a different estimand (i.e., Mundlak/CRE instead of TWFE). For these ambiguous cases, users will now be prompted to explicitly choose <code>"compress"</code> (with higher limits) or <code>"mundlak"</code> (different model and thus potentially different coefficients). (<a href="https://github.com/grantmcdermott/dbreg/issues/24">#24</a>)</li>
+<li>The default <code>verbose</code> behaviour is changed to <code>FALSE</code>. Users can revert to the old behaviour for a single call (i.e., <code>dbreg(..., verbose = TRUE)</code>), or set it globally (i.e., <code>options(dbreg.verbose = TRUE)</code>). (<a href="https://github.com/grantmcdermott/dbreg/issues/33">#33</a>)</li>
+<li>Technically not a breaking change, since we currently support backwards compatibility, but several minor arguments have been renamed/superseded. (<a href="https://github.com/grantmcdermott/dbreg/issues/34">#34</a>)
 <ul>
 <li><code>query_only</code> -&gt; <code>sql_only</code> (in <code>dbreg</code>)</li>
 <li><code>fes</code> -&gt; <code>fe</code> (in <code>print.dbreg</code>, <code>coef.dbreg</code>, <code>confint.dbreg</code>, etc.)</li>
@@ -226,7 +226,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
 <p>Major new features</p>
 <ul>
-<li><p>We have added new/revised acceleration strategies. (<a href="./issues/24">#24</a>)</p>
+<li><p>We have added new/revised acceleration strategies. (<a href="https://github.com/grantmcdermott/dbreg/issues/24">#24</a>)</p>
 <ul>
 <li>The <code>"demean"</code> (alias <code>"within"</code>) strategy implements a (double) demeaning transformation and is particularly suited to (balanced) panels with one or two fixed effects. Note the underlying query is the same as the <em>old</em> <code>"mundlak"</code> strategy, which was somewhat erroneously named. Speaking of which…</li>
 <li>The revised <code>"mundlak"</code> strategy now implements a “true” Mundlak/CRE (correlated random effects) estimator by regressing Y on X plus group means of X. Unlike the <code>"demean"</code> strategy (above), this revised <code>"mundlak"</code> model obtains consistent coefficients regardless of panel structure (incl. unbalanced panels) and supports any number of fixed effects. However, users should note that Mundlak/CRE is a different model from “vanilla” fixed effects—albeit asymptotically equivalent under certain assumptions—and may obtain different coefficients as a result.</li>
@@ -234,9 +234,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul></li>
 <li><p>Add support for clustered standard errors. Follows the <code>fixest</code> API:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbreg</span>(..., <span class="at">vcov =</span> <span class="sc">~</span>cluster_var)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>Please note that these clustered SEs are computed <em>analytically</em> (not bootstrapped) and should thus add minimal overhead to your regressions. See the updated README for examples. (<a href="./issues/29">#29</a>)</p></li>
-<li><p>Added support for binscatter regressions on database backends via the <code>dbbinsreg()</code> function. This function attempts to mimic the main API of the <strong>binsreg</strong> package (modulo some simplifications), but should be much faster on big datasets. (<a href="./issues/32">#32</a>)</p></li>
-<li><p>Added support for interaction terms in formulas (e.g., <code>y ~ x1 * x2 | fe</code>). Interactions are expanded to SQL via the new (user-facing) <code>sql_model_matrix()</code> function and work with all acceleration strategies. Collinear terms (e.g., treatment main effects absorbed by unit FEs in DiD models) are automatically detected and dropped. (<a href="./issues/48">#48</a>)</p>
+<p>Please note that these clustered SEs are computed <em>analytically</em> (not bootstrapped) and should thus add minimal overhead to your regressions. See the updated README for examples. (<a href="https://github.com/grantmcdermott/dbreg/issues/29">#29</a>)</p></li>
+<li><p>Added support for binscatter regressions on database backends via the <code>dbbinsreg()</code> function. This function attempts to mimic the main API of the <strong>binsreg</strong> package (modulo some simplifications), but should be much faster on big datasets. (<a href="https://github.com/grantmcdermott/dbreg/issues/32">#32</a>)</p></li>
+<li><p>Added support for interaction terms in formulas (e.g., <code>y ~ x1 * x2 | fe</code>). Interactions are expanded to SQL via the new (user-facing) <code>sql_model_matrix()</code> function and work with all acceleration strategies. Collinear terms (e.g., treatment main effects absorbed by unit FEs in DiD models) are automatically detected and dropped. (<a href="https://github.com/grantmcdermott/dbreg/issues/48">#48</a>)</p>
 <ul>
 <li><p>Note that interactions support also enables basic event-study estimations, although the reference period needs to be specified manually, e.g.:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(<span class="st">"base_did"</span>, <span class="at">package =</span> <span class="st">"fixest"</span>)</span>
@@ -247,45 +247,45 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
 <p>Other new features</p>
 <ul>
-<li>The <code>"auto"</code> strategy logic now considers a <code>compress_nmax</code> threshold, which governs the maximum allowable size of the compressed data object (default threshold = 1 million rows). This additional guardrail is intended to avoid cases where the <code>"compress"</code> strategy satisfies the <code>compress_ratio</code> threshold, but could still return a prohibitively large dataset. The most common example would be querying a massive dataset on a remote database, where network latency makes data I/O transfer expensive, even though we’ve achieved good compression relative to the original data size. (<a href="./issues/10">#10</a>)
+<li>The <code>"auto"</code> strategy logic now considers a <code>compress_nmax</code> threshold, which governs the maximum allowable size of the compressed data object (default threshold = 1 million rows). This additional guardrail is intended to avoid cases where the <code>"compress"</code> strategy satisfies the <code>compress_ratio</code> threshold, but could still return a prohibitively large dataset. The most common example would be querying a massive dataset on a remote database, where network latency makes data I/O transfer expensive, even though we’ve achieved good compression relative to the original data size. (<a href="https://github.com/grantmcdermott/dbreg/issues/10">#10</a>)
 <ul>
 <li>Aside: Improved documentation and messaging (when <code>verbose = TRUE</code>) should also help users understand the <code>"auto"</code> strategy decision tree.</li>
 </ul></li>
-<li>Enabled weights for double demean (within) specification. (<a href="./issues/13">#13</a>)</li>
-<li>Estimations now report some goodness-of-fit statistics like R2 and RMSE, powered by the (user-facing) <code>gof()</code> function. (<a href="./issues/21">#21</a>)</li>
-<li>Added support for various <code>*.dbreg</code> methods (<a href="./issues/21">#21</a>, <a href="./issues/30">#30</a>):
+<li>Enabled weights for double demean (within) specification. (<a href="https://github.com/grantmcdermott/dbreg/issues/13">#13</a>)</li>
+<li>Estimations now report some goodness-of-fit statistics like R2 and RMSE, powered by the (user-facing) <code>gof()</code> function. (<a href="https://github.com/grantmcdermott/dbreg/issues/21">#21</a>)</li>
+<li>Added support for various <code>*.dbreg</code> methods (<a href="https://github.com/grantmcdermott/dbreg/issues/21">#21</a>, <a href="https://github.com/grantmcdermott/dbreg/issues/30">#30</a>):
 <ul>
 <li>From <strong>stats</strong>: <code>coef()</code>, <code>confint()</code>, <code>predict()</code>, and <code>vcov()</code>.</li>
-<li>From <strong>broom</strong>/<strong>generics</strong>: <code>tidy()</code> and <code>glance()</code>. These also enable post-processing operations like exporting results to coefficient tables via <code>modelsummary::msummary()</code>. Thanks to <a href="https://github.com/HariharanJayashankar"><span class="citation" data-cites="HariharanJayashankar">@HariharanJayashankar</span></a> for the request in <a href="./issues/20">#20</a>.</li>
+<li>From <strong>broom</strong>/<strong>generics</strong>: <code>tidy()</code> and <code>glance()</code>. These also enable post-processing operations like exporting results to coefficient tables via <code>modelsummary::msummary()</code>. Thanks to <a href="https://github.com/HariharanJayashankar"><span class="citation" data-cites="HariharanJayashankar">@HariharanJayashankar</span></a> for the request in <a href="https://github.com/grantmcdermott/dbreg/issues/20">#20</a>.</li>
 </ul></li>
-<li>Better documentation. (<a href="./issues/28">#28</a>, <a href="./issues/36">#36</a>, <a href="./issues/43">#43</a>, and various other PRs)</li>
+<li>Better documentation. (<a href="https://github.com/grantmcdermott/dbreg/issues/28">#28</a>, <a href="https://github.com/grantmcdermott/dbreg/issues/36">#36</a>, <a href="https://github.com/grantmcdermott/dbreg/issues/43">#43</a>, and various other PRs)</li>
 </ul>
 <p>Bug fixes</p>
 <ul>
-<li>Added QR decomposition fallback for regression calculations, for cases where the default Cholesky solver fails. (<a href="./issues/7">#7</a>)</li>
-<li>Improved integration for running regressions on AWS Athena datasets via the <strong>noctua</strong> package/driver. (<a href="./issues/8">#8</a>)</li>
-<li>Automatically drop incomplete cases (i.e., missing values) prior to any aggregation steps, avoiding mismatched matrices during estimation. (<a href="./issues/19">#19</a>)</li>
-<li>User-specified <code>compress_ratio</code> values should now bind in all cases. Previously, these could sometimes be silently ignored due to internal overrides. Also, clarify in the argument documentation that the default (automatic) <code>compress_ratio</code> threshold can vary based on heuristics related to model structure. (<a href="./issues/25">#25</a>)</li>
-<li>Correctly estimate HC1 standard errors for the <code>"moments"</code>, <code>"demean"</code>, and <code>"mundlak"</code> strategies. While the old analytic HC1 approach worked (and still does) for the <code>"compress"</code> case, it led to misleading SEs for these other strategies. The fix does impose some additional computational overhead, since it requires a second pass over the data to calculate the individual errors and “meat” of the sandwich matrix. But testing suggests that this leads to a &lt;2x increase in total estimation time, which seems a reasonable tradeoff for heteroskedastic-robust SEs. (<a href="./issues/27">#27</a>)</li>
-<li>Fixed a bug for in-memory <code>dbreg(..., data = &lt;data&gt;)</code> cases, where factor variables in X could cause the <code>"compress"</code> strategy to fail. (<a href="./issues/41">#41</a>)</li>
+<li>Added QR decomposition fallback for regression calculations, for cases where the default Cholesky solver fails. (<a href="https://github.com/grantmcdermott/dbreg/issues/7">#7</a>)</li>
+<li>Improved integration for running regressions on AWS Athena datasets via the <strong>noctua</strong> package/driver. (<a href="https://github.com/grantmcdermott/dbreg/issues/8">#8</a>)</li>
+<li>Automatically drop incomplete cases (i.e., missing values) prior to any aggregation steps, avoiding mismatched matrices during estimation. (<a href="https://github.com/grantmcdermott/dbreg/issues/19">#19</a>)</li>
+<li>User-specified <code>compress_ratio</code> values should now bind in all cases. Previously, these could sometimes be silently ignored due to internal overrides. Also, clarify in the argument documentation that the default (automatic) <code>compress_ratio</code> threshold can vary based on heuristics related to model structure. (<a href="https://github.com/grantmcdermott/dbreg/issues/25">#25</a>)</li>
+<li>Correctly estimate HC1 standard errors for the <code>"moments"</code>, <code>"demean"</code>, and <code>"mundlak"</code> strategies. While the old analytic HC1 approach worked (and still does) for the <code>"compress"</code> case, it led to misleading SEs for these other strategies. The fix does impose some additional computational overhead, since it requires a second pass over the data to calculate the individual errors and “meat” of the sandwich matrix. But testing suggests that this leads to a &lt;2x increase in total estimation time, which seems a reasonable tradeoff for heteroskedastic-robust SEs. (<a href="https://github.com/grantmcdermott/dbreg/issues/27">#27</a>)</li>
+<li>Fixed a bug for in-memory <code>dbreg(..., data = &lt;data&gt;)</code> cases, where factor variables in X could cause the <code>"compress"</code> strategy to fail. (<a href="https://github.com/grantmcdermott/dbreg/issues/41">#41</a>)</li>
 </ul>
 <p>Internals</p>
 <ul>
-<li>Added unit testing framework using <strong>tinytest</strong>. (<a href="./issues/16">#16</a>)</li>
-<li>Added GitHub Actions CI. (<a href="./issues/18">#18</a>)</li>
+<li>Added unit testing framework using <strong>tinytest</strong>. (<a href="https://github.com/grantmcdermott/dbreg/issues/16">#16</a>)</li>
+<li>Added GitHub Actions CI. (<a href="https://github.com/grantmcdermott/dbreg/issues/18">#18</a>)</li>
 </ul>
 </section>
 <section id="dbreg-0.0.2" class="level2">
 <h2 class="anchored" data-anchor-id="dbreg-0.0.2">dbreg 0.0.2</h2>
 <p><strong>IMPORTANT BREAKING CHANGE:</strong></p>
-<p>The package has been renamed to <strong>dbreg</strong> to better reflect the fact that it supports multiple database backends. (<a href="./issues/4">#4</a>)</p>
+<p>The package has been renamed to <strong>dbreg</strong> to better reflect the fact that it supports multiple database backends. (<a href="https://github.com/grantmcdermott/dbreg/issues/4">#4</a>)</p>
 <p>Other breaking changes</p>
 <ul>
-<li>The default <code>vcov</code> is now “iid”. (<a href="./issues/2">#2</a> <a href="https://github.com/grantmcdermott"><span class="citation" data-cites="grantmcdermott">@grantmcdermott</span></a>)</li>
+<li>The default <code>vcov</code> is now “iid”. (<a href="https://github.com/grantmcdermott/dbreg/issues/2">#2</a> <a href="https://github.com/grantmcdermott"><span class="citation" data-cites="grantmcdermott">@grantmcdermott</span></a>)</li>
 </ul>
 <p>New features</p>
 <ul>
-<li>The new <code>dbreg(..., strategy = &lt;strategy&gt;)</code> argument allows users to choose between different acceleration strategies for efficient computation of the regression coefficients and standard errors. This includes <code>"compress"</code> (the old default), as well as <code>"mundlak"</code> or <code>"moments"</code>. The latter two strategies are newly introduced in <strong>dbreg</strong> v0.0.2 and offer important advantages in the case of true panel data. If an explicit strategy is not provided by the user, then <code>dbreg()</code> will invoke some internal heuristics to determine the optimal strategy based on the size and structure of the data. (<a href="./issues/2">#2</a> <a href="https://github.com/jamesbrandecon"><span class="citation" data-cites="jamesbrandecon">@jamesbrandecon</span></a> and <a href="https://github.com/grantmcdermott"><span class="citation" data-cites="grantmcdermott">@grantmcdermott</span></a>)</li>
+<li>The new <code>dbreg(..., strategy = &lt;strategy&gt;)</code> argument allows users to choose between different acceleration strategies for efficient computation of the regression coefficients and standard errors. This includes <code>"compress"</code> (the old default), as well as <code>"mundlak"</code> or <code>"moments"</code>. The latter two strategies are newly introduced in <strong>dbreg</strong> v0.0.2 and offer important advantages in the case of true panel data. If an explicit strategy is not provided by the user, then <code>dbreg()</code> will invoke some internal heuristics to determine the optimal strategy based on the size and structure of the data. (<a href="https://github.com/grantmcdermott/dbreg/issues/2">#2</a> <a href="https://github.com/jamesbrandecon"><span class="citation" data-cites="jamesbrandecon">@jamesbrandecon</span></a> and <a href="https://github.com/grantmcdermott"><span class="citation" data-cites="grantmcdermott">@grantmcdermott</span></a>)</li>
 </ul>
 <p>Project</p>
 <ul>

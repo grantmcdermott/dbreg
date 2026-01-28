@@ -14,21 +14,21 @@ Authors@R:
     ),
     person(
       given = "James",
-      famil = "Brand", 
+      famil = "Brand",
       email = "jamesbrandecon@gmail.com",
       role = c("aut"),
       comment = c(ORCID = "0000-0002-1663-5583")
-    ), 
+    ),
     person(
       given = "Apoorva",
-      famil = "Lal", 
+      famil = "Lal",
       email = "lal.apoorva@gmail.com",
       role = c("ctb"),
       comment = c(ORCID = "0000-0002-3697-614X")
-    ), 
+    ),
     person(
       given = "Laurent",
-      famil = "Berge", 
+      famil = "Berge",
       email = "laurent.berge@u-bordeaux.fr",
       role = c("ctb")
     )
@@ -39,7 +39,7 @@ Description: Leverages database backends to run regressions on very large
   Arkhangelsky & Imbens (2024) <https://doi.org/10.1093/restud/rdad089>---allow
   for highly efficient computation, while robust standard errors are
   computed from sufficient statistics.
-Imports: 
+Imports:
   DBI,
   duckdb,
   Formula,
@@ -63,4 +63,5 @@ Encoding: UTF-8
 RoxygenNote: 7.3.3
 License: MIT + file LICENSE
 URL: https://grantmcdermott.com/dbreg/
+BugReports: https://github.com/grantmcdermott/dbreg/issues
 VignetteBuilder: quarto
