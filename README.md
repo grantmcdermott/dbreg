@@ -369,9 +369,10 @@ remains best in class.
 - [etwfe](https://grantmcdermott.com/etwfe/) (McDermott). A prior R
   implementation that employs compression-based estimation (albeit in a
   narrower context).
-- [fixest](https://lrberge.github.io/fixest/) (Bergé *et al*, 2026). For
-  its elegant formula syntax and user API, which we deliberately try to
-  emulate alongside its performance philosophy.
+- [fixest](https://lrberge.github.io/fixest/) ([Bergé *et al*,
+  2026](https://doi.org/10.48550/arXiv.2601.21749)). For its elegant formula
+  syntax and user API, which we deliberately try to emulate alongside its
+  performance philosophy.
 - [DBI](https://dbi.r-dbi.org/) (R-SIG-DB, Wickham & Müller). The R
   database interface layer, which handles all of our SQL parsing and
   backend connectivity under the hood.
