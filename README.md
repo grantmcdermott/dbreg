@@ -77,7 +77,7 @@ dbreg(Euros ~ dist_km | Destination + Origin, data = trade, vcov = 'hc1')
 Behind the scenes, **dbreg** has compressed the original dataset down
 from nearly 40,000 observations to only 210, before running the final
 (weighted) regression on this much smaller data object. This compression
-procedure trick follows [Wang *et al.*
+procedure trick follows [Wong *et al.*
 (2021)](https://doi.org/10.48550/arXiv.2102.11297) and effectively
 allows us to compute on a much lighter object, saving time and memory.
 We can confirm that it still gives the same result as running
@@ -369,9 +369,10 @@ remains best in class.
 - [etwfe](https://grantmcdermott.com/etwfe/) (McDermott). A prior R
   implementation that employs compression-based estimation (albeit in a
   narrower context).
-- [fixest](https://lrberge.github.io/fixest/) (Bergé *et al*, 2026). For
-  its elegant formula syntax and user API, which we deliberately try to
-  emulate alongside its performance philosophy.
+- [fixest](https://lrberge.github.io/fixest/) ([Bergé *et al*,
+  2026](https://doi.org/10.48550/arXiv.2601.21749)). For its elegant formula
+  syntax and user API, which we deliberately try to emulate alongside its
+  performance philosophy.
 - [DBI](https://dbi.r-dbi.org/) (R-SIG-DB, Wickham & Müller). The R
   database interface layer, which handles all of our SQL parsing and
   backend connectivity under the hood.
@@ -383,7 +384,7 @@ We also build on the following theory papers:
 
 - [Arkhangelsky & Imbens (2024)](https://doi.org/10.1093/restud/rdad089)
 - [Mundlak (1978)](https://doi.org/10.2307/1913646)
-- [Wang *et al.* (2021)](https://doi.org/10.48550/arXiv.2102.11297)
+- [Wong *et al.* (2021)](https://doi.org/10.48550/arXiv.2102.11297)
 
 [^1]:  To be clear, this dataset would occupy significantly more RAM
     than 8.5 GB if we loaded it into R’s memory, due to data

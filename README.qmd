@@ -80,7 +80,7 @@ dbreg(Euros ~ dist_km | Destination + Origin, data = trade, vcov = 'hc1')
 Behind the scenes, **dbreg** has compressed the original dataset down from
 nearly 40,000 observations to only 210, before running the final (weighted)
 regression on this much smaller data object. This compression procedure trick
-follows [Wang _et al._ (2021)](https://doi.org/10.48550/arXiv.2102.11297) and
+follows [Wong _et al._ (2021)](https://doi.org/10.48550/arXiv.2102.11297) and
 effectively allows us to compute on a much lighter object, saving time and
 memory. We can confirm that it still gives the same result as running 
 `fixest::feols` on the full dataset:
@@ -313,7 +313,7 @@ best in class.
 
 - [duckreg](https://github.com/py-econometrics/duckreg) ([Lal _et al._, 2024](https://arxiv.org/abs/2410.09952)). The original Python package that inspired this R implementation.
 - [etwfe](https://grantmcdermott.com/etwfe/) (McDermott). A prior R implementation that employs compression-based estimation (albeit in a narrower context).
-- [fixest](https://lrberge.github.io/fixest/) (Bergé _et al_, 2026). For its elegant formula syntax and user API, which we deliberately try to emulate alongside its performance philosophy.
+- [fixest](https://lrberge.github.io/fixest/) ([Bergé _et al_, 2026](https://doi.org/10.48550/arXiv.2601.21749)). For its elegant formula syntax and user API, which we deliberately try to emulate alongside its performance philosophy.
 - [DBI](https://dbi.r-dbi.org/) (R-SIG-DB, Wickham & Müller). The R database interface layer, which handles all of our SQL parsing and backend connectivity under the hood.
 - [DuckDB](https://duckdb.org/) (Mühleisen & Raasveldt). The amazingly powerful embedded analytics engine, which powers all of our default operations.
 
@@ -321,4 +321,4 @@ We also build on the following theory papers:
 
 - [Arkhangelsky & Imbens (2024)](https://doi.org/10.1093/restud/rdad089)
 - [Mundlak (1978)](https://doi.org/10.2307/1913646)
-- [Wang _et al._ (2021)](https://doi.org/10.48550/arXiv.2102.11297)
+- [Wong _et al._ (2021)](https://doi.org/10.48550/arXiv.2102.11297)
