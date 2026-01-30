@@ -108,7 +108,7 @@
 #'    smaller dataset:
 #'    \deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
 #'    where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure
-#'    follows Wang et al. (2021).
+#'    follows Wong et al. (2021).
 #' 2. `"moments"`: computes sufficient statistics (\eqn{X'X, X'y}) directly via
 #'    SQL aggregation, returning a single-row result. This solves the standard
 #'    OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases

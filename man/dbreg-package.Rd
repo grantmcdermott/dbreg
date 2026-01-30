@@ -11,6 +11,7 @@ Leverages database backends to run regressions on very large datasets, which may
 Useful links:
 \itemize{
   \item \url{https://grantmcdermott.com/dbreg/}
+  \item Report bugs at \url{https://github.com/grantmcdermott/dbreg/issues}
 }
 
 }
