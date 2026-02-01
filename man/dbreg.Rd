@@ -148,7 +148,7 @@ the FE as groups), before running weighted least squares on this much
 smaller dataset:
 \deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
 where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure
-follows Wang et al. (2021).
+follows Wong et al. (2021).
 \item \code{"moments"}: computes sufficient statistics (\eqn{X'X, X'y}) directly via
 SQL aggregation, returning a single-row result. This solves the standard
 OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases
@@ -180,7 +180,7 @@ finite samples.
 }
 
 The relative efficiency of each of these strategies depends on the size and
-structure of the data, as well the number of unique regressors and FE. For
+structure of the data, as well as the number of unique regressors and FE. For
 (quote unquote) "standard" cases, the \code{"compress"} strategy can yield
 remarkable performance gains and should justifiably be viewed as a good
 default. However, the compression approach tends to be less efficient for
