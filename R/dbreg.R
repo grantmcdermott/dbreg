@@ -34,6 +34,10 @@
 #' part of this string, e.g. `"read_parquet('mydata/**/*.parquet')"` for DuckDB;
 #' note the use of single quotes.
 #' Ignored if either `table` or `data` is provided.
+#' @param weights Character string specifying the column name to use as weights,
+#' or NULL (default) for unweighted regression. Weights are currently supported
+#' only with `vcov = "iid"`. Weighted regressions with two-way fixed effects
+#' require `strategy = "compress"` or `strategy = "mundlak"` (exact-only).
 #' @param vcov Character string or formula denoting the desired type of variance-
 #' covariance correction / standard errors. Options are `"iid"` (default),
 #' `"hc1"` (heteroskedasticity-consistent), or a one-sided formula like
@@ -108,7 +112,7 @@
 #'    smaller dataset:
 #'    \deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
 #'    where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure
-#'    follows Wong et al. (2021).
+#'    follows Wang et al. (2021).
 #' 2. `"moments"`: computes sufficient statistics (\eqn{X'X, X'y}) directly via
 #'    SQL aggregation, returning a single-row result. This solves the standard
 #'    OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases
@@ -139,7 +143,7 @@
 #'    finite samples.
 #'
 #' The relative efficiency of each of these strategies depends on the size and
-#' structure of the data, as well as the number of unique regressors and FE. For
+#' structure of the data, as well the number of unique regressors and FE. For
 #' (quote unquote) "standard" cases, the `"compress"` strategy can yield
 #' remarkable performance gains and should justifiably be viewed as a good
 #' default. However, the compression approach tends to be less efficient for
@@ -216,10 +220,11 @@
 #' @importFrom duckdb duckdb duckdb_register duckdb_unregister
 #' @importFrom Formula Formula
 #' @importFrom Matrix chol2inv crossprod Diagonal sparse.model.matrix
-#' @importFrom stats aggregate as.formula formula pt reformulate setNames terms
+#' @importFrom stats aggregate as.formula formula pt reformulate setNames
 #' @importFrom glue glue glue_sql
 #'
 #' @examples
+#' #
 #' ## In-memory data ----
 #' 
 #' # We can pass in-memory R data frames to an ephemeral DuckDB connection via
@@ -305,6 +310,7 @@ dbreg = function(
   table = NULL,
   data = NULL,
   path = NULL,
+  weights = NULL,
   vcov = c("iid", "hc1"),
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = NULL,
@@ -320,13 +326,28 @@ dbreg = function(
 
   verbose = isTRUE(verbose)
   ssc = match.arg(ssc)
-  
- 
-  # Parse vcov/cluster arguments using shared helper
-  vcov_parsed = parse_vcov_args(vcov, cluster)
-  vcov = vcov_parsed$vcov_type
-  cluster = vcov_parsed$cluster_var
-  
+  # Parse vcov: can be string or formula (for clustering)
+  # Check formula first before any string operations
+  if (inherits(vcov, "formula")) {
+    cluster = vcov
+    vcov = "cluster"
+  } else if (is.character(vcov)) {
+    vcov = tolower(vcov[1])
+    vcov = match.arg(vcov, c("iid", "hc1"))
+  } else {
+    stop("vcov must be a character string ('iid', 'hc1') or a formula for clustering")
+  }
+  # Parse cluster argument
+  if (!is.null(cluster)) {
+    if (inherits(cluster, "formula")) {
+      cluster_vars = all.vars(cluster)
+      if (length(cluster_vars) != 1) {
+        stop("Only single-variable clustering is currently supported")
+      }
+      cluster = cluster_vars
+    }
+    vcov = "cluster"
+  }
   strategy = match.arg(strategy)
   if (strategy == "within") strategy = "demean"  # alias
 
@@ -346,6 +367,7 @@ dbreg = function(
     table = table,
     data = data,
     path = path,
+    weights = weights,
     vcov = vcov,
     cluster = cluster,
     ssc = ssc,
@@ -387,6 +409,7 @@ process_dbreg_inputs = function(
   table,
   data,
   path,
+  weights,
   vcov,
   cluster,
   ssc,
@@ -401,20 +424,111 @@ process_dbreg_inputs = function(
   vcov_type_req = vcov
   cluster_var = cluster
 
-  # Set up database connection and data source using shared helper
-  db_setup = setup_db_connection(conn, table, data, path)
-  conn = db_setup$conn
-  own_conn = db_setup$own_conn
-  from_statement = db_setup$from_statement
+  own_conn = FALSE
 
-  # Parse formula using shared helper
-  fml_parsed = parse_regression_formula(fml)
-  fml = fml_parsed$fml
-  yvar = fml_parsed$yvar
-  xvars = fml_parsed$xvars
-  term_labels = fml_parsed$term_labels
-  has_interactions = fml_parsed$has_interactions
-  fe = fml_parsed$fe
+  # If table is tbl_lazy and conn is NULL, try to infer conn from the table
+  if (is.null(conn) && inherits(table, "tbl_lazy")) {
+    inferred_con = tryCatch(dbplyr::remote_con(table), error = function(e) NULL)
+    if (!is.null(inferred_con) && dbIsValid(inferred_con)) {
+      conn = inferred_con
+    } else {
+      stop(
+        "Could not extract a valid database connection from the provided tbl_lazy. ",
+        "The connection may be closed or invalid. ",
+        "Either provide `conn` explicitly or ensure the tbl_lazy has an active connection."
+      )
+    }
+  }
+
+  # Create default connection if still NULL (for data.frame or path inputs)
+  if (is.null(conn)) {
+    conn = dbConnect(duckdb(), shutdown = TRUE)
+    own_conn = TRUE
+  }
+
+  # FROM clause
+  if (!is.null(table)) {
+    if (is.character(table)) {
+      # Original behavior: table name
+      from_statement = glue("FROM {table}")
+    } else if (inherits(table, "tbl_lazy")) {
+      # lazy table: render SQL
+      rendered_sql = tryCatch(dbplyr::sql_render(table), error = function(e) {
+        NULL
+      })
+      if (is.null(rendered_sql)) {
+        stop("Failed to render SQL for provided tbl_lazy.")
+      }
+      from_statement = paste0("FROM (", rendered_sql, ") AS lazy_subquery")
+      # Connection should already be set (either explicitly or inferred above)
+      if (!dbIsValid(conn)) {
+        stop(
+          "Could not obtain a valid database connection. ",
+          "Either provide `conn` explicitly or ensure the tbl_lazy has an active connection."
+        )
+      }
+    } else {
+      stop("`table` must be character or tbl_lazy object.")
+    }
+  } else if (!is.null(data)) {
+    if (!inherits(data, "data.frame")) {
+      stop("`data` must be data.frame.")
+    }
+    # Coerce to base data.frame (handles tibbles, data.tables, etc.)
+    data = as.data.frame(data)
+    temp_name = sprintf("tmp_table_dbreg_%s", 
+                       gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3")))
+    duckdb_register(conn, temp_name, data)
+    from_statement = paste("FROM", temp_name)
+  } else if (!is.null(path)) {
+    if (!is.character(path)) {
+      stop("`path` must be character.")
+    }
+    if (!(grepl("^read|^scan", path) && grepl("'", path))) {
+      path = gsub('"', "'", path)
+      from_statement = glue("FROM '{path}'")
+    } else {
+      from_statement = glue("FROM {path}")
+    }
+  } else {
+    stop("Provide one of `table`, `data`, or `path`.")
+  }
+
+  # Parse formula
+  fml = Formula(fml)
+  yvar = all.vars(formula(fml, lhs = 1, rhs = 0))
+  if (length(yvar) != 1) {
+    stop("Exactly one outcome variable required.")
+  }
+
+  # Get term structure (preserves interactions)
+  rhs1 = formula(fml, lhs = 0, rhs = 1)
+  tt = terms(rhs1)
+  term_labels = attr(tt, "term.labels")
+  xvars = all.vars(rhs1)  # unique variable names (for column validation)
+  has_interactions = any(grepl(":", term_labels))
+  
+  fe = if (length(fml)[2] > 1) {
+    all.vars(formula(fml, lhs = 0, rhs = 2))
+  } else {
+    NULL
+  }
+  if (!length(xvars)) {
+    stop("No regressors on RHS.")
+  }
+
+  # Validate weights
+  if (!is.null(weights)) {
+    if (!is.character(weights) || length(weights) != 1) {
+      stop("`weights` must be a single character string (column name) or NULL.")
+    }
+    if (vcov != "iid") {
+      stop("Weighted regressions currently support vcov = \"iid\" only.")
+    }
+    if (!is.null(data) && !weights %in% names(data)) {
+      stop("Weight column '", weights, "' not found in data.")
+    }
+  }
 
   # Heuristic for continuous regressors (only if data passed)
   is_continuous = function(v) {
@@ -459,6 +573,12 @@ process_dbreg_inputs = function(
     AND {paste(xvars, collapse = ' IS NOT NULL AND ')} IS NOT NULL
     "
     )
+    if (!is.null(weights)) {
+      from_statement = glue("
+      {from_statement}
+      AND {weights} IS NOT NULL
+      ")
+    }
     if (!is.null(fe)) {
       from_statement = glue("
       {from_statement}
@@ -474,6 +594,7 @@ process_dbreg_inputs = function(
     term_labels = term_labels,
     has_interactions = has_interactions,
     fe = fe,
+    weights = weights,
     conn = conn,
     from_statement = from_statement,
     data = data,
@@ -491,6 +612,91 @@ process_dbreg_inputs = function(
   )
 }
 
+#' Check if the database backend supports COUNT_BIG
+#'
+#' This function checks whether the provided database connection is to a backend
+#' that supports the `COUNT_BIG` function, such as SQL Server or Azure SQL.
+#'
+#' @param conn A DBI database connection object.
+#'
+#' @return Logical value: `TRUE` if the backend supports `COUNT_BIG`, `FALSE` otherwise.
+#' @examples
+#' \dontrun{
+#'   con = DBI::dbConnect(odbc::odbc(), ...)
+#'   backend_supports_count_big(con)
+#' }
+#' @keywords internal
+backend_supports_count_big = function(conn) {
+  info = try(dbGetInfo(conn), silent = TRUE)
+  if (inherits(info, "try-error")) {
+    return(FALSE)
+  }
+  dbms = tolower(paste(info$dbms.name, collapse = " "))
+  grepl("sql server|azure sql|microsoft sql server", dbms)
+}
+
+# detect SQL backend
+detect_backend = function(conn) {
+  info = try(dbGetInfo(conn), silent = TRUE)
+  if (inherits(info, "try-error")) {
+    return(list(name = "unknown", supports_count_big = FALSE))
+  }
+  dbms = tolower(paste(info$dbms.name, collapse = " "))
+  list(
+    name = if (grepl("duckdb", dbms)) {
+      "duckdb"
+    } else if (grepl("sql server|azure sql|microsoft sql server", dbms)) {
+      "sqlserver"
+    } else {
+      "other"
+    },
+    supports_count_big = grepl(
+      "sql server|azure sql|microsoft sql server",
+      dbms
+    )
+  )
+}
+
+# sql_count: returns an expression fragment for use inside SELECT when possible.
+sql_count = function(conn, alias, expr = "*", distinct = FALSE) {
+  bd = detect_backend(conn)
+  if (distinct) {
+    glue(
+      "{if (bd$supports_count_big) paste0('COUNT_BIG(DISTINCT ', expr, ')') else paste0('CAST(COUNT(DISTINCT ', expr, ') AS BIGINT)')} AS {alias}"
+    )
+  } else {
+    if (bd$supports_count_big) {
+      glue("COUNT_BIG({expr}) AS {alias}")
+    } else {
+      glue("CAST(COUNT({expr}) AS BIGINT) AS {alias}")
+    }
+  }
+}
+
+# sql_weight_expr: returns a weight expression or NULL if no weights
+sql_weight_expr = function(weights) {
+  if (is.null(weights)) {
+    return(NULL)
+  }
+  glue("1.0 * {weights}")
+}
+
+# sql_weighted_sum: SUM(expr) or SUM(w * expr) with alias
+sql_weighted_sum = function(expr, weights_expr, alias) {
+  if (is.null(weights_expr)) {
+    return(glue("SUM({expr}) AS {alias}"))
+  }
+  glue("SUM(({weights_expr}) * ({expr})) AS {alias}")
+}
+
+# sql_weighted_mean: AVG(expr) or weighted mean with alias
+sql_weighted_mean = function(expr, weights_expr, alias) {
+  if (is.null(weights_expr)) {
+    return(glue("AVG({expr}) AS {alias}"))
+  }
+  glue("SUM(({weights_expr}) * ({expr})) / SUM({weights_expr}) AS {alias}")
+}
+
 #' Choose regression strategy based on inputs and auto logic
 #' @keywords internal
 choose_strategy = function(inputs) {
@@ -504,6 +710,7 @@ choose_strategy = function(inputs) {
   conn = inputs$conn
   from_statement = inputs$from_statement
   xvars = inputs$xvars
+  weights = inputs$weights
 
   # Compression ratio estimator
   estimate_compression = function(inputs) {
@@ -670,6 +877,22 @@ choose_strategy = function(inputs) {
     }
   }
 
+  if (!is.null(weights) && length(fe) == 2 && chosen_strategy == "demean") {
+    if (strategy == "auto") {
+      warning(
+        "[dbreg] Weighted two-way FE not supported for strategy = 'demean'. Using compress.",
+        call. = FALSE
+      )
+      chosen_strategy = "compress"
+    } else {
+      stop(
+        "[dbreg] Weighted two-way FE not supported for strategy = 'demean'. ",
+        "Use strategy = 'compress' or 'mundlak'.",
+        call. = FALSE
+      )
+    }
+  }
+
   # Guard unsupported combos
   if (chosen_strategy == "moments" && length(fe) > 0) {
     warning(
@@ -721,19 +944,22 @@ execute_moments_strategy = function(inputs) {
     xvar_names = inputs$xvars
   }
   
+  weights_expr = sql_weight_expr(inputs$weights)
+
   pair_exprs = c(
-    "COUNT(*) AS n_total",
-    glue("SUM({inputs$yvar}) AS sum_y"),
-    glue("SUM({inputs$yvar}*{inputs$yvar}) AS sum_y_sq")
+    sql_count(inputs$conn, "n_total"),
+    if (is.null(weights_expr)) sql_count(inputs$conn, "sum_w") else glue("SUM({weights_expr}) AS sum_w"),
+    sql_weighted_sum(inputs$yvar, weights_expr, "sum_wy"),
+    sql_weighted_sum(glue("({inputs$yvar}) * ({inputs$yvar})"), weights_expr, "sum_wy_sq")
   )
   for (i in seq_along(xvars_sql)) {
     x_sql = xvars_sql[i]
     x_name = xvar_names[i]
     pair_exprs = c(
       pair_exprs,
-      glue("SUM({x_sql}) AS sum_{x_name}"),
-      glue("SUM(({x_sql})*{inputs$yvar}) AS sum_{x_name}_y"),
-      glue("SUM(({x_sql})*({x_sql})) AS sum_{x_name}_{x_name}")
+      sql_weighted_sum(x_sql, weights_expr, paste0("sum_w", x_name)),
+      sql_weighted_sum(glue("({x_sql}) * ({inputs$yvar})"), weights_expr, paste0("sum_w", x_name, "_y")),
+      sql_weighted_sum(glue("({x_sql}) * ({x_sql})"), weights_expr, paste0("sum_w", x_name, "_", x_name))
     )
   }
   xpairs = gen_xvar_pairs(xvar_names)
@@ -744,7 +970,10 @@ execute_moments_strategy = function(inputs) {
     xj_sql = xvars_sql[j]
     xi_name = xvar_names[i]
     xj_name = xvar_names[j]
-    pair_exprs = c(pair_exprs, glue("SUM(({xi_sql})*({xj_sql})) AS sum_{xi_name}_{xj_name}"))
+    pair_exprs = c(
+      pair_exprs,
+      sql_weighted_sum(glue("({xi_sql}) * ({xj_sql})"), weights_expr, paste0("sum_w", xi_name, "_", xj_name))
+    )
   }
   
   # CTE structure for HC1 meat computation
@@ -761,34 +990,35 @@ execute_moments_strategy = function(inputs) {
     return(moments_sql)
   }
   if (inputs$verbose) {
-    message("[dbreg] Executing moments SQL\n")
+    message(if (!is.null(inputs$weights)) "[dbreg] Executing weighted moments SQL\n" else "[dbreg] Executing moments SQL\n")
   }
   moments_df = dbGetQuery(inputs$conn, moments_sql)
   if (inputs$data_only) {
     return(moments_df)
   }
   n_total = moments_df$n_total
+  sum_w = moments_df$sum_w
 
   vars_all = c("(Intercept)", xvar_names)
   p = length(vars_all)
   XtX = matrix(0, p, p, dimnames = list(vars_all, vars_all))
   Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
 
-  XtX["(Intercept)", "(Intercept)"] = n_total
-  Xty["(Intercept)", ] = moments_df$sum_y
+  XtX["(Intercept)", "(Intercept)"] = sum_w
+  Xty["(Intercept)", ] = moments_df$sum_wy
   for (x in xvar_names) {
-    sx = moments_df[[paste0("sum_", x)]]
-    sxx = moments_df[[paste0("sum_", x, "_", x)]]
-    sxy = moments_df[[paste0("sum_", x, "_y")]]
-    XtX["(Intercept)", x] = XtX[x, "(Intercept)"] = sx
-    XtX[x, x] = sxx
-    Xty[x, ] = sxy
+    swx = moments_df[[paste0("sum_w", x)]]
+    swxx = moments_df[[paste0("sum_w", x, "_", x)]]
+    swxy = moments_df[[paste0("sum_w", x, "_y")]]
+    XtX["(Intercept)", x] = XtX[x, "(Intercept)"] = swx
+    XtX[x, x] = swxx
+    Xty[x, ] = swxy
   }
   xpairs = gen_xvar_pairs(xvar_names)
   for (pair in xpairs) {
     xi = pair[1]
     xj = pair[2]
-    val = moments_df[[paste0("sum_", xi, "_", xj)]]
+    val = moments_df[[paste0("sum_w", xi, "_", xj)]]
     XtX[xi, xj] = XtX[xj, xi] = val
   }
 
@@ -798,15 +1028,15 @@ execute_moments_strategy = function(inputs) {
   rownames(betahat) = vars_all
 
   rss = as.numeric(
-    moments_df$sum_y_sq -
+    moments_df$sum_wy_sq -
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
   df_res = max(n_total - p, 1)
   # Calculate TSS for R2
-  sum_y = moments_df$sum_y
-  sum_y_sq = moments_df$sum_y_sq
-  tss = sum_y_sq - (sum_y^2 / n_total)
+  sum_wy = moments_df$sum_wy
+  sum_wy_sq = moments_df$sum_wy_sq
+  tss = sum_wy_sq - (sum_wy^2 / sum_w)
   
   # Compute meat matrix if needed (HC1 or cluster)
   meat = NULL
@@ -862,6 +1092,7 @@ execute_moments_strategy = function(inputs) {
     yvar = inputs$yvar,
     xvars = standardize_coef_names(inputs$xvars),
     fe = NULL,
+    weights = inputs$weights,
     query_string = moments_sql,
     nobs = 1L,
     nobs_orig = n_total,
@@ -896,6 +1127,16 @@ execute_demean_strategy = function(inputs) {
     xvar_names = inputs$xvars
   }
   
+  weights_expr_base = sql_weight_expr(inputs$weights)
+  weights_expr_demeaned = if (is.null(inputs$weights)) NULL else sql_weight_expr("weights")
+  if (!is.null(inputs$weights) && length(inputs$fe) == 2) {
+    stop(
+      "[dbreg] Weighted two-way FE not supported for strategy = 'demean'. ",
+      "Use strategy = 'compress' or 'mundlak'.",
+      call. = FALSE
+    )
+  }
+
   all_var_names = c(inputs$yvar, xvar_names)
   all_var_sql = c(inputs$yvar, xvars_sql)
   
@@ -908,15 +1149,29 @@ execute_demean_strategy = function(inputs) {
     for (i in seq_along(xvar_names)) {
       base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
     }
+    if (!is.null(inputs$weights) && !inputs$weights %in% c(fe1, inputs$yvar, xvar_names)) {
+      base_select = c(base_select, inputs$weights)
+    }
     
     means_cols = paste(
-      sprintf("AVG(%s) AS %s_mean", all_var_names, all_var_names),
+      vapply(
+        all_var_names,
+        function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_mean")),
+        character(1)
+      ),
       collapse = ", "
     )
     tilde_exprs = paste(
       sprintf("(b.%s - gm.%s_mean) AS %s_tilde", all_var_names, all_var_names, all_var_names),
       collapse = ",\n       "
     )
+    if (!is.null(inputs$weights)) {
+      tilde_exprs = paste(
+        tilde_exprs,
+        sprintf("b.%s AS weights", inputs$weights),
+        sep = ",\n       "
+      )
+    }
 
     # CTE part (reusable for HC1 meat computation)
     cte_sql = paste0(
@@ -955,10 +1210,10 @@ execute_demean_strategy = function(inputs) {
       sql_count(inputs$conn, "n_total"),
       sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
       "1 AS n_fe2",
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_y_sq",
-        inputs$yvar,
-        inputs$yvar
+      sql_weighted_sum(
+        glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
+        weights_expr_demeaned,
+        "sum_y_sq"
       )
     )
   } else {
@@ -971,17 +1226,32 @@ execute_demean_strategy = function(inputs) {
     for (i in seq_along(xvar_names)) {
       base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
     }
+    if (!is.null(inputs$weights) && !inputs$weights %in% c(fe1, fe2, inputs$yvar, xvar_names)) {
+      base_select = c(base_select, inputs$weights)
+    }
 
     unit_means_cols = paste(
-      sprintf("AVG(%s) AS %s_u", all_var_names, all_var_names),
+      vapply(
+        all_var_names,
+        function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_u")),
+        character(1)
+      ),
       collapse = ", "
     )
     time_means_cols = paste(
-      sprintf("AVG(%s) AS %s_t", all_var_names, all_var_names),
+      vapply(
+        all_var_names,
+        function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_t")),
+        character(1)
+      ),
       collapse = ", "
     )
     overall_cols = paste(
-      sprintf("AVG(%s) AS %s_o", all_var_names, all_var_names),
+      vapply(
+        all_var_names,
+        function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_o")),
+        character(1)
+      ),
       collapse = ", "
     )
     tilde_exprs = paste(
@@ -995,6 +1265,13 @@ execute_demean_strategy = function(inputs) {
       ),
       collapse = ",\n       "
     )
+    if (!is.null(inputs$weights)) {
+      tilde_exprs = paste(
+        tilde_exprs,
+        sprintf("b.%s AS weights", inputs$weights),
+        sep = ",\n       "
+      )
+    }
 
     # CTE part (reusable for HC1 meat computation)
     cte_sql = paste0(
@@ -1056,10 +1333,10 @@ execute_demean_strategy = function(inputs) {
       sql_count(inputs$conn, "n_total"),
       sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
       sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_y_sq",
-        inputs$yvar,
-        inputs$yvar
+      sql_weighted_sum(
+        glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
+        weights_expr_demeaned,
+        "sum_y_sq"
       )
     )
   }
@@ -1070,13 +1347,15 @@ execute_demean_strategy = function(inputs) {
     x = xvar_names[i]
     moment_terms = c(
       moment_terms,
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_y",
-        x, inputs$yvar, i
+      sql_weighted_sum(
+        glue("CAST({x}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
+        weights_expr_demeaned,
+        sprintf("sum_%d_y", i)
       ),
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_%d",
-        x, x, i, i
+      sql_weighted_sum(
+        glue("CAST({x}_tilde AS FLOAT) * CAST({x}_tilde AS FLOAT)"),
+        weights_expr_demeaned,
+        sprintf("sum_%d_%d", i, i)
       )
     )
   }
@@ -1086,9 +1365,10 @@ execute_demean_strategy = function(inputs) {
     j = match(pair[2], xvar_names)  # smaller index
     moment_terms = c(
       moment_terms,
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_%d",
-        pair[2], pair[1], j, i  # store as sum_smaller_larger
+      sql_weighted_sum(
+        glue("CAST({pair[2]}_tilde AS FLOAT) * CAST({pair[1]}_tilde AS FLOAT)"),
+        weights_expr_demeaned,
+        sprintf("sum_%d_%d", j, i)  # store as sum_smaller_larger
       )
     )
   }
@@ -1119,7 +1399,7 @@ execute_demean_strategy = function(inputs) {
 
   # Execute SQL and build matrices
   if (inputs$verbose) {
-    message("[dbreg] Executing demean SQL\n")
+    message(if (!is.null(inputs$weights)) "[dbreg] Executing weighted demean SQL\n" else "[dbreg] Executing demean SQL\n")
   }
   demean_df = dbGetQuery(inputs$conn, demean_sql)
   if (inputs$data_only) {
@@ -1223,6 +1503,7 @@ execute_demean_strategy = function(inputs) {
     xvars = standardize_coef_names(xvar_names_kept),
     collin.var = standardize_coef_names(collin_vars),
     fe = inputs$fe,
+    weights = inputs$weights,
     query_string = demean_sql,
     nobs = 1L,
     nobs_orig = n_total,
@@ -1266,6 +1547,9 @@ execute_mundlak_strategy = function(inputs) {
     xvar_names = inputs$xvars
   }
   
+  weights_expr_base = sql_weight_expr(inputs$weights)
+  weights_expr_aug = if (is.null(inputs$weights)) NULL else sql_weight_expr("weights")
+
   # Build base CTE with expanded columns AND original xvars (for group means)
   base_select = c(fe, yvar, inputs$xvars)
   for (i in seq_along(xvar_names)) {
@@ -1273,6 +1557,9 @@ execute_mundlak_strategy = function(inputs) {
     if (!xvar_names[i] %in% inputs$xvars) {
       base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
     }
+  }
+  if (!is.null(inputs$weights) && !inputs$weights %in% c(fe, yvar, inputs$xvars, xvar_names)) {
+    base_select = c(base_select, inputs$weights)
   }
 
   # Build group means CTEs and join clauses for each FE
@@ -1299,7 +1586,14 @@ execute_mundlak_strategy = function(inputs) {
     if (length(numeric_xvars) > 0) {
       xbar_k = paste0(numeric_xvars, suffix)
       xbar_all = c(xbar_all, xbar_k)
-      means_cols = paste(sprintf("AVG(%s) AS %s", numeric_xvars, xbar_k), collapse = ", ")
+      means_cols = paste(
+        vapply(
+          numeric_xvars,
+          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, suffix)),
+          character(1)
+        ),
+        collapse = ", "
+      )
       cte_parts = c(cte_parts, sprintf(
         "fe%d_means AS (SELECT %s, %s FROM base GROUP BY %s)",
         k, fe_k, means_cols, fe_k
@@ -1319,6 +1613,9 @@ execute_mundlak_strategy = function(inputs) {
 
   # Select columns for augmented table (include FE for counting)
   aug_select_parts = c(sprintf("b.%s", fe), sprintf("b.%s", yvar), sprintf("b.%s", xvar_names))
+  if (!is.null(inputs$weights)) {
+    aug_select_parts = c(aug_select_parts, sprintf("b.%s AS weights", inputs$weights))
+  }
   for (k in seq_along(fe)) {
     if (length(numeric_xvars) > 0) {
       suffix = paste0("_bar_", fe[k])
@@ -1336,8 +1633,13 @@ execute_mundlak_strategy = function(inputs) {
     sql_count(inputs$conn, "n_total"),
     if (n_fe >= 1) sql_count(inputs$conn, "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
     if (n_fe >= 2) sql_count(inputs$conn, "n_fe2", fe[2], distinct = TRUE) else "1 AS n_fe2",
-    sprintf("SUM(CAST(%s AS FLOAT)) AS sum_y", yvar),
-    sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_y_sq", yvar, yvar)
+    if (is.null(weights_expr_aug)) sql_count(inputs$conn, "sum_w") else glue("SUM({weights_expr_aug}) AS sum_w"),
+    sql_weighted_sum(glue("CAST({yvar} AS FLOAT)"), weights_expr_aug, "sum_wy"),
+    sql_weighted_sum(
+      glue("CAST({yvar} AS FLOAT) * CAST({yvar} AS FLOAT)"),
+      weights_expr_aug,
+      "sum_wy_sq"
+    )
   )
 
   # sum(X_j) and sum(X_j * Y) for each regressor
@@ -1345,8 +1647,12 @@ execute_mundlak_strategy = function(inputs) {
     v = all_regressors[i]
     moment_terms = c(
       moment_terms,
-      sprintf("SUM(CAST(%s AS FLOAT)) AS sum_%d", v, i),
-      sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%d_y", v, yvar, i)
+      sql_weighted_sum(glue("CAST({v} AS FLOAT)"), weights_expr_aug, sprintf("sum_w%d", i)),
+      sql_weighted_sum(
+        glue("CAST({v} AS FLOAT) * CAST({yvar} AS FLOAT)"),
+        weights_expr_aug,
+        sprintf("sum_w%d_y", i)
+      )
     )
   }
 
@@ -1357,7 +1663,11 @@ execute_mundlak_strategy = function(inputs) {
       vj = all_regressors[j]
       moment_terms = c(
         moment_terms,
-        sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%d_%d", vi, vj, i, j)
+        sql_weighted_sum(
+          glue("CAST({vi} AS FLOAT) * CAST({vj} AS FLOAT)"),
+          weights_expr_aug,
+          sprintf("sum_w%d_%d", i, j)
+        )
       )
     }
   }
@@ -1385,7 +1695,7 @@ execute_mundlak_strategy = function(inputs) {
   }
 
   if (inputs$verbose) {
-    message("[dbreg] Executing mundlak SQL\n")
+    message(if (!is.null(inputs$weights)) "[dbreg] Executing weighted mundlak SQL\n" else "[dbreg] Executing mundlak SQL\n")
   }
   mundlak_df = dbGetQuery(inputs$conn, mundlak_sql)
   if (inputs$data_only) {
@@ -1395,6 +1705,7 @@ execute_mundlak_strategy = function(inputs) {
   n_total = mundlak_df$n_total
   n_fe1 = mundlak_df$n_fe1
   n_fe2 = mundlak_df$n_fe2
+  sum_w = mundlak_df$sum_w
 
   # Include intercept
   vars_all = c("(Intercept)", all_regressors)
@@ -1404,21 +1715,21 @@ execute_mundlak_strategy = function(inputs) {
   Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
 
   # Intercept terms
-  XtX[1, 1] = n_total
-  Xty[1, ] = mundlak_df$sum_y
+  XtX[1, 1] = sum_w
+  Xty[1, ] = mundlak_df$sum_wy
 
   # Regressor terms (using numeric indices)
   for (i in seq_along(all_regressors)) {
-    XtX[1, i + 1] = XtX[i + 1, 1] = mundlak_df[[sprintf("sum_%d", i)]]
-    XtX[i + 1, i + 1] = mundlak_df[[sprintf("sum_%d_%d", i, i)]]
-    Xty[i + 1, ] = mundlak_df[[sprintf("sum_%d_y", i)]]
+    XtX[1, i + 1] = XtX[i + 1, 1] = mundlak_df[[sprintf("sum_w%d", i)]]
+    XtX[i + 1, i + 1] = mundlak_df[[sprintf("sum_w%d_%d", i, i)]]
+    Xty[i + 1, ] = mundlak_df[[sprintf("sum_w%d_y", i)]]
   }
 
   # Cross-terms
   for (i in seq_along(all_regressors)) {
     for (j in seq_along(all_regressors)) {
       if (i < j) {
-        XtX[i + 1, j + 1] = XtX[j + 1, i + 1] = mundlak_df[[sprintf("sum_%d_%d", i, j)]]
+        XtX[i + 1, j + 1] = XtX[j + 1, i + 1] = mundlak_df[[sprintf("sum_w%d_%d", i, j)]]
       }
     }
   }
@@ -1430,11 +1741,11 @@ execute_mundlak_strategy = function(inputs) {
 
   # RSS and TSS
   rss = as.numeric(
-    mundlak_df$sum_y_sq -
+    mundlak_df$sum_wy_sq -
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
-  tss = mundlak_df$sum_y_sq - (mundlak_df$sum_y^2 / n_total)
+  tss = mundlak_df$sum_wy_sq - (mundlak_df$sum_wy^2 / sum_w)
 
   df_res = max(n_total - p, 1)
 
@@ -1490,6 +1801,7 @@ execute_mundlak_strategy = function(inputs) {
     yvar = yvar,
     xvars = standardize_coef_names(xvar_names),
     fe = fe,
+    weights = inputs$weights,
     query_string = mundlak_sql,
     nobs = 1L,
     nobs_orig = n_total,
@@ -1533,6 +1845,8 @@ execute_compress_strategy = function(inputs) {
     xvar_names = inputs$xvars
   }
   
+  weights_expr = sql_weight_expr(inputs$weights)
+
   # FE columns (no expansion needed - used for grouping)
   fe_sql = if (length(inputs$fe)) paste(inputs$fe, collapse = ", ") else NULL
   
@@ -1540,39 +1854,36 @@ execute_compress_strategy = function(inputs) {
   all_cols_sql = if (!is.null(fe_sql)) paste(xvars_sql, fe_sql, sep = ", ") else xvars_sql
   group_cols = if (!is.null(fe_sql)) c(xvar_names, inputs$fe) else xvar_names
   group_cols_sql = paste(group_cols, collapse = ", ")
+
+  sum_w_expr = if (is.null(weights_expr)) {
+    "COUNT(*) AS sum_w"
+  } else {
+    glue("SUM({weights_expr}) AS sum_w")
+  }
+  sum_wy_expr = sql_weighted_sum(inputs$yvar, weights_expr, "sum_wy")
+  sum_wy_sq_expr = sql_weighted_sum(glue("POWER({inputs$yvar}, 2)"), weights_expr, "sum_wy_sq")
   
   query_string = paste0(
-    "WITH cte AS (
-    SELECT
-        ",
+    "WITH cte AS (\n    SELECT\n        ",
     all_cols_sql,
-    ",
-        COUNT(*) AS n,
-        SUM(",
-    inputs$yvar,
-    ") AS sum_Y,
-        SUM(POWER(",
-    inputs$yvar,
-    ", 2)) AS sum_Y_sq
-    ",
+    ",\n        COUNT(*) AS n,\n        ",
+    sum_w_expr,
+    ",\n        ",
+    sum_wy_expr,
+    ",\n        ",
+    sum_wy_sq_expr,
+    ",\n    ",
     from_statement,
-    "
-    GROUP BY ",
+    "\n    GROUP BY ",
     group_cols_sql,
-    "
-    )
-    SELECT
-    *,
-    sum_Y / n AS mean_Y,
-    sqrt(n) AS wts
-    FROM cte"
+    "\n    )\n    SELECT\n    *,\n    sum_wy / sum_w AS mean_Y,\n    sqrt(sum_w) AS wts\n    FROM cte"
   )
 
   if (inputs$sql_only) {
     return(query_string)
   }
   if (inputs$verbose) {
-    message("[dbreg] Executing compress strategy SQL\n")
+    message(if (!is.null(inputs$weights)) "[dbreg] Executing weighted compress strategy SQL\n" else "[dbreg] Executing compress strategy SQL\n")
   }
   compressed_dat = dbGetQuery(inputs$conn, query_string)
   nobs_orig = sum(compressed_dat$n)
@@ -1634,17 +1945,18 @@ execute_compress_strategy = function(inputs) {
   rownames(betahat) = colnames(X)
   yhat = as.numeric(X %*% betahat)
 
-  n_vec = compressed_dat$n
-  sum_Y = compressed_dat$sum_Y
-  sum_Y_sq = compressed_dat$sum_Y_sq
-  rss_g = sum_Y_sq - 2 * yhat * sum_Y + n_vec * (yhat^2)
+  sum_w = compressed_dat$sum_w
+  sum_wy = compressed_dat$sum_wy
+  sum_wy_sq = compressed_dat$sum_wy_sq
+  rss_g = sum_wy_sq - 2 * yhat * sum_wy + sum_w * (yhat^2)
   rss_total = sum(rss_g)
   df_res = max(nobs_orig - ncol(X), 1)
 
   # Calculate TSS for R2
-  sum_Y_total = sum(compressed_dat$sum_Y)
-  sum_Y_sq_total = sum(compressed_dat$sum_Y_sq)
-  tss = sum_Y_sq_total - (sum_Y_total^2 / nobs_orig)
+  sum_wy_total = sum(compressed_dat$sum_wy)
+  sum_wy_sq_total = sum(compressed_dat$sum_wy_sq)
+  sum_w_total = sum(compressed_dat$sum_w)
+  tss = sum_wy_sq_total - (sum_wy_total^2 / sum_w_total)
   
   # For clustered SEs, need to query cluster-by-cell stats
   meat = NULL
@@ -1704,6 +2016,7 @@ execute_compress_strategy = function(inputs) {
       collin.var = standardize_coef_names(collin_vars),
       coef_names = coef_names,
       fe = inputs$fe,
+      weights = inputs$weights,
       query_string = query_string,
       nobs = nobs_comp,
       nobs_orig = nobs_orig,
