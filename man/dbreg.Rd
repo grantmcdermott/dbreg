@@ -60,8 +60,9 @@ Ignored if either \code{table} or \code{data} is provided.
 \item{weights}{Character string specifying the column name to use as weights,
 or NULL (default) for unweighted regression. Weights must be non-negative;
 rows with zero weight are dropped. Weighted regressions support \code{"iid"},
-\code{"hc1"}, and clustered SEs. Weighted regressions with two-way fixed effects
-require \code{strategy = "compress"} or \code{strategy = "mundlak"} (exact-only).}
+\code{"hc1"}, and clustered SEs. Weighted two-way fixed effects are supported via
+\code{strategy = "demean"} (alternating projections), \code{strategy = "compress"},
+or \code{strategy = "mundlak"}.}
 
 \item{vcov}{Character string or formula denoting the desired type of variance-
 covariance correction / standard errors. Options are \code{"iid"} (default),
@@ -169,11 +170,10 @@ where \eqn{\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}}. This
 (single-pass) within transformation is algebraically equivalent to the
 fixed effects projection---i.e., Frisch-Waugh-Lovell partialling out---in
 the presence of a single FE. It is also identical for the two-way FE
-(TWFE) case if your panel is balanced. For unbalanced two-way panels,
-however, the double demeaning strategy is not algebraically equivalent to
-the fixed effects projection and therefore does not recover the exact TWFE
-coefficients. Moreover, note that this \code{"demean"} strategy permits at most
-two FE.
+(TWFE) case if your panel is balanced. For unbalanced two-way panels (or
+weighted two-way FE), \code{dbreg} switches to alternating projections to
+recover the exact TWFE coefficients, at the cost of extra passes over the
+data. Moreover, note that this \code{"demean"} strategy permits at most two FE.
 \item \code{"mundlak"}: a generalized Mundlak (1978), or correlated random effects
 (CRE) estimator that regresses Y on X plus group means of X:
 \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
@@ -199,9 +199,10 @@ FE are typically high dimensional, but covariate averages are not; see
 Arkhangelsky & Imbens (2024).
 
 However, the demeaning approaches invite tradeoffs of their own. For example,
-the double demeaning transformation of the \code{"demean"} strategy does not
-obtain exact TWFE results in unbalanced panels, and it is also limited to at
-most two FE. Conversely, the \code{"mundlak"} (CRE) strategy obtains consistent
+the double demeaning transformation of the \code{"demean"} strategy is exact only
+for balanced panels, and it is also limited to at most two FE. For
+unbalanced panels, \code{dbreg} uses alternating projections (exact but slower).
+Conversely, the \code{"mundlak"} (CRE) strategy obtains consistent
 coefficients regardless of panel structure and FE count, but at the "cost" of
 recovering a different estimand. (It is a different model to TWFE, after
 all.) See Wooldridge (2025) for an extended discussion of these issues.
@@ -213,7 +214,8 @@ efficient (barring data I/O costs and high FE dimensionality). \code{"mundlak"} 
 another efficient alternative provided that the CRE estimand is acceptable
 (don't be alarmed if your coefficients are not identical). Finally, the
 \code{"demean"} and \code{"moments"} strategies are great for particular use cases
-(i.e., balanced panels and cases without FE, respectively).
+(i.e., balanced panels or unbalanced panels where AP is acceptable, and cases
+without FE, respectively).
 
 If this all sounds like too much to think about, don't fret. The good news
 is that \code{dbreg} can do a lot (all?) of the deciding for you. Specifically, it
@@ -230,8 +232,7 @@ compressed data) THEN \code{"moments"}.
 \item ELSE IF 2 FE AND (poor compression ratio OR too big compressed data):
 \itemize{
 \item IF balanced panel THEN \code{"demean"}.
-\item ELSE error (exact TWFE infeasible; user must explicitly choose
-\code{"compress"} or \code{"mundlak"}).
+\item ELSE \code{"demean"} via alternating projections.
 }
 \item ELSE THEN \code{"compress"}.
 }

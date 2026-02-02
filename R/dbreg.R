@@ -37,8 +37,9 @@
 #' @param weights Character string specifying the column name to use as weights,
 #' or NULL (default) for unweighted regression. Weights must be non-negative;
 #' rows with zero weight are dropped. Weighted regressions support `"iid"`,
-#' `"hc1"`, and clustered SEs. Weighted regressions with two-way fixed effects
-#' require `strategy = "compress"` or `strategy = "mundlak"` (exact-only).
+#' `"hc1"`, and clustered SEs. Weighted two-way fixed effects are supported via
+#' `strategy = "demean"` (alternating projections), `strategy = "compress"`,
+#' or `strategy = "mundlak"`.
 #' @param vcov Character string or formula denoting the desired type of variance-
 #' covariance correction / standard errors. Options are `"iid"` (default),
 #' `"hc1"` (heteroskedasticity-consistent), or a one-sided formula like
@@ -127,11 +128,10 @@
 #'    (single-pass) within transformation is algebraically equivalent to the
 #'    fixed effects projection---i.e., Frisch-Waugh-Lovell partialling out---in
 #'    the presence of a single FE. It is also identical for the two-way FE
-#'    (TWFE) case if your panel is balanced. For unbalanced two-way panels,
-#'    however, the double demeaning strategy is not algebraically equivalent to
-#'    the fixed effects projection and therefore does not recover the exact TWFE
-#'    coefficients. Moreover, note that this `"demean"` strategy permits at most
-#'    two FE.
+#'    (TWFE) case if your panel is balanced. For unbalanced two-way panels (or
+#'    weighted two-way FE), `dbreg` switches to alternating projections to
+#'    recover the exact TWFE coefficients, at the cost of extra passes over the
+#'    data. Moreover, note that this `"demean"` strategy permits at most two FE.
 #' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects
 #'    (CRE) estimator that regresses Y on X plus group means of X:
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
@@ -156,9 +156,10 @@
 #' Arkhangelsky & Imbens (2024).
 #' 
 #' However, the demeaning approaches invite tradeoffs of their own. For example,
-#' the double demeaning transformation of the `"demean"` strategy does not
-#' obtain exact TWFE results in unbalanced panels, and it is also limited to at
-#' most two FE. Conversely, the `"mundlak"` (CRE) strategy obtains consistent
+#' the double demeaning transformation of the `"demean"` strategy is exact only
+#' for balanced panels, and it is also limited to at most two FE. For
+#' unbalanced panels, `dbreg` uses alternating projections (exact but slower).
+#' Conversely, the `"mundlak"` (CRE) strategy obtains consistent
 #' coefficients regardless of panel structure and FE count, but at the "cost" of
 #' recovering a different estimand. (It is a different model to TWFE, after
 #' all.) See Wooldridge (2025) for an extended discussion of these issues.
@@ -170,7 +171,8 @@
 #' another efficient alternative provided that the CRE estimand is acceptable
 #' (don't be alarmed if your coefficients are not identical). Finally, the
 #' `"demean"` and `"moments"` strategies are great for particular use cases
-#' (i.e., balanced panels and cases without FE, respectively).
+#' (i.e., balanced panels or unbalanced panels where AP is acceptable, and
+#' cases without FE, respectively).
 #' 
 #' If this all sounds like too much to think about, don't fret. The good news
 #' is that `dbreg` can do a lot (all?) of the deciding for you. Specifically, it
@@ -186,8 +188,7 @@
 #'   `"demean"`.
 #' - ELSE IF 2 FE AND (poor compression ratio OR too big compressed data):
 #'   - IF balanced panel THEN `"demean"`.
-#'   - ELSE error (exact TWFE infeasible; user must explicitly choose
-#'     `"compress"` or `"mundlak"`).
+#'   - ELSE `"demean"` via alternating projections.
 #' - ELSE THEN `"compress"`.
 #' 
 #' _Tip: set `dbreg(..., verbose = TRUE)` to print information about the auto
@@ -713,6 +714,225 @@ sql_weighted_mean = function(expr, weights_expr, alias) {
   glue("SUM(({weights_expr}) * ({expr})) / SUM({weights_expr}) AS {alias}")
 }
 
+#' Generate a temp table name with optional SQL Server prefix
+#' @keywords internal
+dbreg_temp_table_name = function(base_name, backend) {
+  if (backend == "sqlserver") {
+    paste0("#", base_name)
+  } else {
+    base_name
+  }
+}
+
+#' Create a temp table from a SELECT query
+#' @keywords internal
+dbreg_create_temp_table_as = function(conn, table_name, select_sql, backend) {
+  if (backend == "sqlserver") {
+    sql = sub(
+      "^SELECT",
+      paste0("SELECT * INTO ", table_name, " FROM (SELECT"),
+      select_sql,
+      ignore.case = TRUE
+    )
+    sql = paste0(sql, ") AS __subq")
+    dbExecute(conn, sql)
+  } else {
+    sql = glue("CREATE TEMPORARY TABLE {table_name} AS {select_sql}")
+    dbExecute(conn, sql)
+  }
+}
+
+#' Drop a temp table if it exists
+#' @keywords internal
+dbreg_drop_table = function(conn, table_name, backend) {
+  if (backend == "sqlserver") {
+    sql = glue("IF OBJECT_ID('tempdb..{table_name}') IS NOT NULL DROP TABLE {table_name}")
+  } else {
+    sql = glue("DROP TABLE IF EXISTS {table_name}")
+  }
+  tryCatch(dbExecute(conn, sql), error = function(e) NULL)
+}
+
+#' Check if a two-way panel is balanced
+#' @keywords internal
+dbreg_is_balanced_panel = function(conn, from_statement, fe) {
+  if (length(fe) != 2) {
+    return(NA)
+  }
+  fe_expr = paste(fe, collapse = ", ")
+  balance_sql = glue(
+    "SELECT COUNT(DISTINCT cnt) AS n FROM (SELECT COUNT(*) AS cnt {from_statement} GROUP BY {fe_expr}) t"
+  )
+  res = tryCatch(dbGetQuery(conn, balance_sql)$n, error = function(e) NA)
+  if (is.na(res)) {
+    return(NA)
+  }
+  res == 1
+}
+
+#' Alternating projections (AP) for exact two-way FE demeaning
+#' @keywords internal
+dbreg_alternating_projections = function(
+  conn,
+  from_statement,
+  fe,
+  yvar,
+  xvars_sql,
+  xvar_names,
+  weights,
+  cluster_var = NULL,
+  verbose = FALSE,
+  max_iter = getOption("dbreg.ap_max_iter", 100L),
+  tol = getOption("dbreg.ap_tol", 1e-10)
+) {
+  backend = detect_backend(conn)$name
+  weights_expr = sql_weight_expr(weights)
+  if (is.null(weights_expr)) {
+    weights_expr = "1.0"
+  }
+
+  id_cols = unique(c(fe, cluster_var))
+  id_cols = setdiff(id_cols, c(yvar, xvar_names))
+  id_cols = id_cols[!is.na(id_cols) & id_cols != ""]
+
+  seed = paste0(
+    format(Sys.time(), "%Y%m%d_%H%M%S"),
+    "_",
+    sprintf("%06d", sample.int(1e6, 1))
+  )
+  base_table = dbreg_temp_table_name(paste0("dbreg_ap_base_", seed), backend)
+  cur_table = dbreg_temp_table_name(paste0("dbreg_ap_cur_", seed), backend)
+
+  created = character(0)
+  success = FALSE
+  on.exit({
+    if (!success) {
+      for (tbl in rev(created)) {
+        dbreg_drop_table(conn, tbl, backend)
+      }
+    }
+  }, add = TRUE)
+
+  base_select = c(
+    id_cols,
+    sprintf("%s AS %s", yvar, yvar),
+    sprintf("%s AS %s", xvars_sql, xvar_names),
+    sprintf("%s AS __w", weights_expr)
+  )
+  base_sql = paste0("SELECT ", paste(base_select, collapse = ", "), " ", from_statement)
+  dbreg_create_temp_table_as(conn, base_table, base_sql, backend)
+  created = c(created, base_table)
+
+  tilde_cols = c(
+    sprintf("%s AS %s_tilde", yvar, yvar),
+    sprintf("%s AS %s_tilde", xvar_names, xvar_names)
+  )
+  init_sql = paste0(
+    "SELECT ",
+    paste(c(id_cols, "__w", tilde_cols), collapse = ", "),
+    " FROM ",
+    base_table
+  )
+  dbreg_create_temp_table_as(conn, cur_table, init_sql, backend)
+  created = c(created, cur_table)
+
+  vars_all = c(yvar, xvar_names)
+  mean_names = paste0(vars_all, "_mean")
+  max_abs = Inf
+
+  for (iter in seq_len(max_iter)) {
+    for (fe_k in fe) {
+      mean_cols = vapply(
+        vars_all,
+        function(v) sql_weighted_mean(paste0(v, "_tilde"), "__w", paste0(v, "_mean")),
+        character(1)
+      )
+      mean_sql = paste0(
+        "SELECT ",
+        fe_k,
+        ", ",
+        paste(mean_cols, collapse = ", "),
+        " FROM ",
+        cur_table,
+        " GROUP BY ",
+        fe_k
+      )
+      mean_table = dbreg_temp_table_name(paste0("dbreg_ap_mean_", seed, "_", fe_k, "_", iter), backend)
+      dbreg_create_temp_table_as(conn, mean_table, mean_sql, backend)
+      created = c(created, mean_table)
+
+      update_cols = c(
+        sprintf("t.%s", id_cols),
+        "t.__w",
+        sprintf("t.%s_tilde - m.%s_mean AS %s_tilde", vars_all, vars_all, vars_all)
+      )
+      update_sql = paste0(
+        "SELECT ",
+        paste(update_cols, collapse = ", "),
+        " FROM ",
+        cur_table,
+        " t JOIN ",
+        mean_table,
+        " m ON t.",
+        fe_k,
+        " = m.",
+        fe_k
+      )
+      new_table = dbreg_temp_table_name(paste0("dbreg_ap_step_", seed, "_", fe_k, "_", iter), backend)
+      dbreg_create_temp_table_as(conn, new_table, update_sql, backend)
+      created = c(created, new_table)
+
+      dbreg_drop_table(conn, cur_table, backend)
+      dbreg_drop_table(conn, mean_table, backend)
+      cur_table = new_table
+    }
+
+    max_abs = 0
+    for (fe_k in fe) {
+      mean_cols = vapply(
+        vars_all,
+        function(v) sql_weighted_mean(paste0(v, "_tilde"), "__w", paste0(v, "_mean")),
+        character(1)
+      )
+      inner_sql = paste0(
+        "SELECT ",
+        fe_k,
+        ", ",
+        paste(mean_cols, collapse = ", "),
+        " FROM ",
+        cur_table,
+        " GROUP BY ",
+        fe_k
+      )
+      outer_cols = paste(
+        sprintf("MAX(ABS(%s)) AS max_%s", mean_names, vars_all),
+        collapse = ", "
+      )
+      outer_sql = paste0("SELECT ", outer_cols, " FROM (", inner_sql, ") t")
+      res = dbGetQuery(conn, outer_sql)
+      max_abs = max(max_abs, max(res[1, ], na.rm = TRUE))
+    }
+
+    if (isTRUE(verbose)) {
+      message("[AP] iter ", iter, ": max abs mean = ", sprintf("%.4e", max_abs))
+    }
+
+    if (is.finite(max_abs) && max_abs < tol) {
+      success = TRUE
+      return(list(table = cur_table, base_table = base_table))
+    }
+  }
+
+  stop(
+    "[dbreg] Alternating projections did not converge within ",
+    max_iter,
+    " iterations (max abs mean = ",
+    sprintf("%.4e", max_abs),
+    ").",
+    call. = FALSE
+  )
+}
+
 #' Choose regression strategy based on inputs and auto logic
 #' @keywords internal
 choose_strategy = function(inputs) {
@@ -847,27 +1067,14 @@ choose_strategy = function(inputs) {
       if (fail_compress_ratio || fail_compress_nmax) {
         # For 2-way FE, check balance
         if (length(fe) == 2) {
-          fe_expr = paste(fe, collapse = ", ")
-          balance_sql = glue(
-            "SELECT COUNT(DISTINCT cnt) AS n FROM (SELECT COUNT(*) AS cnt {from_statement} GROUP BY {fe_expr}) t"
-          )
-          is_balanced = tryCatch(dbGetQuery(conn, balance_sql)$n == 1, error = function(e) NA)
-          if (isTRUE(is_balanced)) {
-            chosen_strategy = "demean"
-            if (verbose) {
+          is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
+          chosen_strategy = "demean"
+          if (verbose) {
+            if (isTRUE(is_balanced)) {
               message("        - panel is balanced")
+            } else {
+              message("        - panel is unbalanced (using alternating projections)")
             }
-          } else {
-            if (verbose) {
-              message("        - panel is unbalanced")
-            }
-            stop(
-              "[dbreg] Exact TWFE infeasible for unbalanced panel under current transfer limits.\n\n",
-              "Users have two recommended options:\n",
-              "  - strategy = 'compress' with less strict compression thresholds (for exact TWFE), or\n",
-              "  - strategy = 'mundlak' (for CRE estimator; different model so requires explicit opt-in)",
-              call. = FALSE
-            )
           }
         } else {
           chosen_strategy = "demean"
@@ -893,22 +1100,6 @@ choose_strategy = function(inputs) {
     }
   }
 
-  if (!is.null(weights) && length(fe) == 2 && chosen_strategy == "demean") {
-    if (strategy == "auto") {
-      warning(
-        "[dbreg] Weighted two-way FE not supported for strategy = 'demean'. Using compress.",
-        call. = FALSE
-      )
-      chosen_strategy = "compress"
-    } else {
-      stop(
-        "[dbreg] Weighted two-way FE not supported for strategy = 'demean'. ",
-        "Use strategy = 'compress' or 'mundlak'.",
-        call. = FALSE
-      )
-    }
-  }
-
   # Guard unsupported combos
   if (chosen_strategy == "moments" && length(fe) > 0) {
     warning(
@@ -921,14 +1112,9 @@ choose_strategy = function(inputs) {
       warning("[dbreg] demean requires <= 2 FEs. Using compress.")
       chosen_strategy = "compress"
     } else if (verbose && length(fe) == 2) {
-      # For 2-way FE, check balance; just a warning since user has explicitly selected into demean
-      fe_expr = paste(fe, collapse = ", ")
-      balance_sql = glue(
-        "SELECT COUNT(DISTINCT cnt) AS n FROM (SELECT COUNT(*) AS cnt {from_statement} GROUP BY {fe_expr}) t"
-      )
-      is_balanced = tryCatch(dbGetQuery(conn, balance_sql)$n == 1, error = function(e) NA)
-      if (!is_balanced) {
-        warning("[dbreg] Panel appears unbalanced. Double demeaning may yield different coefficients than exact TWFE.")
+      is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
+      if (!isTRUE(is_balanced)) {
+        message("[dbreg] Panel unbalanced. Using alternating projections for exact TWFE.")
       }
     }
   }
@@ -1148,18 +1334,23 @@ execute_demean_strategy = function(inputs) {
   
   weights_expr_base = sql_weight_expr(inputs$weights)
   weights_expr_demeaned = if (is.null(inputs$weights)) NULL else sql_weight_expr("weights")
-  if (!is.null(inputs$weights) && length(inputs$fe) == 2) {
-    stop(
-      "[dbreg] Weighted two-way FE not supported for strategy = 'demean'. ",
-      "Use strategy = 'compress' or 'mundlak'.",
-      call. = FALSE
-    )
-  }
 
   all_var_names = c(inputs$yvar, xvar_names)
   all_var_sql = c(inputs$yvar, xvars_sql)
   
   cluster_var = inputs$cluster_var
+  use_ap = FALSE
+  ap_tables = NULL
+  if (length(inputs$fe) == 2) {
+    is_balanced = dbreg_is_balanced_panel(inputs$conn, inputs$from_statement, inputs$fe)
+    use_ap = !is.null(inputs$weights) || !isTRUE(is_balanced)
+    if (isTRUE(use_ap) && inputs$verbose) {
+      message("[dbreg] Using alternating projections for two-way FE demeaning")
+    }
+    if (isTRUE(use_ap) && inputs$sql_only) {
+      stop("[dbreg] sql_only is not supported for alternating projections.", call. = FALSE)
+    }
+  }
   if (length(inputs$fe) == 1) {
     # Single FE: simple within-group demeaning
     fe1 = inputs$fe[1]
@@ -1247,138 +1438,166 @@ execute_demean_strategy = function(inputs) {
       )
     )
   } else {
-    # Two FE: double demeaning
+    # Two FE: use alternating projections when needed; otherwise double demeaning
     fe1 = inputs$fe[1]
     fe2 = inputs$fe[2]
-    
-    # Build base CTE with expanded columns
-    base_select = c(fe1, fe2, inputs$yvar)
-    for (i in seq_along(xvar_names)) {
-      base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
-    }
-    if (!is.null(inputs$weights) && !inputs$weights %in% c(fe1, fe2, inputs$yvar, xvar_names)) {
-      base_select = c(base_select, inputs$weights)
-    }
-    if (!is.null(cluster_var) && !cluster_var %in% c(fe1, fe2, inputs$yvar, xvar_names, inputs$weights)) {
-      base_select = c(base_select, cluster_var)
-    }
 
-    unit_means_cols = paste(
-      vapply(
-        all_var_names,
-        function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_u")),
-        character(1)
-      ),
-      collapse = ", "
-    )
-    time_means_cols = paste(
-      vapply(
-        all_var_names,
-        function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_t")),
-        character(1)
-      ),
-      collapse = ", "
-    )
-    overall_cols = paste(
-      vapply(
-        all_var_names,
-        function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_o")),
-        character(1)
-      ),
-      collapse = ", "
-    )
-    tilde_exprs = paste(
-      sprintf(
-        "(b.%s - um.%s_u - tm.%s_t + o.%s_o) AS %s_tilde",
-        all_var_names,
-        all_var_names,
-        all_var_names,
-        all_var_names,
-        all_var_names
-      ),
-      collapse = ",\n       "
-    )
-    if (!is.null(cluster_var) && !cluster_var %in% c(fe1, fe2)) {
+    if (isTRUE(use_ap)) {
+      ap_res = dbreg_alternating_projections(
+        conn = inputs$conn,
+        from_statement = inputs$from_statement,
+        fe = inputs$fe,
+        yvar = inputs$yvar,
+        xvars_sql = xvars_sql,
+        xvar_names = xvar_names,
+        weights = inputs$weights,
+        cluster_var = cluster_var,
+        verbose = inputs$verbose
+      )
+      ap_tables = c(ap_res$table, ap_res$base_table)
+      weights_expr_demeaned = "__w"
+      cte_sql = paste0("WITH demeaned AS (SELECT * FROM ", ap_res$table, ")")
+
+      moment_terms = c(
+        sql_count(inputs$conn, "n_total"),
+        sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
+        sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
+        sql_weighted_sum(
+          glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
+          weights_expr_demeaned,
+          "sum_y_sq"
+        )
+      )
+    } else {
+      # Double demeaning (balanced panels, unweighted)
+      base_select = c(fe1, fe2, inputs$yvar)
+      for (i in seq_along(xvar_names)) {
+        base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
+      }
+      if (!is.null(inputs$weights) && !inputs$weights %in% c(fe1, fe2, inputs$yvar, xvar_names)) {
+        base_select = c(base_select, inputs$weights)
+      }
+      if (!is.null(cluster_var) && !cluster_var %in% c(fe1, fe2, inputs$yvar, xvar_names, inputs$weights)) {
+        base_select = c(base_select, cluster_var)
+      }
+
+      unit_means_cols = paste(
+        vapply(
+          all_var_names,
+          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_u")),
+          character(1)
+        ),
+        collapse = ", "
+      )
+      time_means_cols = paste(
+        vapply(
+          all_var_names,
+          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_t")),
+          character(1)
+        ),
+        collapse = ", "
+      )
+      overall_cols = paste(
+        vapply(
+          all_var_names,
+          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_o")),
+          character(1)
+        ),
+        collapse = ", "
+      )
       tilde_exprs = paste(
+        sprintf(
+          "(b.%s - um.%s_u - tm.%s_t + o.%s_o) AS %s_tilde",
+          all_var_names,
+          all_var_names,
+          all_var_names,
+          all_var_names,
+          all_var_names
+        ),
+        collapse = ",\n       "
+      )
+      if (!is.null(cluster_var) && !cluster_var %in% c(fe1, fe2)) {
+        tilde_exprs = paste(
+          tilde_exprs,
+          sprintf("b.%s AS %s", cluster_var, cluster_var),
+          sep = ",\n       "
+        )
+      }
+      if (!is.null(inputs$weights)) {
+        tilde_exprs = paste(
+          tilde_exprs,
+          sprintf("b.%s AS weights", inputs$weights),
+          sep = ",\n       "
+        )
+      }
+
+      # CTE part (reusable for HC1 meat computation)
+      cte_sql = paste0(
+        "WITH base AS (
+        SELECT ", paste(base_select, collapse = ", "), " ",
+        inputs$from_statement,
+        "
+        ),
+        unit_means AS (
+        SELECT ",
+        fe1,
+        ", ",
+        unit_means_cols,
+        " FROM base GROUP BY ",
+        fe1,
+        "
+        ),
+        time_means AS (
+        SELECT ",
+        fe2,
+        ", ",
+        time_means_cols,
+        " FROM base GROUP BY ",
+        fe2,
+        "
+        ),
+        overall AS (
+        SELECT ",
+        overall_cols,
+        " FROM base
+        ),
+        demeaned AS (
+        SELECT
+            b.",
+        fe1,
+        ",
+            b.",
+        fe2,
+        ",
+            ",
         tilde_exprs,
-        sprintf("b.%s AS %s", cluster_var, cluster_var),
-        sep = ",\n       "
+        "
+        FROM base b
+        JOIN unit_means um ON b.",
+        fe1,
+        " = um.",
+        fe1,
+        "
+        JOIN time_means tm ON b.",
+        fe2,
+        " = tm.",
+        fe2,
+        "
+        CROSS JOIN overall o
+        )"
+      )
+
+      moment_terms = c(
+        sql_count(inputs$conn, "n_total"),
+        sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
+        sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
+        sql_weighted_sum(
+          glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
+          weights_expr_demeaned,
+          "sum_y_sq"
+        )
       )
     }
-    if (!is.null(inputs$weights)) {
-      tilde_exprs = paste(
-        tilde_exprs,
-        sprintf("b.%s AS weights", inputs$weights),
-        sep = ",\n       "
-      )
-    }
-
-    # CTE part (reusable for HC1 meat computation)
-    cte_sql = paste0(
-      "WITH base AS (
-      SELECT ", paste(base_select, collapse = ", "), " ",
-      inputs$from_statement,
-      "
-      ),
-      unit_means AS (
-      SELECT ",
-      fe1,
-      ", ",
-      unit_means_cols,
-      " FROM base GROUP BY ",
-      fe1,
-      "
-      ),
-      time_means AS (
-      SELECT ",
-      fe2,
-      ", ",
-      time_means_cols,
-      " FROM base GROUP BY ",
-      fe2,
-      "
-      ),
-      overall AS (
-      SELECT ",
-      overall_cols,
-      " FROM base
-      ),
-      demeaned AS (
-      SELECT
-          b.",
-      fe1,
-      ",
-          b.",
-      fe2,
-      ",
-          ",
-      tilde_exprs,
-      "
-      FROM base b
-      JOIN unit_means um ON b.",
-      fe1,
-      " = um.",
-      fe1,
-      "
-      JOIN time_means tm ON b.",
-      fe2,
-      " = tm.",
-      fe2,
-      "
-      CROSS JOIN overall o
-      )"
-    )
-
-    moment_terms = c(
-      sql_count(inputs$conn, "n_total"),
-      sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
-      sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
-      sql_weighted_sum(
-        glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
-        weights_expr_demeaned,
-        "sum_y_sq"
-      )
-    )
   }
 
   # Add moment terms for xvars (shared by both 1-FE and 2-FE cases)
@@ -1442,7 +1661,16 @@ execute_demean_strategy = function(inputs) {
     message(if (!is.null(inputs$weights)) "[dbreg] Executing weighted demean SQL\n" else "[dbreg] Executing demean SQL\n")
   }
   demean_df = dbGetQuery(inputs$conn, demean_sql)
+  ap_cleanup = function() {
+    if (!is.null(ap_tables)) {
+      backend = detect_backend(inputs$conn)$name
+      for (tbl in ap_tables) {
+        dbreg_drop_table(inputs$conn, tbl, backend)
+      }
+    }
+  }
   if (inputs$data_only) {
+    ap_cleanup()
     return(demean_df)
   }
   n_total = demean_df$n_total
@@ -1536,6 +1764,7 @@ execute_demean_strategy = function(inputs) {
   attr(vcov_mat, "tss") = demean_df$sum_y_sq
 
   coeftable = gen_coeftable(betahat, vcov_mat, df_res)
+  ap_cleanup()
 
   list(
     coeftable = coeftable,

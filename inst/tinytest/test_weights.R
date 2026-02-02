@@ -112,10 +112,10 @@ unbal_ses = se(fe2_unbal)
 db_unbal_ses = db_unbal$coeftable[names(unbal_ses), "std.error"]
 expect_true(max(abs(unbal_ses - db_unbal_ses)) < tol_iid, info = "unbalanced: SEs match feols (compress)")
 
-## Auto: weighted 2 FE should choose compress
+## Auto: weighted 2 FE should choose demean via AP when compression fails
 expect_true(
-  dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = "weights", strategy = "auto", vcov = "iid")$strategy == "compress",
-  info = "auto: weighted 2 FE selects compress"
+  dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = "weights", strategy = "auto", vcov = "iid")$strategy == "demean",
+  info = "auto: weighted 2 FE selects demean (AP)"
 )
 
 ## Zero weights dropped + negative weights error
@@ -142,8 +142,6 @@ expect_error(
   "non-negative"
 )
 
-## Error case: weighted demean with 2 FE
-expect_error(
-  dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = "weights", strategy = "demean", vcov = "iid"),
-  "two-way"
-)
+## Weighted demean with 2 FE should work via AP
+db_ap = dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = "weights", strategy = "demean", vcov = "iid")
+expect_true(db_ap$strategy == "demean", info = "weighted 2 FE demean runs via AP")
