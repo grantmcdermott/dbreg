@@ -58,8 +58,9 @@ Ignored if either \code{table} or \code{data} is provided.
 }}
 
 \item{weights}{Character string specifying the column name to use as weights,
-or NULL (default) for unweighted regression. Weights are currently supported
-only with \code{vcov = "iid"}. Weighted regressions with two-way fixed effects
+or NULL (default) for unweighted regression. Weights must be non-negative;
+rows with zero weight are dropped. Weighted regressions support \code{"iid"},
+\code{"hc1"}, and clustered SEs. Weighted regressions with two-way fixed effects
 require \code{strategy = "compress"} or \code{strategy = "mundlak"} (exact-only).}
 
 \item{vcov}{Character string or formula denoting the desired type of variance-
