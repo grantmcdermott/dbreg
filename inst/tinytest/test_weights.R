@@ -3,7 +3,7 @@ library(fixest)
 
 set.seed(123)
 
-# Balanced panel with clusters + weights
+## ---- data ----------------------------------------------------------------
 n_units = 20L
 n_time = 4L
 unit_fe = rnorm(n_units)
@@ -21,7 +21,7 @@ dat$y = unit_fe[dat$unit] + time_fe[dat$time] + 0.5 * dat$x1 - 0.3 * dat$x2 + rn
 tol_iid = 1e-6
 tol_robust = 1e-5
 
-## IID: coefficients + SEs match lm/feols
+## ---- iid -----------------------------------------------------------------
 lm_fit = lm(y ~ x1 + x2, data = dat, weights = weights)
 db_mom = dbreg(y ~ x1 + x2, data = dat, weights = "weights", strategy = "moments", vcov = "iid")
 
@@ -55,7 +55,7 @@ fe2_ses = se(fe2_fit)
 db2_ses = db_fe2$coeftable[names(fe2_ses), "std.error"]
 expect_true(max(abs(fe2_ses - db2_ses)) < tol_iid, info = "compress: weighted SEs match feols (iid)")
 
-## HC1: SEs match feols (coefficients already checked above)
+## ---- hc1 -----------------------------------------------------------------
 fe_mom_hc1 = feols(y ~ x1 + x2, data = dat, weights = ~weights, vcov = "hc1")
 db_mom_hc1 = dbreg(y ~ x1 + x2, data = dat, weights = "weights", strategy = "moments", vcov = "hc1")
 expect_true(max(abs(se(fe_mom_hc1) - db_mom_hc1$coeftable[names(se(fe_mom_hc1)), "std.error"])) < tol_robust,
@@ -71,7 +71,7 @@ db_fe2_hc1 = dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = "weights", str
 expect_true(max(abs(se(fe2_hc1) - db_fe2_hc1$coeftable[names(se(fe2_hc1)), "std.error"])) < tol_robust,
             info = "compress: weighted HC1 SEs match feols")
 
-## Cluster: SEs match feols (coefficients already checked above)
+## ---- cluster --------------------------------------------------------------
 fe_mom_cl = feols(y ~ x1 + x2, data = dat, weights = ~weights, vcov = ~cluster)
 db_mom_cl = dbreg(y ~ x1 + x2, data = dat, weights = "weights", strategy = "moments", vcov = ~cluster)
 expect_true(max(abs(se(fe_mom_cl) - db_mom_cl$coeftable[names(se(fe_mom_cl)), "std.error"])) < tol_robust,
@@ -87,7 +87,7 @@ db_fe2_cl = dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = "weights", stra
 expect_true(max(abs(se(fe2_cl) - db_fe2_cl$coeftable[names(se(fe2_cl)), "std.error"])) < tol_robust,
             info = "compress: weighted cluster SEs match feols")
 
-## Weights == 1 should match unweighted (iid)
+## ---- weights==1 -----------------------------------------------------------
 dat$w1 = 1
 w1_mom = dbreg(y ~ x1 + x2, data = dat, weights = "w1", strategy = "moments", vcov = "iid")
 unw_mom = dbreg(y ~ x1 + x2, data = dat, strategy = "moments", vcov = "iid")
@@ -97,7 +97,7 @@ expect_true(max(abs(w1_mom$coeftable[names_mom, "estimate"] - unw_mom$coeftable[
 expect_true(max(abs(w1_mom$coeftable[names_mom, "std.error"] - unw_mom$coeftable[names_mom, "std.error"])) < tol_iid,
             info = "weights==1: moments SEs match unweighted")
 
-## Unbalanced panel: weighted compress vs feols (iid)
+## ---- unbalanced -----------------------------------------------------------
 set.seed(321)
 drop_idx = sample(seq_len(nrow(dat)), size = round(0.2 * nrow(dat)))
 dat_unbal = dat[-drop_idx, ]
@@ -112,13 +112,13 @@ unbal_ses = se(fe2_unbal)
 db_unbal_ses = db_unbal$coeftable[names(unbal_ses), "std.error"]
 expect_true(max(abs(unbal_ses - db_unbal_ses)) < tol_iid, info = "unbalanced: SEs match feols (compress)")
 
-## Auto: weighted 2 FE should choose demean via AP when compression fails
+## ---- auto ----------------------------------------------------------------
 expect_true(
   dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = "weights", strategy = "auto", vcov = "iid")$strategy == "demean",
   info = "auto: weighted 2 FE selects demean (AP)"
 )
 
-## Zero weights dropped + negative weights error
+## ---- zero-weight + negative ------------------------------------------------
 set.seed(126)
 zero_idx = sample(seq_len(nrow(dat)), size = 10)
 dat_zero = dat
@@ -142,6 +142,6 @@ expect_error(
   "non-negative"
 )
 
-## Weighted demean with 2 FE should work via AP
+## ---- ap-smoke --------------------------------------------------------------
 db_ap = dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = "weights", strategy = "demean", vcov = "iid")
 expect_true(db_ap$strategy == "demean", info = "weighted 2 FE demean runs via AP")

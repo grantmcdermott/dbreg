@@ -803,7 +803,7 @@ dbreg_alternating_projections = function(
   base_table = dbreg_temp_table_name(paste0("dbreg_ap_base_", seed), backend)
   cur_table = dbreg_temp_table_name(paste0("dbreg_ap_cur_", seed), backend)
 
-  created = character(0)
+  created = character(0) # track created temp tables for cleanup
   success = FALSE
   on.exit({
     if (!success) {
