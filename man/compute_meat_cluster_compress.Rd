@@ -12,7 +12,8 @@ compute_meat_cluster_compress(
   cluster_var,
   compressed_dat,
   X,
-  yhat
+  yhat,
+  weights = NULL
 )
 }
 \description{

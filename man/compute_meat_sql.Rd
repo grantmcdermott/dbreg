@@ -14,7 +14,8 @@ compute_meat_sql(
   var_suffix = "_tilde",
   cte_name = "demeaned",
   has_intercept = FALSE,
-  vars_sql = NULL
+  vars_sql = NULL,
+  weights_expr = NULL
 )
 }
 \description{

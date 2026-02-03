@@ -156,7 +156,7 @@ the FE as groups), before running weighted least squares on this much
 smaller dataset:
 \deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
 where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure
-follows Wong et al. (2021).
+follows Wang et al. (2021).
 \item \code{"moments"}: computes sufficient statistics (\eqn{X'X, X'y}) directly via
 SQL aggregation, returning a single-row result. This solves the standard
 OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases
@@ -187,7 +187,7 @@ finite samples.
 }
 
 The relative efficiency of each of these strategies depends on the size and
-structure of the data, as well as the number of unique regressors and FE. For
+structure of the data, as well the number of unique regressors and FE. For
 (quote unquote) "standard" cases, the \code{"compress"} strategy can yield
 remarkable performance gains and should justifiably be viewed as a good
 default. However, the compression approach tends to be less efficient for
@@ -214,8 +214,8 @@ efficient (barring data I/O costs and high FE dimensionality). \code{"mundlak"} 
 another efficient alternative provided that the CRE estimand is acceptable
 (don't be alarmed if your coefficients are not identical). Finally, the
 \code{"demean"} and \code{"moments"} strategies are great for particular use cases
-(i.e., balanced panels or unbalanced panels where AP is acceptable, and cases
-without FE, respectively).
+(i.e., balanced panels or unbalanced panels where AP is acceptable, and
+cases without FE, respectively).
 
 If this all sounds like too much to think about, don't fret. The good news
 is that \code{dbreg} can do a lot (all?) of the deciding for you. Specifically, it
@@ -242,6 +242,7 @@ strategy decision criteria.}
 }
 
 \examples{
+#
 ## In-memory data ----
 
 # We can pass in-memory R data frames to an ephemeral DuckDB connection via
