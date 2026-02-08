@@ -388,7 +388,13 @@ dbtree = function(
           node_conditions[[as.character(left_id)]] = c(parent_conds, cond_left)
           node_conditions[[as.character(right_id)]] = c(parent_conds, cond_right)
         } else {
-          nodes$reason[nodes$node_id == node_id] = "no_split"
+          # If the node cannot possibly satisfy min_leaf on both children,
+          # record that explicit stopping cause instead of generic no_split.
+          if (node_row$n < (2L * min_leaf)) {
+            nodes$reason[nodes$node_id == node_id] = "min_leaf"
+          } else {
+            nodes$reason[nodes$node_id == node_id] = "no_split"
+          }
         }
       }
     }
@@ -402,7 +408,8 @@ dbtree = function(
   leaf_nodes = nodes[nodes$is_leaf, , drop = FALSE]
   rss = sum(dbtree_sse(leaf_nodes$sum_w, leaf_nodes$sum_wy, leaf_nodes$sum_wy2))
   tss = dbtree_sse(root_sum_w, root_sum_wy, root_sum_wy2)
-  rmse = sqrt(rss / root_n)
+  rmse_denom = if (is.null(weights)) root_n else root_sum_w
+  rmse = sqrt(rss / rmse_denom)
   r2 = 1 - rss / tss
   
   out = list(

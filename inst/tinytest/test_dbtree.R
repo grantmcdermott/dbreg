@@ -31,7 +31,7 @@ expect_true(any(mod_min_split$nodes$reason == "min_split"))
 
 mod_min_leaf = dbtree(y ~ x, data = df, max_depth = 2, n_bins = 2, min_split = 2, min_leaf = 4)
 expect_equal(sum(mod_min_leaf$nodes$is_leaf), 1)
-expect_true(any(mod_min_leaf$nodes$reason == "no_split"))
+expect_true(any(mod_min_leaf$nodes$reason == "min_leaf"))
 
 mod_min_gain = dbtree(y ~ x, data = df, max_depth = 2, n_bins = 2, min_split = 2, min_leaf = 1, min_gain = 1e6)
 expect_equal(sum(mod_min_gain$nodes$is_leaf), 1)
@@ -107,6 +107,8 @@ expect_true(
 print_txt = capture.output(print(mod1))
 expect_true(any(grepl("DB-native regression tree", print_txt)))
 expect_true(any(grepl("Depth:", print_txt)))
+expect_true(any(grepl("Constraints:", print_txt)))
+expect_true(any(grepl("Leaf stop reasons:", print_txt)))
 
 expect_error(
   predict(mod1, data.frame(z = df$x)),

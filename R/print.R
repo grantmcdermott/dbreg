@@ -273,11 +273,16 @@ print.dbtree = function(x, ...) {
   nodes = x$nodes
   nobs = x$nobs
   max_depth = max(nodes$depth)
+  target_depth = x$params$max_depth
   n_leaves = sum(nodes$is_leaf)
   
   cat("DB-native regression tree\n")
   cat("Observations.:", prettyNum(nobs, big.mark = ","), "\n")
-  cat(sprintf("Depth: %d | Leaves: %d\n", max_depth, n_leaves))
+  if (!is.null(target_depth) && is.finite(target_depth)) {
+    cat(sprintf("Depth: %d/%d | Leaves: %d\n", max_depth, as.integer(target_depth), n_leaves))
+  } else {
+    cat(sprintf("Depth: %d | Leaves: %d\n", max_depth, n_leaves))
+  }
   
   if (!is.null(x$metrics)) {
     cat(sprintf(
@@ -285,6 +290,25 @@ print.dbtree = function(x, ...) {
       format(round(x$metrics$rmse, 4), nsmall = 4),
       format(round(x$metrics$r2, 4), nsmall = 4)
     ))
+  }
+  
+  if (!is.null(x$params)) {
+    cat(sprintf(
+      "Constraints: min_split=%d | min_leaf=%d | min_gain=%s\n",
+      as.integer(x$params$min_split),
+      as.integer(x$params$min_leaf),
+      format(x$params$min_gain, digits = 6)
+    ))
+  }
+  
+  leaf_reasons = nodes$reason[nodes$is_leaf & !is.na(nodes$reason)]
+  if (length(leaf_reasons) > 0) {
+    reason_counts = sort(table(leaf_reasons), decreasing = TRUE)
+    reason_str = paste(
+      sprintf("%s=%d", names(reason_counts), as.integer(reason_counts)),
+      collapse = ", "
+    )
+    cat("Leaf stop reasons:", reason_str, "\n")
   }
   
   split_nodes = nodes[!nodes$is_leaf, , drop = FALSE]
