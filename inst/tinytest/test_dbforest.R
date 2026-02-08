@@ -24,7 +24,6 @@ mod = dbforest(
   ntree = 25,
   mtry = 2,
   sample_frac = 0.8,
-  replace = TRUE,
   seed = 99,
   n_bins = 16,
   max_depth = 4,
@@ -59,7 +58,6 @@ mod_same_seed = dbforest(
   ntree = 25,
   mtry = 2,
   sample_frac = 0.8,
-  replace = TRUE,
   seed = 99,
   n_bins = 16,
   max_depth = 4,
@@ -80,7 +78,6 @@ mod_diff_seed = dbforest(
   ntree = 25,
   mtry = 2,
   sample_frac = 0.8,
-  replace = TRUE,
   seed = 100,
   n_bins = 16,
   max_depth = 4,
@@ -93,22 +90,21 @@ expect_true(
   info = "different seed changes forest predictions"
 )
 
-mod_subsample = dbforest(
+mod_smallpool = dbforest(
   y ~ x1 + x2 + x3 + x4,
   data = df,
   ntree = 15,
   mtry = 2,
   sample_frac = 0.6,
-  replace = FALSE,
   seed = 7,
   n_bins = 12,
   max_depth = 3,
   min_split = 10,
   min_leaf = 4
 )
-pred_subsample = predict(mod_subsample, df[1:25, ])
-expect_equal(length(pred_subsample), 25)
-expect_true(all(is.finite(pred_subsample)))
+pred_smallpool = predict(mod_smallpool, df[1:25, ])
+expect_equal(length(pred_smallpool), 25)
+expect_true(all(is.finite(pred_smallpool)))
 
 mod_weighted = dbforest(
   y ~ x1 + x2 + x3 + x4,
@@ -117,7 +113,6 @@ mod_weighted = dbforest(
   ntree = 12,
   mtry = 2,
   sample_frac = 0.7,
-  replace = TRUE,
   seed = 123,
   n_bins = 12,
   max_depth = 3,
@@ -134,6 +129,10 @@ expect_error(
 expect_error(
   dbforest(y ~ x1 + x2, data = df, sample_frac = 0),
   "sample_frac"
+)
+expect_error(
+  dbforest(y ~ x1 + x2, data = df, replace = FALSE),
+  "no longer supported"
 )
 expect_error(
   dbforest(y ~ x1 + x2, data = df, mtry = 3),

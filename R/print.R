@@ -332,11 +332,10 @@ print.dbforest = function(x, ...) {
   cat("Predictors:", paste(x$xvars, collapse = ", "), "\n")
   cat(sprintf("Trees: %d | mtry: %d\n", x$ntree, x$mtry))
   cat(sprintf(
-    "Sampling: pool=%d/%d (sample_frac=%.3f) | replace=%s | seed=%d\n",
+    "Sampling: pool=%d/%d (sample_frac=%.3f) | bootstrap=TRUE | seed=%d\n",
     x$pool_n,
     x$nobs,
     x$sample_frac,
-    if (isTRUE(x$replace)) "TRUE" else "FALSE",
     x$seed
   ))
   cat("Backend:", x$backend, "\n")

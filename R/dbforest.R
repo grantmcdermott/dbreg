@@ -8,8 +8,7 @@
 #'
 #' The \code{sample_frac} argument defines a fixed global sampling pool of
 #' size \code{ceiling(sample_frac * N)} determined by \code{seed}. Each tree
-#' then draws a bootstrap sample (with replacement) from this pool when
-#' \code{replace = TRUE}.
+#' then draws a bootstrap sample (with replacement) from this pool.
 #'
 #' @param fml A \code{\link[stats]{formula}} for the regression tree model.
 #'   Interactions and fixed effects (\code{|}) are not supported.
@@ -20,9 +19,6 @@
 #'   of predictors.
 #' @param sample_frac Fraction in \code{(0, 1]} controlling the size of the
 #'   fixed sampling pool used by all trees. Default is 1.
-#' @param replace Logical. If \code{TRUE} (default), each tree uses bootstrap
-#'   draws with replacement from the pool. If \code{FALSE}, each tree uses the
-#'   fixed pool without additional resampling.
 #' @param seed Integer random seed controlling pool construction, bootstrap
 #'   draws, and per-tree split randomization.
 #'
@@ -38,7 +34,6 @@ dbforest = function(
   ntree = 200,
   mtry = NULL,
   sample_frac = 1,
-  replace = TRUE,
   seed = 42,
   bin_scope = c("global", "node"),
   n_bins = 128,
@@ -53,6 +48,11 @@ dbforest = function(
   verbose = getOption("dbreg.verbose", FALSE),
   ...
 ) {
+  dots = list(...)
+  if ("replace" %in% names(dots)) {
+    stop("`replace` is no longer supported. dbforest always bootstraps with replacement.")
+  }
+
   verbose = isTRUE(verbose)
   ntree = as.integer(ntree)
   if (!is.numeric(ntree) || length(ntree) != 1 || is.na(ntree) || ntree < 1) {
@@ -60,9 +60,6 @@ dbforest = function(
   }
   if (!is.numeric(sample_frac) || length(sample_frac) != 1 || is.na(sample_frac) || sample_frac <= 0 || sample_frac > 1) {
     stop("sample_frac must be a numeric scalar in (0, 1].")
-  }
-  if (!is.logical(replace) || length(replace) != 1 || is.na(replace)) {
-    stop("replace must be TRUE or FALSE.")
   }
   if (!is.numeric(seed) || length(seed) != 1 || is.na(seed)) {
     stop("seed must be a numeric scalar.")
@@ -173,8 +170,8 @@ dbforest = function(
 
   if (verbose) {
     message(sprintf(
-      "[dbforest] Fitting %d trees (pool=%d/%d, mtry=%d, replace=%s)",
-      ntree, pool_n, as.integer(nobs), mtry, if (replace) "TRUE" else "FALSE"
+      "[dbforest] Fitting %d trees (pool=%d/%d, mtry=%d, bootstrap=TRUE)",
+      ntree, pool_n, as.integer(nobs), mtry
     ))
   }
 
@@ -189,45 +186,38 @@ dbforest = function(
       paste0("1.0 * p.", weights)
     }
 
-    if (replace) {
-      draw_n = pool_n
-      draw_index_sql = sql_limit(
-        glue("SELECT ROW_NUMBER() OVER (ORDER BY __rf_rowid) AS j FROM {base_table}"),
-        draw_n,
-        backend
-      )
-      seed_offset = as.integer(tree_seed0 + b * 10007L)
-      draw_expr = glue("
-        1 + CAST(FLOOR(
-          {pool_n} * CASE
-            WHEN ABS(SIN((j + {seed_offset}) * 12.9898)) >= 0.999999999999
-              THEN 0.999999999999
-            ELSE ABS(SIN((j + {seed_offset}) * 12.9898))
-          END
-        ) AS BIGINT)
-      ")
+    draw_n = pool_n
+    draw_index_sql = sql_limit(
+      glue("SELECT ROW_NUMBER() OVER (ORDER BY __rf_rowid) AS j FROM {base_table}"),
+      draw_n,
+      backend
+    )
+    seed_offset = as.integer(tree_seed0 + b * 10007L)
+    draw_expr = glue("
+      1 + CAST(FLOOR(
+        {pool_n} * CASE
+          WHEN ABS(SIN((j + {seed_offset}) * 12.9898)) >= 0.999999999999
+            THEN 0.999999999999
+          ELSE ABS(SIN((j + {seed_offset}) * 12.9898))
+        END
+      ) AS BIGINT)
+    ")
 
-      tree_sql = paste0(
-        "WITH draw_index AS (", draw_index_sql, "),\n",
-        "draws AS (\n",
-        "  SELECT ", draw_expr, " AS __rf_pool_id\n",
-        "  FROM draw_index\n",
-        "),\n",
-        "counts AS (\n",
-        "  SELECT __rf_pool_id, ", sql_count_expr(backend), " AS __rf_boot_w\n",
-        "  FROM draws\n",
-        "  GROUP BY __rf_pool_id\n",
-        ")\n",
-        "SELECT p.*, (1.0 * c.__rf_boot_w) * (", tree_weight_expr, ") AS __rf_tree_w\n",
-        "FROM ", pool_table, " p\n",
-        "JOIN counts c ON p.__rf_pool_id = c.__rf_pool_id"
-      )
-    } else {
-      tree_sql = paste0(
-        "SELECT p.*, (", tree_weight_expr, ") AS __rf_tree_w\n",
-        "FROM ", pool_table, " p"
-      )
-    }
+    tree_sql = paste0(
+      "WITH draw_index AS (", draw_index_sql, "),\n",
+      "draws AS (\n",
+      "  SELECT ", draw_expr, " AS __rf_pool_id\n",
+      "  FROM draw_index\n",
+      "),\n",
+      "counts AS (\n",
+      "  SELECT __rf_pool_id, ", sql_count_expr(backend), " AS __rf_boot_w\n",
+      "  FROM draws\n",
+      "  GROUP BY __rf_pool_id\n",
+      ")\n",
+      "SELECT p.*, (1.0 * c.__rf_boot_w) * (", tree_weight_expr, ") AS __rf_tree_w\n",
+      "FROM ", pool_table, " p\n",
+      "JOIN counts c ON p.__rf_pool_id = c.__rf_pool_id"
+    )
 
     dbreg_create_temp_table_as(conn, tree_table, tree_sql, backend)
 
@@ -267,7 +257,6 @@ dbforest = function(
     mtry = mtry,
     sample_frac = sample_frac,
     pool_n = pool_n,
-    replace = replace,
     seed = seed,
     nobs = as.integer(nobs),
     backend = backend,
