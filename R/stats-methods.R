@@ -48,7 +48,7 @@ coef.dbreg = function(object, fe = FALSE, ...) {
       ct = ct[xvars, , drop = FALSE]
     }
   }
-  
+
   out = ct[, "estimate"]
   names(out) = rownames(ct)
   out
@@ -100,6 +100,15 @@ predict.dbreg = function(
 ) {
   interval = match.arg(interval)
   strategy = object[["strategy"]] 
+  ridge = object[["ridge"]]
+
+  if (!is.null(ridge) && is.numeric(ridge) && ridge > 0 && interval != "none") {
+    message(
+      "Confidence/prediction intervals not supported for ridge models. ",
+      "Returning point predictions."
+    )
+    interval = "none"
+  }
 
   # Demean strategy doesn't support intervals (FE uncertainty not available)
   if (strategy == "demean" && interval != "none") {
@@ -281,6 +290,18 @@ confint.dbreg = function(object, parm, level = 0.95, fe = FALSE, ...) {
       ct = ct[xvars, , drop = FALSE]
     }
   }
+
+  ridge = object[["ridge"]]
+  if (!is.null(ridge) && is.numeric(ridge) && ridge > 0) {
+    message("Confidence intervals not available for ridge models. Returning NA.")
+    ci = matrix(NA_real_, nrow = nrow(ct), ncol = 2)
+    rownames(ci) = rownames(ct)
+    colnames(ci) = sprintf("%.1f %%", 100 * c((1 - level) / 2, 1 - (1 - level) / 2))
+    if (!missing(parm)) {
+      ci = ci[parm, , drop = FALSE]
+    }
+    return(ci)
+  }
   
   cf = ct[, "estimate"]
   ses = ct[, "std.error"]
@@ -298,4 +319,58 @@ confint.dbreg = function(object, parm, level = 0.95, fe = FALSE, ...) {
   
   ci
 }
-
+#' Predict method for dbtree objects
+#'
+#' @param object A `dbtree` object.
+#' @param newdata Data frame for predictions.
+#' @param ... Additional arguments (unused).
+#' @export
+predict.dbtree = function(object, newdata, ...) {
+  if (is.null(newdata)) {
+    stop("newdata is required for dbtree predictions.")
+  }
+  if (!inherits(newdata, "data.frame")) {
+    newdata = as.data.frame(newdata)
+  }
+  
+  xvars = object$xvars
+  missing_vars = setdiff(xvars, names(newdata))
+  if (length(missing_vars) > 0) {
+    stop("newdata is missing required variables: ", paste(missing_vars, collapse = ", "))
+  }
+  
+  if (any(!complete.cases(newdata[, xvars, drop = FALSE]))) {
+    stop("newdata contains missing values in predictors. dbtree does not support missing values.")
+  }
+  
+  nodes = object$nodes
+  depths = sort(unique(nodes$depth))
+  assignments = rep(1L, nrow(newdata))
+  
+  for (d in depths) {
+    split_nodes = nodes[!nodes$is_leaf & nodes$depth == d, , drop = FALSE]
+    if (nrow(split_nodes) == 0) next
+    
+    for (i in seq_len(nrow(split_nodes))) {
+      node = split_nodes[i, ]
+      idx = assignments == node$node_id
+      if (!any(idx)) next
+      
+      var = node$split_var
+      if (node$split_type == "numeric") {
+        thr = as.numeric(node$split_value)
+        vals = as.numeric(newdata[[var]])
+        assignments[idx & vals <= thr] = node$left_id
+        assignments[idx & vals > thr] = node$right_id
+      } else {
+        vals = as.character(newdata[[var]])
+        target = as.character(node$split_value)
+        assignments[idx & vals == target] = node$left_id
+        assignments[idx & vals != target] = node$right_id
+      }
+    }
+  }
+  
+  preds = nodes$prediction[match(assignments, nodes$node_id)]
+  preds
+}

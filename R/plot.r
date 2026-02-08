@@ -129,3 +129,49 @@ plot.dbbinsreg = function(
 #' @importFrom tinyplot tinyplot
 #' @export
 tinyplot.dbbinsreg = plot.dbbinsreg
+
+#' Plot method for dbkreg objects
+#' 
+#' @md
+#' @description
+#' Visualizes kernel regression results from \code{\link{dbkreg}}.
+#' 
+#' @param x A `dbkreg` object.
+#' @param type Plot type passed to \code{\link[tinyplot]{tinyplot}}. Default is `"l"`.
+#' @param theme Character string giving the tinyplot theme.
+#' @param ... Additional arguments passed to \code{\link[tinyplot]{tinyplot}}.
+#' @export
+plot.dbkreg = function(
+  x,
+  type = "l",
+  theme = "basic",
+  ...
+) {
+  grid = x$grid
+  opt = x$opt
+  x_var = opt$x_var
+  y_var = opt$y_var
+
+  if (is.null(x_var)) {
+    stop("plot.dbkreg currently supports 1D fits only. For multi-dimensional fits, use `x$grid` directly.")
+  }
+
+  fml = stats::as.formula(paste("fit ~", x_var))
+  
+  tinyplot::tinyplot(
+    fml,
+    data = grid,
+    xlab = x_var,
+    ylab = y_var,
+    type = type,
+    theme = theme,
+    ...
+  )
+  
+  invisible(x)
+}
+
+#' @rdname plot.dbkreg
+#' @importFrom tinyplot tinyplot
+#' @export
+tinyplot.dbkreg = plot.dbkreg

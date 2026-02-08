@@ -44,10 +44,17 @@ print.dbreg = function(x, fe = FALSE, ...) {
       sprintf("Clustered (%d clusters)", n_clusters)
     } else {
       "Clustered"
-    }
+    },
+    "ridge" = "Ridge (SEs not available)"
   )
+  model_type = if (!is.null(x$ridge) && is.numeric(x$ridge) && x$ridge > 0) {
+    "Ridge"
+  } else {
+    "OLS"
+  }
+
   if (x$strategy == "compress") {
-    cat("Compressed OLS estimation, Dep. Var.:", x$yvar, "\n")
+    cat("Compressed", model_type, "estimation, Dep. Var.:", x$yvar, "\n")
     cat(
       "Observations.:",
       prettyNum(x$nobs_orig, big.mark = ","),
@@ -63,7 +70,7 @@ print.dbreg = function(x, fe = FALSE, ...) {
     } else {
       mstring = "Double Demeaned"
     }
-    cat(paste(mstring, "OLS estimation, Dep. Var.:", x$yvar, "\n"))
+    cat(paste(mstring, model_type, "estimation, Dep. Var.:", x$yvar, "\n"))
     cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
   } else if (x$strategy == "mundlak") {
     n_fe = length(x$fe)
@@ -75,13 +82,16 @@ print.dbreg = function(x, fe = FALSE, ...) {
     } else if (n_fe > 2) {
       mstring = paste0(n_fe, "-way ", mstring)
     }
-    cat(paste(mstring, "OLS estimation, Dep. Var.:", x$yvar, "\n"))
+    cat(paste(mstring, model_type, "estimation, Dep. Var.:", x$yvar, "\n"))
     cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
   } else if (x$strategy == "moments") {
-    cat("Moments-based OLS estimation, Dep. Var.:", x$yvar, "\n")
+    cat("Moments-based", model_type, "estimation, Dep. Var.:", x$yvar, "\n")
     cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
   }
   cat("Standard Errors:", se_type, "\n")
+  if (!is.null(x$ridge) && is.numeric(x$ridge) && x$ridge > 0) {
+    cat("Ridge penalty (lambda):", x$ridge, "\n")
+  }
 
   # Calculate goodness-of-fit metrics
   gof_vals = gof(x)
@@ -237,3 +247,52 @@ print.dbbinsreg = function(x, ...) {
   invisible(x)
 }
 
+
+#' Print method for dbkreg objects
+#'
+#' @param x A `dbkreg` object.
+#' @param ... Additional arguments passed to print.
+#' @export
+print.dbkreg = function(x, ...) {
+  opt = x$opt
+  
+  degree_str = if (opt$degree == 0) "Local constant" else "Local linear"
+  cat(degree_str, "kernel regression\n")
+  cat("Dep. Var.:", opt$y_var, "\n")
+  cat("Kernel:", opt$kernel, "| Bandwidth:", opt$bandwidth, "\n")
+  cat("Grid points:", nrow(x$grid), "\n")
+  
+  invisible(x)
+}
+#' Print method for dbtree objects
+#'
+#' @param x A dbtree object
+#' @param ... Additional arguments (unused)
+#' @export
+print.dbtree = function(x, ...) {
+  nodes = x$nodes
+  nobs = x$nobs
+  max_depth = max(nodes$depth)
+  n_leaves = sum(nodes$is_leaf)
+  
+  cat("DB-native regression tree\n")
+  cat("Observations.:", prettyNum(nobs, big.mark = ","), "\n")
+  cat(sprintf("Depth: %d | Leaves: %d\n", max_depth, n_leaves))
+  
+  if (!is.null(x$metrics)) {
+    cat(sprintf(
+      "RMSE: %s | R2: %s\n",
+      format(round(x$metrics$rmse, 4), nsmall = 4),
+      format(round(x$metrics$r2, 4), nsmall = 4)
+    ))
+  }
+  
+  split_nodes = nodes[!nodes$is_leaf, , drop = FALSE]
+  if (nrow(split_nodes) > 0) {
+    out = split_nodes[, c("node_id", "depth", "n", "split_var", "split_type", "split_value", "gain"), drop = FALSE]
+    colnames(out) = c("Node", "Depth", "N", "Split Var", "Type", "Value", "Gain")
+    print(out, row.names = FALSE)
+  }
+  
+  invisible(x)
+}

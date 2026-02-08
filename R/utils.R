@@ -79,6 +79,65 @@ solve_with_fallback = function(XtX, Xty) {
   list(betahat = betahat, XtX_inv = XtX_inv)
 }
 
+#' Apply ridge penalty to XtX
+#' @keywords internal
+apply_ridge_penalty = function(XtX, ridge, penalize_idx = NULL) {
+  if (is.null(ridge) || ridge <= 0) {
+    return(XtX)
+  }
+  if (is.null(penalize_idx)) {
+    penalize_idx = seq_len(ncol(XtX))
+  }
+  if (!length(penalize_idx)) {
+    return(XtX)
+  }
+
+  p = ncol(XtX)
+  pen = numeric(p)
+  pen[penalize_idx] = ridge
+
+  XtX_adj = XtX + Matrix::Diagonal(x = pen)
+  if (is.matrix(XtX)) {
+    XtX_adj = as.matrix(XtX_adj)
+  }
+  XtX_adj
+}
+
+#' Identify ridge-penalized columns in a design matrix
+#' @keywords internal
+ridge_penalty_indices = function(X, fe_vars = NULL, penalize_intercept = FALSE) {
+  p = ncol(X)
+  penalize = rep(TRUE, p)
+  assign = attr(X, "assign")
+
+  if (!penalize_intercept) {
+    if (!is.null(assign)) {
+      penalize[assign == 0] = FALSE
+    } else if (p > 0) {
+      penalize[1] = FALSE
+    }
+  }
+
+  if (!is.null(fe_vars) && length(fe_vars) > 0) {
+    if (!is.null(assign)) {
+      terms_obj = attr(X, "terms")
+      term_labels = if (!is.null(terms_obj)) attr(terms_obj, "term.labels") else NULL
+      if (!is.null(term_labels)) {
+        fe_term_idx = match(fe_vars, term_labels)
+        fe_term_idx = fe_term_idx[!is.na(fe_term_idx)]
+        if (length(fe_term_idx) > 0) {
+          penalize[assign %in% fe_term_idx] = FALSE
+        }
+      }
+    } else if (!is.null(colnames(X))) {
+      fe_pattern = paste0("^(", paste(fe_vars, collapse = "|"), ")")
+      penalize[grepl(fe_pattern, colnames(X))] = FALSE
+    }
+  }
+
+  which(penalize)
+}
+
 
 #' Set up database connection and data source
 #'
@@ -540,4 +599,3 @@ create_temp_table_as = function(conn, table_name, select_sql, backend) {
     dbExecute(conn, sql)
   }
 }
-

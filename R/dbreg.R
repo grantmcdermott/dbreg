@@ -65,6 +65,11 @@
 #'     that big data serialization can be costly (esp. for remote databases),
 #'     even if we have achieved good compression on top of the original dataset.
 #'     Default value is 1e6 (i.e., a million rows).
+#' @param ridge Non-negative numeric scalar. If greater than zero, applies a
+#'   ridge (L2) penalty \eqn{\lambda} to the regression coefficients. The
+#'   intercept and any fixed-effects dummies are **not** penalized. Standard
+#'   errors, confidence intervals, and prediction intervals are not available
+#'   for ridge models and will be returned as `NA`.
 #'
 #'   See the Acceleration Strategies section below for further details.
 #' @param cluster Optional. Provides an alternative way to specify
@@ -317,6 +322,7 @@ dbreg = function(
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = NULL,
   compress_nmax = 1e6,
+  ridge = 0,
   cluster = NULL,
   ssc = c("full", "nested"),
   sql_only = FALSE,
@@ -378,6 +384,7 @@ dbreg = function(
     data_only = data_only,
     compress_ratio = compress_ratio,
     compress_nmax = compress_nmax,
+    ridge = ridge,
     drop_missings = drop_missings,
     verbose = verbose
   )
@@ -420,11 +427,30 @@ process_dbreg_inputs = function(
   data_only,
   compress_ratio,
   compress_nmax,
+  ridge,
   drop_missings,
   verbose
 ) {
   vcov_type_req = vcov
   cluster_var = cluster
+
+  # Validate ridge penalty
+  if (is.null(ridge)) {
+    ridge = 0
+  }
+  if (!is.numeric(ridge) || length(ridge) != 1 || is.na(ridge) || ridge < 0) {
+    stop("`ridge` must be a non-negative numeric scalar.")
+  }
+  if (ridge > 0) {
+    if (!identical(vcov_type_req, "iid") || !is.null(cluster_var)) {
+      warning(
+        "[dbreg] ridge > 0: standard errors and intervals are not available. ",
+        "Ignoring `vcov`/`cluster` options."
+      )
+    }
+    vcov_type_req = "ridge"
+    cluster_var = NULL
+  }
 
   own_conn = FALSE
 
@@ -623,6 +649,7 @@ process_dbreg_inputs = function(
     data_only = data_only,
     compress_ratio = compress_ratio,
     compress_nmax = compress_nmax,
+    ridge = ridge,
     verbose = verbose,
     any_continuous = any_continuous,
     own_conn = own_conn
@@ -1225,7 +1252,10 @@ execute_moments_strategy = function(inputs) {
     XtX[xi, xj] = XtX[xj, xi] = val
   }
 
-  solve_result = solve_with_fallback(XtX, Xty)
+  ridge = inputs$ridge
+  penalize_idx = if (ridge > 0) 2:p else integer(0)
+  XtX_pen = apply_ridge_penalty(XtX, ridge, penalize_idx)
+  solve_result = solve_with_fallback(XtX_pen, Xty)
   betahat = solve_result$betahat
   XtX_inv = solve_result$XtX_inv
   rownames(betahat) = vars_all
@@ -1302,6 +1332,7 @@ execute_moments_strategy = function(inputs) {
     nobs = 1L,
     nobs_orig = n_total,
     strategy = "moments",
+    ridge = inputs$ridge,
     compression_ratio_est = inputs$compression_ratio_est,
     df_residual = df_res
   )
@@ -1695,14 +1726,22 @@ execute_demean_strategy = function(inputs) {
     }
   }
 
-  # Detect and handle collinearity
-  collin = detect_collinearity(XtX, Xty, verbose = inputs$verbose)
-  XtX = collin$XtX
-  Xty = collin$Xty
-  xvar_names_kept = collin$keep_names
-  collin_vars = collin$drop_names
+  ridge = inputs$ridge
+  if (ridge > 0) {
+    xvar_names_kept = xvar_names
+    collin_vars = character(0)
+  } else {
+    # Detect and handle collinearity
+    collin = detect_collinearity(XtX, Xty, verbose = inputs$verbose)
+    XtX = collin$XtX
+    Xty = collin$Xty
+    xvar_names_kept = collin$keep_names
+    collin_vars = collin$drop_names
+  }
 
-  solve_result = solve_with_fallback(XtX, Xty)
+  penalize_idx = if (ridge > 0) seq_len(ncol(XtX)) else integer(0)
+  XtX_pen = apply_ridge_penalty(XtX, ridge, penalize_idx)
+  solve_result = solve_with_fallback(XtX_pen, Xty)
   betahat = solve_result$betahat
   XtX_inv = solve_result$XtX_inv
   rownames(betahat) = xvar_names_kept
@@ -1779,6 +1818,7 @@ execute_demean_strategy = function(inputs) {
     nobs = 1L,
     nobs_orig = n_total,
     strategy = "demean",
+    ridge = inputs$ridge,
     compression_ratio_est = inputs$compression_ratio_est,
     df_residual = df_res,
     n_fe1 = n_fe1,
@@ -2013,7 +2053,10 @@ execute_mundlak_strategy = function(inputs) {
     }
   }
 
-  solve_result = solve_with_fallback(XtX, Xty)
+  ridge = inputs$ridge
+  penalize_idx = if (ridge > 0) 2:p else integer(0)
+  XtX_pen = apply_ridge_penalty(XtX, ridge, penalize_idx)
+  solve_result = solve_with_fallback(XtX_pen, Xty)
   betahat = solve_result$betahat
   XtX_inv = solve_result$XtX_inv
   rownames(betahat) = vars_all
@@ -2087,6 +2130,7 @@ execute_mundlak_strategy = function(inputs) {
     nobs = 1L,
     nobs_orig = n_total,
     strategy = "mundlak",
+    ridge = inputs$ridge,
     compression_ratio_est = inputs$compression_ratio_est,
     df_residual = df_res,
     n_fe1 = n_fe1,
@@ -2221,17 +2265,28 @@ execute_compress_strategy = function(inputs) {
   XtX = crossprod(Xw)
   XtY = crossprod(Xw, Yw)
 
-  # Detect and handle collinearity
-  collin = detect_collinearity(XtX, XtY, verbose = inputs$verbose)
-  XtX = collin$XtX
-  XtY = collin$Xty
-  collin_vars = collin$drop_names
-  if (collin$collinear) {
-    keep_idx = match(collin$keep_names, colnames(X))
-    X = X[, keep_idx, drop = FALSE]
+  ridge = inputs$ridge
+  if (ridge > 0) {
+    collin_vars = character(0)
+  } else {
+    # Detect and handle collinearity
+    collin = detect_collinearity(XtX, XtY, verbose = inputs$verbose)
+    XtX = collin$XtX
+    XtY = collin$Xty
+    collin_vars = collin$drop_names
+    if (collin$collinear) {
+      keep_idx = match(collin$keep_names, colnames(X))
+      X = X[, keep_idx, drop = FALSE]
+    }
   }
 
-  solve_result = solve_with_fallback(XtX, XtY)
+  penalize_idx = if (ridge > 0) {
+    ridge_penalty_indices(X, fe_vars = inputs$fe, penalize_intercept = FALSE)
+  } else {
+    integer(0)
+  }
+  XtX_pen = apply_ridge_penalty(XtX, ridge, penalize_idx)
+  solve_result = solve_with_fallback(XtX_pen, XtY)
   betahat = solve_result$betahat
   XtX_inv = solve_result$XtX_inv
   if (is.null(dim(betahat))) {
@@ -2324,6 +2379,7 @@ execute_compress_strategy = function(inputs) {
       nobs = nobs_comp,
       nobs_orig = nobs_orig,
       strategy = "compress",
+      ridge = inputs$ridge,
       compression_ratio = compression_ratio,
       compression_ratio_est = inputs$compression_ratio_est,
       df_residual = max(nobs_orig - ncol(X), 1)
@@ -2381,6 +2437,12 @@ compute_vcov = function(
   rss_g = NULL,
   meat = NULL
 ) {
+  if (vcov_type == "ridge") {
+    vcov_mat = matrix(NA_real_, nrow = ncol(XtX_inv), ncol = ncol(XtX_inv))
+    dimnames(vcov_mat) = dimnames(XtX_inv)
+    attr(vcov_mat, "type") = "ridge"
+    return(vcov_mat)
+  }
   if (vcov_type == "hc1") {
     if (strategy == "compress" && is.null(meat)) {
       # Compress strategy: HC1 with grouped residuals
@@ -2755,6 +2817,9 @@ finalize_dbreg_result = function(result, inputs, chosen_strategy) {
     return(result)
   }
   result$strategy = chosen_strategy
+  if (is.null(result$ridge)) {
+    result$ridge = inputs$ridge
+  }
   class(result) = c("dbreg", class(result))
   result
 }
