@@ -7,6 +7,8 @@
 #' - `method = "strata"`: A DuckDML-style leave-one-out (LOO) partialling-out
 #'   estimator for discrete controls, computed from compressed group statistics.
 #' - `method = "plm"`: A cross-fitted partially linear model (PLM) estimator.
+#'   Nuisance fits use `dbreg` moments by default and automatically fall back
+#'   to `dbreg` compression when controls include categorical variables.
 #'
 #' With `method = "auto"` (default), `dbdml` chooses the engine based on the
 #' control variables and inference request.
@@ -580,7 +582,9 @@ dbdml_fit_plm = function(
       drop_missings = FALSE,
       verbose = FALSE
     )
-    return(dbdml_from_second_stage(second, treatments, yvar, controls, vcov, folds = NA_integer_))
+    out = dbdml_from_second_stage(second, treatments, yvar, controls, vcov, folds = NA_integer_)
+    out$nuisance_strategy = "none"
+    return(out)
   }
 
   fold_sql = paste0(
@@ -591,22 +595,71 @@ dbdml_fit_plm = function(
   )
   dbreg_create_temp_table_as(conn, fold_table, fold_sql, backend)
 
+  nuisance_strategy = "moments"
+  control_info = tryCatch(
+    get_column_info(conn, fold_table, controls),
+    error = function(e) NULL
+  )
+  if (!is.null(control_info) && length(control_info$types) > 0) {
+    control_types = unlist(control_info$types[controls], use.names = FALSE)
+    if (any(control_types == "factor")) {
+      nuisance_strategy = "compress"
+    }
+  }
+  if (verbose && nuisance_strategy == "compress") {
+    message("[dbdml] PLM nuisance controls include categorical variables; using compress strategy for nuisance fits.")
+  }
+
+  nuisance_strategy_used = nuisance_strategy
   nuisance_formula = reformulate(controls)
   fold_selects = vector("list", folds)
 
   for (k in seq_len(folds)) {
     train_table = paste0("(SELECT * FROM ", fold_table, " WHERE __dbdml_fold <> ", k, ") AS __dbdml_train")
 
-    model_y = dbreg(
-      fml = reformulate(controls, response = yvar),
-      conn = conn,
-      table = train_table,
-      vcov = "iid",
-      strategy = "moments",
-      ridge = ridge_y,
-      drop_missings = FALSE,
-      verbose = FALSE
-    )
+    fit_nuisance = function(response_var, ridge_value) {
+      fit = tryCatch(
+        dbreg(
+          fml = reformulate(controls, response = response_var),
+          conn = conn,
+          table = train_table,
+          vcov = "iid",
+          strategy = nuisance_strategy_used,
+          ridge = ridge_value,
+          drop_missings = FALSE,
+          verbose = FALSE
+        ),
+        error = function(e) e
+      )
+
+      if (inherits(fit, "error") && nuisance_strategy_used != "compress") {
+        if (verbose) {
+          message(
+            "[dbdml] moments nuisance fit failed in fold ",
+            k,
+            "; retrying with compress strategy."
+          )
+        }
+        nuisance_strategy_used <<- "compress"
+        fit = dbreg(
+          fml = reformulate(controls, response = response_var),
+          conn = conn,
+          table = train_table,
+          vcov = "iid",
+          strategy = "compress",
+          ridge = ridge_value,
+          drop_missings = FALSE,
+          verbose = FALSE
+        )
+      }
+
+      if (inherits(fit, "error")) {
+        stop(fit)
+      }
+      fit
+    }
+
+    model_y = fit_nuisance(yvar, ridge_y)
 
     yhat_expr = dbdml_predict_expr(model_y, nuisance_formula, conn, fold_table)
 
@@ -614,16 +667,7 @@ dbdml_fit_plm = function(
     names(d_exprs) = treatments
 
     for (d in treatments) {
-      model_d = dbreg(
-        fml = reformulate(controls, response = d),
-        conn = conn,
-        table = train_table,
-        vcov = "iid",
-        strategy = "moments",
-        ridge = ridge_d,
-        drop_missings = FALSE,
-        verbose = FALSE
-      )
+      model_d = fit_nuisance(d, ridge_d)
       d_exprs[d] = dbdml_predict_expr(model_d, nuisance_formula, conn, fold_table)
     }
 
@@ -670,6 +714,7 @@ dbdml_fit_plm = function(
 
   out = dbdml_from_second_stage(second, treatments, yvar, controls, vcov, folds = folds)
   out$query_string = residual_sql
+  out$nuisance_strategy = nuisance_strategy_used
   out
 }
 
@@ -984,6 +1029,9 @@ print.dbdml = function(x, ...) {
     cat("Observations:", prettyNum(x$nobs, big.mark = ","), "\n")
     if (!is.na(x$folds)) {
       cat("Folds:", x$folds, "\n")
+    }
+    if (!is.null(x$nuisance_strategy) && !identical(x$nuisance_strategy, "none")) {
+      cat("Nuisance strategy:", x$nuisance_strategy, "\n")
     }
   }
 

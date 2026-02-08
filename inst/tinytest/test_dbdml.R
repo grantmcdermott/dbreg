@@ -190,6 +190,24 @@ expect_equal(
 
 print_plm_txt = capture.output(print(mod_plm))
 expect_true(any(grepl("Cross-fitted partially linear model", print_plm_txt)), info = "print.dbdml plm header is present")
+expect_true(any(grepl("Nuisance strategy: moments", print_plm_txt)), info = "print.dbdml reports nuisance strategy for PLM")
+
+# Cross-fitting reproducibility for fixed data and fold assignments
+mod_plm_repeat = dbdml(
+  y ~ d + x,
+  data = df2,
+  treat = "d",
+  method = "plm",
+  folds = 5,
+  ridge = 1,
+  vcov = "hc1"
+)
+expect_equal(
+  mod_plm_repeat$coeftable["d", "estimate"],
+  mod_plm$coeftable["d", "estimate"],
+  tolerance = 1e-10,
+  info = "PLM cross-fitting is deterministic for fixed data and folds"
+)
 
 # PLM cluster path and ridge list parsing
 set.seed(789)
@@ -255,6 +273,65 @@ mod_auto_plm = dbdml(
 expect_true(
   identical(mod_auto_plm$method, "plm"),
   info = "dbdml auto dispatch chooses plm for continuous controls"
+)
+
+# PLM with mixed controls (numeric + factor) uses compress nuisance fits
+set.seed(246)
+n3 = 1600
+x3 = rnorm(n3)
+g3 = factor(sample(letters[1:6], n3, replace = TRUE))
+d3 = 0.7 * x3 + as.numeric(g3) / 4 + rnorm(n3)
+y3 = 1.8 * d3 + 0.9 * x3 + as.numeric(g3) / 5 + rnorm(n3, sd = 0.7)
+df3 = data.frame(y = y3, d = d3, x = x3, g = g3)
+
+mod_plm_mixed = dbdml(
+  y ~ d + x + g,
+  data = df3,
+  treat = "d",
+  method = "plm",
+  folds = 4,
+  ridge = 1,
+  vcov = "hc1"
+)
+expect_true(
+  is.finite(mod_plm_mixed$coeftable["d", "estimate"]),
+  info = "PLM mixed-controls estimate is finite"
+)
+expect_equal(
+  mod_plm_mixed$coeftable["d", "estimate"],
+  1.8,
+  tolerance = 0.3,
+  info = "PLM mixed-controls estimate is near truth"
+)
+expect_equal(
+  mod_plm_mixed$nuisance_strategy,
+  "compress",
+  info = "PLM switches nuisance fits to compress with factor controls"
+)
+mixed_print_txt = capture.output(print(mod_plm_mixed))
+expect_true(
+  any(grepl("Nuisance strategy: compress", mixed_print_txt)),
+  info = "print.dbdml reports compress nuisance strategy for mixed controls"
+)
+
+mod_auto_mixed = dbdml(
+  y ~ d + x + g,
+  data = df3,
+  treat = "d",
+  method = "auto",
+  folds = 4,
+  ridge = 1,
+  vcov = "hc1"
+)
+expect_equal(
+  mod_auto_mixed$method,
+  "plm",
+  info = "auto chooses PLM for mixed controls"
+)
+expect_equal(
+  mod_auto_mixed$nuisance_strategy,
+  "compress",
+  info = "auto-PLM with mixed controls uses compress nuisance strategy"
 )
 
 # -----------------------------------------------------------------------------
