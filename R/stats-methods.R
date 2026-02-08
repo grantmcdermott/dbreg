@@ -374,3 +374,43 @@ predict.dbtree = function(object, newdata, ...) {
   preds = nodes$prediction[match(assignments, nodes$node_id)]
   preds
 }
+
+#' Predict method for dbforest objects
+#'
+#' @param object A `dbforest` object.
+#' @param newdata Data frame for predictions.
+#' @param individual Logical. If `TRUE`, also return individual tree
+#'   predictions.
+#' @param ... Additional arguments (unused).
+#' @export
+predict.dbforest = function(object, newdata, individual = FALSE, ...) {
+  if (is.null(newdata)) {
+    stop("newdata is required for dbforest predictions.")
+  }
+  if (!inherits(newdata, "data.frame")) {
+    newdata = as.data.frame(newdata)
+  }
+  if (!is.logical(individual) || length(individual) != 1 || is.na(individual)) {
+    stop("individual must be TRUE or FALSE.")
+  }
+
+  tree_preds = vapply(
+    object$trees,
+    function(tree) predict(tree, newdata = newdata),
+    numeric(nrow(newdata))
+  )
+  if (is.null(dim(tree_preds))) {
+    tree_preds = matrix(tree_preds, ncol = 1)
+  }
+  colnames(tree_preds) = paste0("tree_", seq_len(ncol(tree_preds)))
+
+  fit = rowMeans(tree_preds)
+  if (!individual) {
+    return(fit)
+  }
+
+  list(
+    fit = fit,
+    individual = tree_preds
+  )
+}

@@ -320,3 +320,25 @@ print.dbtree = function(x, ...) {
   
   invisible(x)
 }
+
+#' Print method for dbforest objects
+#'
+#' @param x A `dbforest` object.
+#' @param ... Additional arguments (unused).
+#' @export
+print.dbforest = function(x, ...) {
+  cat("DB-native random forest\n")
+  cat("Outcome:", x$yvar, "\n")
+  cat("Predictors:", paste(x$xvars, collapse = ", "), "\n")
+  cat(sprintf("Trees: %d | mtry: %d\n", x$ntree, x$mtry))
+  cat(sprintf(
+    "Sampling: pool=%d/%d (sample_frac=%.3f) | replace=%s | seed=%d\n",
+    x$pool_n,
+    x$nobs,
+    x$sample_frac,
+    if (isTRUE(x$replace)) "TRUE" else "FALSE",
+    x$seed
+  ))
+  cat("Backend:", x$backend, "\n")
+  invisible(x)
+}

@@ -29,6 +29,11 @@
 #' @param min_gain Minimum SSE reduction required to accept a split. Default is 0.
 #' @param max_cat Maximum distinct categories allowed for categorical predictors.
 #'   Default is 50.
+#' @param mtry Optional integer giving the number of predictors randomly
+#'   considered at each split. If \code{NULL} (default), all predictors are
+#'   considered.
+#' @param seed Optional integer random seed used when \code{mtry} is smaller
+#'   than the total number of predictors.
 #' @param verbose Logical. Print progress messages? Defaults to \code{FALSE}.
 #' @param ... Additional arguments (currently unused).
 #'
@@ -61,6 +66,8 @@ dbtree = function(
   min_leaf = 5,
   min_gain = 0,
   max_cat = 50,
+  mtry = NULL,
+  seed = NULL,
   drop_missings = TRUE,
   verbose = getOption("dbreg.verbose", FALSE),
   ...
@@ -80,6 +87,12 @@ dbtree = function(
   if (!is.numeric(min_leaf) || min_leaf < 1) stop("min_leaf must be >= 1.")
   if (!is.numeric(min_gain) || min_gain < 0) stop("min_gain must be >= 0.")
   if (!is.numeric(max_cat) || max_cat < 2) stop("max_cat must be >= 2.")
+  if (!is.null(seed) && (!is.numeric(seed) || length(seed) != 1 || is.na(seed))) {
+    stop("seed must be NULL or a numeric scalar.")
+  }
+  if (!is.null(seed)) {
+    seed = as.integer(seed)
+  }
   
   if (!isTRUE(drop_missings)) {
     warning("dbtree currently drops rows with missing values. drop_missings = FALSE is ignored.")
@@ -98,7 +111,18 @@ dbtree = function(
   fml = fml_parsed$fml
   yvar = fml_parsed$yvar
   xvars = unique(fml_parsed$xvars)
-  
+  p = length(xvars)
+  if (is.null(mtry)) {
+    mtry = p
+  }
+  if (!is.numeric(mtry) || length(mtry) != 1 || is.na(mtry)) {
+    stop("mtry must be NULL or a numeric scalar.")
+  }
+  mtry = as.integer(mtry)
+  if (mtry < 1 || mtry > p) {
+    stop(sprintf("mtry must be in [1, %d].", p))
+  }
+
   # Set up database connection and data source
   db_setup = setup_db_connection(conn, table, data, path, caller = "dbtree")
   conn = db_setup$conn
@@ -228,6 +252,21 @@ dbtree = function(
   node_conditions = list("1" = character())
   next_node_id = 2L
   
+  rng_state = NULL
+  if (!is.null(seed)) {
+    rng_state = if (exists(".Random.seed", envir = .GlobalEnv)) .Random.seed else NULL
+    set.seed(seed)
+    on.exit({
+      if (is.null(rng_state)) {
+        if (exists(".Random.seed", envir = .GlobalEnv)) {
+          rm(".Random.seed", envir = .GlobalEnv)
+        }
+      } else {
+        .Random.seed <<- rng_state
+      }
+    }, add = TRUE)
+  }
+  
   # Main training loop
   if (max_depth > 0) {
     for (depth in 0:(max_depth - 1)) {
@@ -289,10 +328,14 @@ dbtree = function(
         parent_sse = dbtree_sse(total_stats$sum_w, total_stats$sum_wy, total_stats$sum_wy2)
         
         best = list(gain = -Inf)
-        
+        split_vars = xvars
+        if (mtry < length(xvars)) {
+          split_vars = sample(xvars, size = mtry, replace = FALSE)
+        }
+
         # Numeric splits
         if (length(numeric_stats) > 0) {
-          for (v in names(numeric_stats)) {
+          for (v in intersect(names(numeric_stats), split_vars)) {
             stats_v = numeric_stats[[v]]
             stats_node = stats_v[stats_v$node_id == node_id, , drop = FALSE]
             if (nrow(stats_node) < 2) next
@@ -305,7 +348,7 @@ dbtree = function(
         
         # Categorical splits (one-vs-rest)
         if (length(cat_stats) > 0) {
-          for (v in names(cat_stats)) {
+          for (v in intersect(names(cat_stats), split_vars)) {
             stats_v = cat_stats[[v]]
             stats_node = stats_v[stats_v$node_id == node_id, , drop = FALSE]
             if (nrow(stats_node) < 2) next
@@ -430,7 +473,9 @@ dbtree = function(
       min_split = min_split,
       min_leaf = min_leaf,
       min_gain = min_gain,
-      max_cat = max_cat
+      max_cat = max_cat,
+      mtry = mtry,
+      seed = seed
     ),
     backend = backend
   )
