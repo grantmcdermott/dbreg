@@ -150,10 +150,21 @@ window.Quarto = {
 </button>
           <div class="collapse navbar-collapse" id="navbarCollapse">
             <ul class="navbar-nav navbar-nav-scroll me-auto">
-  <li class="nav-item">
-    <a class="nav-link" href="../vignettes/intro.html"> 
-<span class="menu-text">Get started</span></a>
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-get-started" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Get started</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-get-started">    
+        <li>
+    <a class="dropdown-item" href="../vignettes/intro.html">
+ <span class="dropdown-text">Introduction</span></a>
   </li>  
+        <li>
+    <a class="dropdown-item" href="../vignettes/bonuses.html">
+ <span class="dropdown-text">Bonus estimators</span></a>
+  </li>  
+    </ul>
+  </li>
   <li class="nav-item dropdown ">
     <a class="nav-link dropdown-toggle" href="#" id="nav-menu-about" role="button" data-bs-toggle="dropdown" aria-expanded="false">
  <span class="menu-text">About</span>
@@ -382,6 +393,7 @@ window.Quarto = {
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = NULL,
   compress_nmax = 1e+06,
+  ridge = 0,
   cluster = NULL,
   ssc = c("full", "nested"),
   sql_only = FALSE,
@@ -468,6 +480,14 @@ Character string indicating the preferred acceleration strategy. The default <co
 <p><code>compress_nmax</code> defines the maximum allowable size (in rows) of the compressed dataset that can be serialized into R. Pays heed to the idea that big data serialization can be costly (esp.&nbsp;for remote databases), even if we have achieved good compression on top of the original dataset. Default value is 1e6 (i.e., a million rows).</p>
 </li>
 </ul>
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="ridge">ridge</code>
+</td>
+<td>
+<p>Non-negative numeric scalar. If greater than zero, applies a ridge (L2) penalty <span class="math inline">\(\lambda\)</span> to the regression coefficients. The intercept and any fixed-effects dummies are <strong>not</strong> penalized. Standard errors, confidence intervals, and prediction intervals are not available for ridge models and will be returned as <code>NA</code>.</p>
 See the Acceleration Strategies section below for further details.
 </td>
 </tr>

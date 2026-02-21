@@ -15,6 +15,7 @@ dbreg(
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = NULL,
   compress_nmax = 1e+06,
+  ridge = 0,
   cluster = NULL,
   ssc = c("full", "nested"),
   sql_only = FALSE,
@@ -91,7 +92,13 @@ compressed dataset that can be serialized into R. Pays heed to the idea
 that big data serialization can be costly (esp. for remote databases),
 even if we have achieved good compression on top of the original dataset.
 Default value is 1e6 (i.e., a million rows).
-}
+}}
+
+\item{ridge}{Non-negative numeric scalar. If greater than zero, applies a
+ridge (L2) penalty \eqn{\lambda} to the regression coefficients. The
+intercept and any fixed-effects dummies are \strong{not} penalized. Standard
+errors, confidence intervals, and prediction intervals are not available
+for ridge models and will be returned as \code{NA}.
 
 See the Acceleration Strategies section below for further details.}
 

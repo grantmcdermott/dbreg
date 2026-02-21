@@ -14,7 +14,11 @@ website:
     search: true
     left:
       - text: Get started
-        file: vignettes/intro.qmd
+        menu:
+        - text: Introduction
+          file: vignettes/intro.qmd
+        - text: Bonus estimators
+          file: vignettes/bonuses.qmd
       - text: About
         menu:
         - text: News

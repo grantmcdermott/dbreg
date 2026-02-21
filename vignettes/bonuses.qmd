@@ -1,0 +1,225 @@
+---
+title: "Bonus Tools"
+format: html
+engine: knitr
+vignette: >
+  %\VignetteIndexEntry{Bonus estimators}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+This short vignette collects examples for the "bonus" model families in
+`dbreg`: `dbbinsreg`, `dbkreg`, `dbdml`, and `dbforest`.
+
+Here, "bonus" means estimators that sit outside the core `dbreg` linear-model
+workflow, but are layered on top of the core functionality therein and follow the same database-first design.
+They are optional tools for specific tasks: binscatter diagnostics, nonparametric
+smoothing, causal partially linear estimation, and tree-based prediction.
+
+```{r}
+library(dbreg)
+set.seed(123)
+
+n = 800
+g = factor(sample(1:20, n, replace = TRUE))
+x = runif(n, -2, 2)
+d = 0.6 * x + as.numeric(g) / 10 + rnorm(n)
+y = 1 + 1.8 * d + sin(x) + as.numeric(g) / 5 + rnorm(n)
+
+df = data.frame(y = y, d = d, x = x, g = g)
+```
+
+## `dbbinsreg`
+
+`dbbinsreg` is a SQL-first binscatter estimator with optional smooth lines,
+pointwise confidence intervals, and confidence bands. The main controls are
+`nbins`/`binspos` (partitioning), `points` and `line` (polynomial/smoothness),
+and `ci`/`cb` for inference layers.
+
+```{r}
+mod_bins = dbbinsreg(
+  y ~ x,
+  data = df,
+  nbins = 20,
+  binspos = "qs",
+  points = c(1, 1),
+  line = c(1, 1),
+  plot = FALSE
+)
+mod_bins
+plot(mod_bins, theme = "clean", main = "dbbinsreg: bins + smooth line")
+```
+
+## `dbkreg`
+
+`dbkreg` fits kernel smoothers on database backends. Key arguments are
+`bandwidth`, `kernel`, and `degree` (`0` local constant, `1` local linear),
+plus grid controls (`eval`, `n_eval`, `grid_method`) and optional
+pointwise CIs via `ci = TRUE`.
+
+```{r}
+mod_kreg = dbkreg(
+  y ~ x,
+  data = df,
+  degree = 1,
+  bandwidth = 0.4,
+  n_eval = 120
+)
+mod_kreg
+plot(mod_kreg, theme = "clean", main = "dbkreg: local linear fit")
+```
+
+```{r}
+mod_kreg_ci = dbkreg(
+  y ~ x,
+  data = df,
+  degree = 1,
+  bandwidth = 0.4,
+  n_eval = 120,
+  ci = TRUE,
+  level = 0.95
+)
+
+gci = mod_kreg_ci$grid[order(mod_kreg_ci$grid$x), ]
+tinyplot::tinyplot(
+  fit ~ x,
+  data = gci,
+  type = "n",
+  theme = "clean",
+  xlab = "x",
+  ylab = "y",
+  main = "dbkreg: local linear fit with 95% CI"
+)
+tinyplot::tinyplot_add(
+  ymin = gci$lwr,
+  ymax = gci$upr,
+  type = "ribbon",
+  lty = 0
+)
+tinyplot::tinyplot_add(
+  data = gci,
+  type = "l"
+)
+```
+
+For multi-dimensional fits, plotting is currently 1D-only. You can still fit
+and inspect multi-D results through `mod$grid`.
+
+```{r eval=FALSE}
+grid2 = expand.grid(
+  x = seq(-2, 2, length.out = 25),
+  d = seq(min(df$d), max(df$d), length.out = 25)
+)
+
+mod_kreg_2d = dbkreg(
+  y ~ x + d,
+  data = df,
+  eval = "points",
+  grid = grid2,
+  degree = 1,
+  bandwidth = c(0.4, 0.4)
+)
+head(mod_kreg_2d$grid)
+```
+
+## `dbdml`
+
+`dbdml` provides two estimators through one interface. `method = "strata"`
+matches the compressed strata leave-one-out approach for discrete controls,
+while `method = "plm"` uses cross-fitted partially linear residualization.
+Main arguments are `treat`, `method`, `folds`, and `ridge`.
+
+```{r}
+mod_dml_strata = dbdml(
+  y ~ d + g,
+  data = df,
+  treat = "d",
+  method = "strata"
+)
+mod_dml_strata
+```
+
+```{r}
+mod_dml_plm = dbdml(
+  y ~ d + x,
+  data = df,
+  treat = "d",
+  method = "plm",
+  folds = 5,
+  ridge = 1
+)
+mod_dml_plm
+```
+
+## `dbforest` and `dbtree`
+
+`dbforest` is an ensemble of `dbtree` models. The primary tuning parameters are
+`ntree`, `mtry`, `sample_frac`, and `seed`, plus tree-level controls such as
+`max_depth`, `min_split`, and `min_leaf`. `dbtree` gives a single interpretable
+tree, while `dbforest` targets predictive stability.
+
+```{r}
+mod_forest = dbforest(
+  y ~ x + d + g,
+  data = df,
+  ntree = 30,
+  mtry = 2,
+  sample_frac = 0.8,
+  seed = 42,
+  max_depth = 4,
+  n_bins = 16,
+  min_split = 20,
+  min_leaf = 8
+)
+mod_forest
+predict(mod_forest, df[1:5, ])
+```
+
+```{r}
+mod_tree = dbtree(
+  y ~ x + d + g,
+  data = df,
+  max_depth = 3,
+  n_bins = 16,
+  min_split = 20,
+  min_leaf = 8
+)
+mod_tree
+predict(mod_tree, df[1:5, ])
+```
+
+To visualize the tree in one dimension, we can fix `d` and `g` and plot
+predictions along an `x` slice. This gives an interpretable step profile
+for `dbtree` and a smoother ensemble profile for `dbforest`.
+
+```{r echo=FALSE}
+g_mode = names(sort(table(df$g), decreasing = TRUE))[1]
+d_med = stats::median(df$d)
+x_slice = seq(min(df$x), max(df$x), length.out = 200)
+slice_df = data.frame(
+  x = x_slice,
+  d = d_med,
+  g = factor(g_mode, levels = levels(df$g))
+)
+slice_df$tree_pred = as.numeric(predict(mod_tree, slice_df))
+slice_df$forest_pred = as.numeric(predict(mod_forest, slice_df))
+
+tinyplot::tinyplot(
+  tree_pred ~ x,
+  data = slice_df,
+  type = "l",
+  lwd = 2,
+  theme = "clean",
+  xlab = "x",
+  ylab = "Predicted y",
+  main = "1D slice: dbtree vs dbforest"
+)
+graphics::lines(slice_df$x, slice_df$forest_pred, lwd = 2, lty = 2)
+graphics::legend(
+  "topleft",
+  legend = c("dbtree", "dbforest"),
+  lty = c(1, 2),
+  lwd = c(2, 2),
+  bty = "n"
+)
+```

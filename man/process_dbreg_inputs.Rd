@@ -19,6 +19,7 @@ process_dbreg_inputs(
   data_only,
   compress_ratio,
   compress_nmax,
+  ridge,
   drop_missings,
   verbose
 )
