@@ -1,15 +1,15 @@
 Package: dbreg
 Type: Package
 Title: Fast Regressions on Database Backends
-Version: 0.0.3
-Date: 2026-01-24
+Version: 0.0.3.99
+Date: 2026-03-16
 Authors@R:
   c(
     person(
       given = "Grant",
       family = "McDermott",
       role = c("aut", "cre"),
-      email = "gmcd@amazon.com",
+      email = "contact@grantmcdermott.com",
       comment = c(ORCID = "0000-0001-7883-8573")
     ),
     person(
