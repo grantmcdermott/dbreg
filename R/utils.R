@@ -540,3 +540,20 @@ create_temp_table_as = function(conn, table_name, select_sql, backend) {
     dbExecute(conn, sql)
   }
 }
+
+#' Drop a table if it exists
+#'
+#' Handles SQL dialect differences for temporary-table cleanup.
+#'
+#' @param conn Database connection
+#' @param table_name Name of the table to drop
+#' @param backend Backend name from detect_backend()
+#' @keywords internal
+drop_table_if_exists = function(conn, table_name, backend) {
+  if (backend == "sqlserver") {
+    sql = glue("IF OBJECT_ID('tempdb..{table_name}') IS NOT NULL DROP TABLE {table_name}")
+  } else {
+    sql = glue("DROP TABLE IF EXISTS {table_name}")
+  }
+  tryCatch(dbExecute(conn, sql), error = function(e) NULL)
+}

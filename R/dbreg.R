@@ -545,67 +545,6 @@ process_dbreg_inputs = function(
   )
 }
 
-#' Check if the database backend supports COUNT_BIG
-#'
-#' This function checks whether the provided database connection is to a backend
-#' that supports the `COUNT_BIG` function, such as SQL Server or Azure SQL.
-#'
-#' @param conn A DBI database connection object.
-#'
-#' @return Logical value: `TRUE` if the backend supports `COUNT_BIG`, `FALSE` otherwise.
-#' @examples
-#' \dontrun{
-#'   con = DBI::dbConnect(odbc::odbc(), ...)
-#'   backend_supports_count_big(con)
-#' }
-#' @keywords internal
-backend_supports_count_big = function(conn) {
-  info = try(dbGetInfo(conn), silent = TRUE)
-  if (inherits(info, "try-error")) {
-    return(FALSE)
-  }
-  dbms = tolower(paste(info$dbms.name, collapse = " "))
-  grepl("sql server|azure sql|microsoft sql server", dbms)
-}
-
-# detect SQL backend
-detect_backend = function(conn) {
-  info = try(dbGetInfo(conn), silent = TRUE)
-  if (inherits(info, "try-error")) {
-    return(list(name = "unknown", supports_count_big = FALSE))
-  }
-  dbms = tolower(paste(info$dbms.name, collapse = " "))
-  list(
-    name = if (grepl("duckdb", dbms)) {
-      "duckdb"
-    } else if (grepl("sql server|azure sql|microsoft sql server", dbms)) {
-      "sqlserver"
-    } else {
-      "other"
-    },
-    supports_count_big = grepl(
-      "sql server|azure sql|microsoft sql server",
-      dbms
-    )
-  )
-}
-
-# sql_count: returns an expression fragment for use inside SELECT when possible.
-sql_count = function(conn, alias, expr = "*", distinct = FALSE) {
-  bd = detect_backend(conn)
-  if (distinct) {
-    glue(
-      "{if (bd$supports_count_big) paste0('COUNT_BIG(DISTINCT ', expr, ')') else paste0('CAST(COUNT(DISTINCT ', expr, ') AS BIGINT)')} AS {alias}"
-    )
-  } else {
-    if (bd$supports_count_big) {
-      glue("COUNT_BIG({expr}) AS {alias}")
-    } else {
-      glue("CAST(COUNT({expr}) AS BIGINT) AS {alias}")
-    }
-  }
-}
-
 # sql_weight_expr: returns a weight expression or NULL if no weights
 sql_weight_expr = function(weights) {
   if (is.null(weights)) {
@@ -628,45 +567,6 @@ sql_weighted_mean = function(expr, weights_expr, alias) {
     return(glue("AVG({expr}) AS {alias}"))
   }
   glue("SUM(({weights_expr}) * ({expr})) / SUM({weights_expr}) AS {alias}")
-}
-
-#' Generate a temp table name with optional SQL Server prefix
-#' @keywords internal
-dbreg_temp_table_name = function(base_name, backend) {
-  if (backend == "sqlserver") {
-    paste0("#", base_name)
-  } else {
-    base_name
-  }
-}
-
-#' Create a temp table from a SELECT query
-#' @keywords internal
-dbreg_create_temp_table_as = function(conn, table_name, select_sql, backend) {
-  if (backend == "sqlserver") {
-    sql = sub(
-      "^SELECT",
-      paste0("SELECT * INTO ", table_name, " FROM (SELECT"),
-      select_sql,
-      ignore.case = TRUE
-    )
-    sql = paste0(sql, ") AS __subq")
-    dbExecute(conn, sql)
-  } else {
-    sql = glue("CREATE TEMPORARY TABLE {table_name} AS {select_sql}")
-    dbExecute(conn, sql)
-  }
-}
-
-#' Drop a temp table if it exists
-#' @keywords internal
-dbreg_drop_table = function(conn, table_name, backend) {
-  if (backend == "sqlserver") {
-    sql = glue("IF OBJECT_ID('tempdb..{table_name}') IS NOT NULL DROP TABLE {table_name}")
-  } else {
-    sql = glue("DROP TABLE IF EXISTS {table_name}")
-  }
-  tryCatch(dbExecute(conn, sql), error = function(e) NULL)
 }
 
 #' Check if a two-way panel is balanced
@@ -716,15 +616,15 @@ dbreg_alternating_projections = function(
     "_",
     sprintf("%06d", sample.int(1e6, 1))
   )
-  base_table = dbreg_temp_table_name(paste0("dbreg_ap_base_", seed), backend)
-  cur_table = dbreg_temp_table_name(paste0("dbreg_ap_cur_", seed), backend)
+  base_table = temp_table_name(paste0("dbreg_ap_base_", seed), backend)
+  cur_table = temp_table_name(paste0("dbreg_ap_cur_", seed), backend)
 
   created = character(0) # track created temp tables for cleanup
   success = FALSE
   on.exit({
     if (!success) {
       for (tbl in rev(created)) {
-        dbreg_drop_table(conn, tbl, backend)
+        drop_table_if_exists(conn, tbl, backend)
       }
     }
   }, add = TRUE)
@@ -736,7 +636,7 @@ dbreg_alternating_projections = function(
     sprintf("%s AS __w", weights_expr)
   )
   base_sql = paste0("SELECT ", paste(base_select, collapse = ", "), " ", from_statement)
-  dbreg_create_temp_table_as(conn, base_table, base_sql, backend)
+  create_temp_table_as(conn, base_table, base_sql, backend)
   created = c(created, base_table)
 
   tilde_cols = c(
@@ -749,7 +649,7 @@ dbreg_alternating_projections = function(
     " FROM ",
     base_table
   )
-  dbreg_create_temp_table_as(conn, cur_table, init_sql, backend)
+  create_temp_table_as(conn, cur_table, init_sql, backend)
   created = c(created, cur_table)
 
   vars_all = c(yvar, xvar_names)
@@ -773,8 +673,8 @@ dbreg_alternating_projections = function(
         " GROUP BY ",
         fe_k
       )
-      mean_table = dbreg_temp_table_name(paste0("dbreg_ap_mean_", seed, "_", fe_k, "_", iter), backend)
-      dbreg_create_temp_table_as(conn, mean_table, mean_sql, backend)
+      mean_table = temp_table_name(paste0("dbreg_ap_mean_", seed, "_", fe_k, "_", iter), backend)
+      create_temp_table_as(conn, mean_table, mean_sql, backend)
       created = c(created, mean_table)
 
       update_cols = c(
@@ -794,12 +694,12 @@ dbreg_alternating_projections = function(
         " = m.",
         fe_k
       )
-      new_table = dbreg_temp_table_name(paste0("dbreg_ap_step_", seed, "_", fe_k, "_", iter), backend)
-      dbreg_create_temp_table_as(conn, new_table, update_sql, backend)
+      new_table = temp_table_name(paste0("dbreg_ap_step_", seed, "_", fe_k, "_", iter), backend)
+      create_temp_table_as(conn, new_table, update_sql, backend)
       created = c(created, new_table)
 
-      dbreg_drop_table(conn, cur_table, backend)
-      dbreg_drop_table(conn, mean_table, backend)
+      drop_table_if_exists(conn, cur_table, backend)
+      drop_table_if_exists(conn, mean_table, backend)
       cur_table = new_table
     }
 
@@ -1581,7 +1481,7 @@ execute_demean_strategy = function(inputs) {
     if (!is.null(ap_tables)) {
       backend = detect_backend(inputs$conn)$name
       for (tbl in ap_tables) {
-        dbreg_drop_table(inputs$conn, tbl, backend)
+        drop_table_if_exists(inputs$conn, tbl, backend)
       }
     }
   }
