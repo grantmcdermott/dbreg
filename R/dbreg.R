@@ -114,7 +114,7 @@
 #'    smaller dataset:
 #'    \deqn{\hat{\beta} = (X_c' W X_c)^{-1} X_c' W Y_c}
 #'    where \eqn{W = \text{diag}(n_g)} are the group frequencies. This procedure
-#'    follows Wang et al. (2021).
+#'    follows Wong et al. (2021).
 #' 2. `"moments"`: computes sufficient statistics (\eqn{X'X, X'y}) directly via
 #'    SQL aggregation, returning a single-row result. This solves the standard
 #'    OLS normal equations \eqn{\hat{\beta} = (X'X)^{-1}X'y}. Limited to cases
@@ -128,10 +128,13 @@
 #'    (single-pass) within transformation is algebraically equivalent to the
 #'    fixed effects projection---i.e., Frisch-Waugh-Lovell partialling out---in
 #'    the presence of a single FE. It is also identical for the two-way FE
-#'    (TWFE) case if your panel is balanced. For unbalanced two-way panels (or
-#'    weighted two-way FE), `dbreg` switches to alternating projections to
-#'    recover the exact TWFE coefficients, at the cost of extra passes over the
-#'    data. Moreover, note that this `"demean"` strategy permits at most two FE.
+#'    (TWFE) case if your panel is balanced. For unbalanced two-way panels,
+#'    however, the double demeaning strategy is not algebraically equivalent to
+#'    the fixed effects projection and therefore does not recover the exact TWFE
+#'    coefficients. In such cases, and also for weighted two-way FE, `dbreg`
+#'    uses alternating projections to recover the exact TWFE coefficients, at
+#'    the cost of extra passes over the data. Moreover, note that this
+#'    `"demean"` strategy permits at most two FE.
 #' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects
 #'    (CRE) estimator that regresses Y on X plus group means of X:
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
@@ -144,7 +147,7 @@
 #'    finite samples.
 #'
 #' The relative efficiency of each of these strategies depends on the size and
-#' structure of the data, as well the number of unique regressors and FE. For
+#' structure of the data, as well as the number of unique regressors and FE. For
 #' (quote unquote) "standard" cases, the `"compress"` strategy can yield
 #' remarkable performance gains and should justifiably be viewed as a good
 #' default. However, the compression approach tends to be less efficient for
@@ -156,10 +159,9 @@
 #' Arkhangelsky & Imbens (2024).
 #' 
 #' However, the demeaning approaches invite tradeoffs of their own. For example,
-#' the double demeaning transformation of the `"demean"` strategy is exact only
-#' for balanced panels, and it is also limited to at most two FE. For
-#' unbalanced panels, `dbreg` uses alternating projections (exact but slower).
-#' Conversely, the `"mundlak"` (CRE) strategy obtains consistent
+#' the double demeaning transformation of the `"demean"` strategy does not
+#' obtain exact TWFE results in unbalanced panels, and it is also limited to at
+#' most two FE. Conversely, the `"mundlak"` (CRE) strategy obtains consistent
 #' coefficients regardless of panel structure and FE count, but at the "cost" of
 #' recovering a different estimand. (It is a different model to TWFE, after
 #' all.) See Wooldridge (2025) for an extended discussion of these issues.
@@ -171,8 +173,7 @@
 #' another efficient alternative provided that the CRE estimand is acceptable
 #' (don't be alarmed if your coefficients are not identical). Finally, the
 #' `"demean"` and `"moments"` strategies are great for particular use cases
-#' (i.e., balanced panels or unbalanced panels where AP is acceptable, and
-#' cases without FE, respectively).
+#' (i.e., balanced panels and cases without FE, respectively).
 #' 
 #' If this all sounds like too much to think about, don't fret. The good news
 #' is that `dbreg` can do a lot (all?) of the deciding for you. Specifically, it
@@ -222,11 +223,10 @@
 #' @importFrom duckdb duckdb duckdb_register duckdb_unregister
 #' @importFrom Formula Formula
 #' @importFrom Matrix chol2inv crossprod Diagonal sparse.model.matrix
-#' @importFrom stats aggregate as.formula formula pt reformulate setNames
+#' @importFrom stats aggregate as.formula formula pt reformulate setNames terms
 #' @importFrom glue glue glue_sql
 #'
 #' @examples
-#' #
 #' ## In-memory data ----
 #' 
 #' # We can pass in-memory R data frames to an ephemeral DuckDB connection via
@@ -328,7 +328,7 @@ dbreg = function(
 
   verbose = isTRUE(verbose)
   ssc = match.arg(ssc)
-  vcov_parsed = parse_vcov_args(vcov, cluster, valid_types = c("iid", "hc1"))
+  vcov_parsed = parse_vcov_args(vcov, cluster)
   vcov = vcov_parsed$vcov_type
   cluster = vcov_parsed$cluster_var
   strategy = match.arg(strategy)
@@ -412,28 +412,14 @@ process_dbreg_inputs = function(
   own_conn = db_setup$own_conn
   from_statement = db_setup$from_statement
 
-  # Parse formula
-  fml = Formula(fml)
-  yvar = all.vars(formula(fml, lhs = 1, rhs = 0))
-  if (length(yvar) != 1) {
-    stop("Exactly one outcome variable required.")
-  }
-
-  # Get term structure (preserves interactions)
-  rhs1 = formula(fml, lhs = 0, rhs = 1)
-  tt = terms(rhs1)
-  term_labels = attr(tt, "term.labels")
-  xvars = all.vars(rhs1)  # unique variable names (for column validation)
-  has_interactions = any(grepl(":", term_labels))
-  
-  fe = if (length(fml)[2] > 1) {
-    all.vars(formula(fml, lhs = 0, rhs = 2))
-  } else {
-    NULL
-  }
-  if (!length(xvars)) {
-    stop("No regressors on RHS.")
-  }
+  # Parse formula using shared helper
+  fml_parsed = parse_regression_formula(fml)
+  fml = fml_parsed$fml
+  yvar = fml_parsed$yvar
+  xvars = fml_parsed$xvars
+  term_labels = fml_parsed$term_labels
+  has_interactions = fml_parsed$has_interactions
+  fe = fml_parsed$fe
 
   # Validate weights
   if (!is.null(weights)) {
