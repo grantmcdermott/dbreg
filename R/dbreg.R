@@ -2231,8 +2231,8 @@ compute_vcov = function(
       stop("Meat matrix missing n_clusters attribute")
     }
     if (is.null(n_params)) n_params = ncol(XtX_inv)
-    # CR1 small-sample correction: (G/(G-1)) * ((N-1)/(N-K))
-    scale_cr1 = (n_clusters / (n_clusters - 1)) * ((nobs_orig - 1) / (nobs_orig - n_params))
+    # CR1 small-sample correction: (G/(G-1)) * (N/(N-K))
+    scale_cr1 = (n_clusters / (n_clusters - 1)) * (nobs_orig / (nobs_orig - n_params))
     vcov_mat = scale_cr1 * (XtX_inv %*% meat %*% XtX_inv)
     attr(vcov_mat, "type") = "cluster"
     attr(vcov_mat, "n_clusters") = n_clusters
