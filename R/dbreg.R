@@ -1011,8 +1011,15 @@ choose_strategy = function(inputs) {
   }
   if (chosen_strategy == "demean") {
     if (!(length(fe) %in% c(1, 2))) {
-      warning("[dbreg] demean requires <= 2 FEs. Using compress.")
-      chosen_strategy = "compress"
+      if (strategy == "auto") {
+        warning("[dbreg] demean requires <= 2 FEs. Using compress.")
+        chosen_strategy = "compress"
+      } else {
+        stop(
+          "[dbreg] demean requires <= 2 FEs. Use strategy = 'compress' or 'mundlak'.",
+          call. = FALSE
+        )
+      }
     } else if (verbose && length(fe) == 2) {
       is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
       if (!isTRUE(is_balanced)) {
