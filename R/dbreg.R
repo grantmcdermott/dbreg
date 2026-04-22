@@ -555,6 +555,106 @@ sql_weighted_mean = function(expr, weights_expr, alias) {
   glue("SUM(({weights_expr}) * ({expr})) / SUM({weights_expr}) AS {alias}")
 }
 
+# build_weighted_moment_terms: aggregate terms for weighted sufficient stats
+build_weighted_moment_terms = function(
+  y_sql,
+  x_sql = character(0),
+  x_aliases = NULL,
+  weights_expr = NULL,
+  alias_mode = c("names", "indices"),
+  prefix_terms = NULL,
+  include_w_sq = FALSE,
+  w_sq_alias_base = "sum_w2"
+) {
+  alias_mode = match.arg(alias_mode)
+  if (is.null(x_aliases)) {
+    x_aliases = x_sql
+  }
+  if (length(x_sql) != length(x_aliases)) {
+    stop("`x_sql` and `x_aliases` must have the same length.")
+  }
+
+  weights_sq_expr = if (is.null(weights_expr)) NULL else glue("({weights_expr}) * ({weights_expr})")
+  moment_terms = c(
+    prefix_terms,
+    if (is.null(weights_expr)) "COUNT(*) AS sum_w" else glue("SUM({weights_expr}) AS sum_w"),
+    sql_weighted_sum(y_sql, weights_expr, "sum_wy"),
+    sql_weighted_sum(glue("({y_sql}) * ({y_sql})"), weights_expr, "sum_wy_sq")
+  )
+
+  if (isTRUE(include_w_sq)) {
+    moment_terms = c(
+      moment_terms,
+      if (is.null(weights_sq_expr)) {
+        glue("COUNT(*) AS {w_sq_alias_base}")
+      } else {
+        glue("SUM({weights_sq_expr}) AS {w_sq_alias_base}")
+      },
+      sql_weighted_sum(y_sql, weights_sq_expr, paste0(w_sq_alias_base, "y")),
+      sql_weighted_sum(glue("({y_sql}) * ({y_sql})"), weights_sq_expr, paste0(w_sq_alias_base, "y_sq"))
+    )
+  }
+
+  if (!length(x_sql)) {
+    return(moment_terms)
+  }
+
+  if (alias_mode == "names") {
+    for (i in seq_along(x_sql)) {
+      x_expr = x_sql[i]
+      x_alias = x_aliases[i]
+      moment_terms = c(
+        moment_terms,
+        sql_weighted_sum(x_expr, weights_expr, paste0("sum_w", x_alias)),
+        sql_weighted_sum(glue("({x_expr}) * ({y_sql})"), weights_expr, paste0("sum_w", x_alias, "_y")),
+        sql_weighted_sum(glue("({x_expr}) * ({x_expr})"), weights_expr, paste0("sum_w", x_alias, "_", x_alias))
+      )
+    }
+
+    xpairs = gen_xvar_pairs(x_aliases)
+    for (pair in xpairs) {
+      i = match(pair[1], x_aliases)
+      j = match(pair[2], x_aliases)
+      moment_terms = c(
+        moment_terms,
+        sql_weighted_sum(
+          glue("({x_sql[i]}) * ({x_sql[j]})"),
+          weights_expr,
+          paste0("sum_w", pair[1], "_", pair[2])
+        )
+      )
+    }
+  } else {
+    for (i in seq_along(x_sql)) {
+      x_expr = x_sql[i]
+      moment_terms = c(
+        moment_terms,
+        sql_weighted_sum(x_expr, weights_expr, sprintf("sum_w%d", i)),
+        sql_weighted_sum(glue("({x_expr}) * ({y_sql})"), weights_expr, sprintf("sum_w%d_y", i)),
+        sql_weighted_sum(glue("({x_expr}) * ({x_expr})"), weights_expr, sprintf("sum_w%d_%d", i, i))
+      )
+    }
+
+    for (i in seq_along(x_sql)) {
+      if (i == length(x_sql)) {
+        next
+      }
+      for (j in (i + 1):length(x_sql)) {
+        moment_terms = c(
+          moment_terms,
+          sql_weighted_sum(
+            glue("({x_sql[i]}) * ({x_sql[j]})"),
+            weights_expr,
+            sprintf("sum_w%d_%d", i, j)
+          )
+        )
+      }
+    }
+  }
+
+  moment_terms
+}
+
 #' Check if a two-way panel is balanced
 #' @keywords internal
 dbreg_is_balanced_panel = function(conn, from_statement, fe) {
@@ -949,37 +1049,14 @@ execute_moments_strategy = function(inputs) {
   }
   
   weights_expr = sql_weight_expr(inputs$weights)
-  weights_sq_expr = if (is.null(weights_expr)) NULL else glue("({weights_expr}) * ({weights_expr})")
-
-  pair_exprs = c(
-    sql_count(inputs$conn, "n_total"),
-    if (is.null(weights_expr)) sql_count(inputs$conn, "sum_w") else glue("SUM({weights_expr}) AS sum_w"),
-    sql_weighted_sum(inputs$yvar, weights_expr, "sum_wy"),
-    sql_weighted_sum(glue("({inputs$yvar}) * ({inputs$yvar})"), weights_expr, "sum_wy_sq")
+  pair_exprs = build_weighted_moment_terms(
+    y_sql = inputs$yvar,
+    x_sql = xvars_sql,
+    x_aliases = xvar_names,
+    weights_expr = weights_expr,
+    alias_mode = "names",
+    prefix_terms = sql_count(inputs$conn, "n_total")
   )
-  for (i in seq_along(xvars_sql)) {
-    x_sql = xvars_sql[i]
-    x_name = xvar_names[i]
-    pair_exprs = c(
-      pair_exprs,
-      sql_weighted_sum(x_sql, weights_expr, paste0("sum_w", x_name)),
-      sql_weighted_sum(glue("({x_sql}) * ({inputs$yvar})"), weights_expr, paste0("sum_w", x_name, "_y")),
-      sql_weighted_sum(glue("({x_sql}) * ({x_sql})"), weights_expr, paste0("sum_w", x_name, "_", x_name))
-    )
-  }
-  xpairs = gen_xvar_pairs(xvar_names)
-  for (k in seq_along(xpairs)) {
-    i = match(xpairs[[k]][1], xvar_names)
-    j = match(xpairs[[k]][2], xvar_names)
-    xi_sql = xvars_sql[i]
-    xj_sql = xvars_sql[j]
-    xi_name = xvar_names[i]
-    xj_name = xvar_names[j]
-    pair_exprs = c(
-      pair_exprs,
-      sql_weighted_sum(glue("({xi_sql}) * ({xj_sql})"), weights_expr, paste0("sum_w", xi_name, "_", xj_name))
-    )
-  }
   
   # CTE structure for HC1 meat computation
   cte_sql = paste0("WITH base AS (SELECT * ", inputs$from_statement, ")")
@@ -1710,48 +1787,18 @@ execute_mundlak_strategy = function(inputs) {
   all_regressors = c(xvar_names, xbar_all)
 
   # Build moment terms using numeric indices
-  moment_terms = c(
-    sql_count(inputs$conn, "n_total"),
-    if (n_fe >= 1) sql_count(inputs$conn, "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
-    if (n_fe >= 2) sql_count(inputs$conn, "n_fe2", fe[2], distinct = TRUE) else "1 AS n_fe2",
-    if (is.null(weights_expr_aug)) sql_count(inputs$conn, "sum_w") else glue("SUM({weights_expr_aug}) AS sum_w"),
-    sql_weighted_sum(glue("CAST({yvar} AS FLOAT)"), weights_expr_aug, "sum_wy"),
-    sql_weighted_sum(
-      glue("CAST({yvar} AS FLOAT) * CAST({yvar} AS FLOAT)"),
-      weights_expr_aug,
-      "sum_wy_sq"
+  moment_terms = build_weighted_moment_terms(
+    y_sql = glue("CAST({yvar} AS FLOAT)"),
+    x_sql = glue("CAST({all_regressors} AS FLOAT)"),
+    x_aliases = all_regressors,
+    weights_expr = weights_expr_aug,
+    alias_mode = "indices",
+    prefix_terms = c(
+      sql_count(inputs$conn, "n_total"),
+      if (n_fe >= 1) sql_count(inputs$conn, "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
+      if (n_fe >= 2) sql_count(inputs$conn, "n_fe2", fe[2], distinct = TRUE) else "1 AS n_fe2"
     )
   )
-
-  # sum(X_j) and sum(X_j * Y) for each regressor
-  for (i in seq_along(all_regressors)) {
-    v = all_regressors[i]
-    moment_terms = c(
-      moment_terms,
-      sql_weighted_sum(glue("CAST({v} AS FLOAT)"), weights_expr_aug, sprintf("sum_w%d", i)),
-      sql_weighted_sum(
-        glue("CAST({v} AS FLOAT) * CAST({yvar} AS FLOAT)"),
-        weights_expr_aug,
-        sprintf("sum_w%d_y", i)
-      )
-    )
-  }
-
-  # sum(X_i * X_j) for all pairs (upper triangle including diagonal)
-  for (i in seq_along(all_regressors)) {
-    for (j in i:length(all_regressors)) {
-      vi = all_regressors[i]
-      vj = all_regressors[j]
-      moment_terms = c(
-        moment_terms,
-        sql_weighted_sum(
-          glue("CAST({vi} AS FLOAT) * CAST({vj} AS FLOAT)"),
-          weights_expr_aug,
-          sprintf("sum_w%d_%d", i, j)
-        )
-      )
-    }
-  }
 
   # CTE part (reusable for HC1 meat computation)
   cte_sql = paste0(
@@ -1929,8 +1976,6 @@ execute_compress_strategy = function(inputs) {
   }
   
   weights_expr = sql_weight_expr(inputs$weights)
-  weights_sq_expr = if (is.null(weights_expr)) NULL else glue("({weights_expr}) * ({weights_expr})")
-
   # FE columns (no expansion needed - used for grouping)
   fe_sql = if (length(inputs$fe)) paste(inputs$fe, collapse = ", ") else NULL
   
@@ -1938,37 +1983,18 @@ execute_compress_strategy = function(inputs) {
   all_cols_sql = if (!is.null(fe_sql)) paste(xvars_sql, fe_sql, sep = ", ") else xvars_sql
   group_cols = if (!is.null(fe_sql)) c(xvar_names, inputs$fe) else xvar_names
   group_cols_sql = paste(group_cols, collapse = ", ")
-
-  sum_w_expr = if (is.null(weights_expr)) {
-    "COUNT(*) AS sum_w"
-  } else {
-    glue("SUM({weights_expr}) AS sum_w")
-  }
-  sum_wy_expr = sql_weighted_sum(inputs$yvar, weights_expr, "sum_wy")
-  sum_wy_sq_expr = sql_weighted_sum(glue("POWER({inputs$yvar}, 2)"), weights_expr, "sum_wy_sq")
-  sum_w2_expr = if (is.null(weights_sq_expr)) {
-    "COUNT(*) AS sum_w2"
-  } else {
-    glue("SUM({weights_sq_expr}) AS sum_w2")
-  }
-  sum_w2y_expr = sql_weighted_sum(inputs$yvar, weights_sq_expr, "sum_w2y")
-  sum_w2y_sq_expr = sql_weighted_sum(glue("POWER({inputs$yvar}, 2)"), weights_sq_expr, "sum_w2y_sq")
+  moment_terms = build_weighted_moment_terms(
+    y_sql = inputs$yvar,
+    weights_expr = weights_expr,
+    prefix_terms = "COUNT(*) AS n",
+    include_w_sq = TRUE
+  )
   
   query_string = paste0(
     "WITH cte AS (\n    SELECT\n        ",
     all_cols_sql,
-    ",\n        COUNT(*) AS n,\n        ",
-    sum_w_expr,
     ",\n        ",
-    sum_wy_expr,
-    ",\n        ",
-    sum_wy_sq_expr,
-    ",\n        ",
-    sum_w2_expr,
-    ",\n        ",
-    sum_w2y_expr,
-    ",\n        ",
-    sum_w2y_sq_expr,
+    paste(moment_terms, collapse = ",\n        "),
     ",\n    ",
     from_statement,
     "\n    GROUP BY ",
