@@ -58,10 +58,14 @@ print.dbreg = function(x, fe = FALSE, ...) {
     )
   } else if (x$strategy == "demean") {
     n_fe = length(x$fe)
-    if (n_fe == 1) {
+    if (identical(x$demean_method, "ap")) {
+      mstring = "Alternating-projection"
+    } else if (n_fe == 1) {
       mstring = "Demeaned"
-    } else {
+    } else if (n_fe == 2) {
       mstring = "Double Demeaned"
+    } else {
+      mstring = paste0(n_fe, "-way Demeaned")
     }
     cat(paste(mstring, "OLS estimation, Dep. Var.:", x$yvar, "\n"))
     cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
@@ -236,4 +240,3 @@ print.dbbinsreg = function(x, ...) {
   
   invisible(x)
 }
-

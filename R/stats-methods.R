@@ -132,6 +132,12 @@ predict.dbreg = function(
 
   if (strategy == "demean") {
     # demean: compute group means from newdata to demean predictors
+    if (length(fe) > 2) {
+      stop(
+        "predict() is not supported for demean strategy models with more than two fixed effects.",
+        call. = FALSE
+      )
+    }
     has_y = yvar %in% names(newdata)
     mean_fn = function(y) mean(y, na.rm = TRUE)
     
@@ -298,4 +304,3 @@ confint.dbreg = function(object, parm, level = 0.95, fe = FALSE, ...) {
   
   ci
 }
-

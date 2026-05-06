@@ -25,8 +25,8 @@ expect_error(
   "In-memory data frames are only supported with DuckDB connections"
 )
 
-# Test 5: Explicit demean/within rejects more than two fixed effects
+# Test 5: Explicit demean/within requires fixed effects
 expect_error(
-  dbreg(Temp ~ Wind | Month + Day + Solar.R, data = airquality, strategy = "demean"),
-  "demean requires <= 2 FEs"
+  dbreg(Temp ~ Wind, data = airquality, strategy = "demean"),
+  "demean requires fixed effects"
 )

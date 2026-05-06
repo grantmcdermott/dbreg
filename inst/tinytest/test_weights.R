@@ -142,3 +142,8 @@ expect_error(
 ## ---- ap-smoke --------------------------------------------------------------
 db_ap = dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = "weights", strategy = "demean", vcov = "iid")
 expect_true(db_ap$strategy == "demean", info = "weighted 2 FE demean runs via AP")
+db_ap_coefs = db_ap$coeftable[names(fe2_coefs), "estimate"]
+expect_true(max(abs(fe2_coefs - db_ap_coefs)) < tol_iid, info = "weighted 2 FE AP coefficients match feols")
+
+db_ap_ses = db_ap$coeftable[names(fe2_ses), "std.error"]
+expect_true(max(abs(fe2_ses - db_ap_ses)) < tol_iid, info = "weighted 2 FE AP SEs match feols")

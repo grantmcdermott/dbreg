@@ -965,7 +965,7 @@ choose_strategy = function(inputs) {
       } else {
         chosen_strategy = "compress"
       }
-    } else if (length(fe) %in% c(1, 2)) {
+    } else {
       if (fail_compress_ratio || fail_compress_nmax) {
         # For 2-way FE, check balance
         if (length(fe) == 2) {
@@ -978,19 +978,17 @@ choose_strategy = function(inputs) {
               message("        - panel is unbalanced (using alternating projections)")
             }
           }
+        } else if (length(fe) == 1) {
+          chosen_strategy = "demean"
         } else {
+          if (verbose) {
+            message("        - more than 2 FEs (using alternating projections)")
+          }
           chosen_strategy = "demean"
         }
       } else {
         chosen_strategy = "compress"
       }
-    } else {
-      # browser()
-      # > 3 FEs, default to compress
-      if (verbose) {
-        message("        - more than 2 FEs")
-      }
-      chosen_strategy = "compress"
     }
     if (verbose) {
       message("        - decision: ", chosen_strategy)
@@ -1010,13 +1008,13 @@ choose_strategy = function(inputs) {
     chosen_strategy = "compress"
   }
   if (chosen_strategy == "demean") {
-    if (!(length(fe) %in% c(1, 2))) {
+    if (length(fe) == 0) {
       if (strategy == "auto") {
-        warning("[dbreg] demean requires <= 2 FEs. Using compress.")
+        warning("[dbreg] demean requires fixed effects. Using compress.")
         chosen_strategy = "compress"
       } else {
         stop(
-          "[dbreg] demean requires <= 2 FEs. Use strategy = 'compress' or 'mundlak'.",
+          "[dbreg] demean requires fixed effects. Use strategy = 'moments' or 'compress'.",
           call. = FALSE
         )
       }
@@ -1225,21 +1223,30 @@ execute_demean_strategy = function(inputs) {
   all_var_sql = c(inputs$yvar, xvars_sql)
   
   cluster_var = inputs$cluster_var
-  use_ap = FALSE
+  use_ap = length(inputs$fe) > 2
   ap_tables = NULL
+  demean_method = NULL
+  fe_count_terms = function(fe_vars) {
+    vapply(
+      seq_along(fe_vars),
+      function(i) sql_count(inputs$conn, sprintf("n_fe%d", i), fe_vars[i], distinct = TRUE),
+      character(1)
+    )
+  }
   if (length(inputs$fe) == 2) {
     is_balanced = dbreg_is_balanced_panel(inputs$conn, inputs$from_statement, inputs$fe)
     use_ap = !is.null(inputs$weights) || !isTRUE(is_balanced)
-    if (isTRUE(use_ap) && inputs$verbose) {
-      message("[dbreg] Using alternating projections for two-way FE demeaning")
-    }
-    if (isTRUE(use_ap) && inputs$sql_only) {
-      stop("[dbreg] sql_only is not supported for alternating projections.", call. = FALSE)
-    }
+  }
+  if (isTRUE(use_ap) && inputs$verbose) {
+    message("[dbreg] Using alternating projections for ", length(inputs$fe), "-way FE demeaning")
+  }
+  if (isTRUE(use_ap) && inputs$sql_only) {
+    stop("[dbreg] sql_only is not supported for alternating projections.", call. = FALSE)
   }
   if (length(inputs$fe) == 1) {
     # Single FE: simple within-group demeaning
     fe1 = inputs$fe[1]
+    demean_method = "group"
     
     # Build base CTE with expanded columns
     base_select = c(fe1, inputs$yvar)
@@ -1323,12 +1330,13 @@ execute_demean_strategy = function(inputs) {
         "sum_y_sq"
       )
     )
-  } else {
+  } else if (length(inputs$fe) == 2) {
     # Two FE: use alternating projections when needed; otherwise double demeaning
     fe1 = inputs$fe[1]
     fe2 = inputs$fe[2]
 
     if (isTRUE(use_ap)) {
+      demean_method = "ap"
       ap_res = dbreg_alternating_projections(
         conn = inputs$conn,
         from_statement = inputs$from_statement,
@@ -1346,8 +1354,7 @@ execute_demean_strategy = function(inputs) {
 
       moment_terms = c(
         sql_count(inputs$conn, "n_total"),
-        sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
-        sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
+        fe_count_terms(inputs$fe),
         sql_weighted_sum(
           glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
           weights_expr_demeaned,
@@ -1356,6 +1363,7 @@ execute_demean_strategy = function(inputs) {
       )
     } else {
       # Double demeaning (balanced panels, unweighted)
+      demean_method = "double"
       base_select = c(fe1, fe2, inputs$yvar)
       for (i in seq_along(xvar_names)) {
         base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
@@ -1484,6 +1492,33 @@ execute_demean_strategy = function(inputs) {
         )
       )
     }
+  } else {
+    # 3+ FE: alternating projections
+    demean_method = "ap"
+    ap_res = dbreg_alternating_projections(
+      conn = inputs$conn,
+      from_statement = inputs$from_statement,
+      fe = inputs$fe,
+      yvar = inputs$yvar,
+      xvars_sql = xvars_sql,
+      xvar_names = xvar_names,
+      weights = inputs$weights,
+      cluster_var = cluster_var,
+      verbose = inputs$verbose
+    )
+    ap_tables = c(ap_res$table, ap_res$base_table)
+    weights_expr_demeaned = "__w"
+    cte_sql = paste0("WITH demeaned AS (SELECT * FROM ", ap_res$table, ")")
+
+    moment_terms = c(
+      sql_count(inputs$conn, "n_total"),
+      fe_count_terms(inputs$fe),
+      sql_weighted_sum(
+        glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
+        weights_expr_demeaned,
+        "sum_y_sq"
+      )
+    )
   }
 
   # Add moment terms for xvars (shared by both 1-FE and 2-FE cases)
@@ -1560,8 +1595,11 @@ execute_demean_strategy = function(inputs) {
     return(demean_df)
   }
   n_total = demean_df$n_total
-  n_fe1 = demean_df$n_fe1
-  n_fe2 = demean_df$n_fe2
+  n_fe_names = grep("^n_fe[0-9]+$", names(demean_df), value = TRUE)
+  n_fe_names = n_fe_names[order(as.integer(sub("^n_fe", "", n_fe_names)))]
+  n_fe = unlist(demean_df[n_fe_names], use.names = TRUE)
+  n_fe1 = if ("n_fe1" %in% names(n_fe)) n_fe[["n_fe1"]] else 1
+  n_fe2 = if ("n_fe2" %in% names(n_fe)) n_fe[["n_fe2"]] else 1
 
   p = length(xvar_names)
   XtX = matrix(0, p, p, dimnames = list(xvar_names, xvar_names))
@@ -1599,7 +1637,7 @@ execute_demean_strategy = function(inputs) {
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
-  df_fe = n_fe1 + n_fe2 - 1
+  df_fe = sum(n_fe) - length(n_fe) + 1
   df_res = max(n_total - p_kept - df_fe, 1)
   
   # Compute meat matrix if needed (HC1 or cluster)
@@ -1668,7 +1706,9 @@ execute_demean_strategy = function(inputs) {
     compression_ratio_est = inputs$compression_ratio_est,
     df_residual = df_res,
     n_fe1 = n_fe1,
-    n_fe2 = n_fe2
+    n_fe2 = n_fe2,
+    n_fe = n_fe,
+    demean_method = demean_method
   )
 }
 
