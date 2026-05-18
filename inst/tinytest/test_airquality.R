@@ -5,7 +5,7 @@ library(dbreg)
 data("airquality")
 
 # dictionary for easy testing across results and methods
-dict_db = c("estimate", "std.error", "statistic", "p.values")
+dict_db = c("estimate", "std.error", "statistic", "p.value")
 names(dict_db) = c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
 
 # Simple regression without fixed effects

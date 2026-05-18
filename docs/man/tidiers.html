@@ -401,12 +401,12 @@ Additional arguments to tidying method. Currently unused except to handle supers
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>mod <span class="ot">=</span> <span class="fu">dbreg</span>(Temp <span class="sc">~</span> Wind <span class="sc">|</span> Month, <span class="at">data =</span> airquality)</span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">tidy</span>(mod, <span class="at">conf.int =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>  term  estimate std.error statistic     p.values  conf.low  conf.high
+<pre><code>  term  estimate std.error statistic     p.value  conf.low  conf.high
 1 Wind -0.743388 0.1487908 -4.996197 1.638368e-06 -1.037433 -0.4493427</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tidy</span>(mod, <span class="at">conf.int =</span> <span class="cn">TRUE</span>, <span class="at">fe =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>         term  estimate std.error statistic     p.values  conf.low  conf.high
+<pre><code>         term  estimate std.error statistic     p.value  conf.low  conf.high
 1 (Intercept) 74.188474 2.0544007 36.111978 5.675829e-75 70.128499 78.2484490
 2        Wind -0.743388 0.1487908 -4.996197 1.638368e-06 -1.037433 -0.4493427
 3      Month6 12.543643 1.5942530  7.868038 7.184769e-13  9.393027 15.6942587
