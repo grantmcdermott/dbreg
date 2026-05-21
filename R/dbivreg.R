@@ -1120,6 +1120,7 @@ dbivreg_parse_formula = function(fml) {
 }
 
 #' @keywords internal
+#' Expands the right-hand side of the structural formula into SQL expressions for the design matrix, including fixed effects if specified.
 dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character()) {
   if (is.null(fe_vars)) {
     fe_vars = character()
