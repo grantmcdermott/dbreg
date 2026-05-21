@@ -23,7 +23,14 @@ dbreg(weight ~ Time | Diet + Chick, data = ChickWeight, strategy = "mundlak")
 
 ## Repository Structure
 
-- `R/` — Package source. Main entry point is `dbreg.R` (~2500 lines). Shared utilities in `utils.R`. Other key files: `dbbinsreg.R`, `sql_model_matrix.R`, `stats-methods.R`, `tidiers.R`, `print.R`, `gof.R`, `plot.r`.
+- `R/` — Package source:
+  - `dbreg.R` — public API, input processing, strategy selection, alternating projections, finalization
+  - `strategies.R` — strategy execution functions (called from `dbreg.R`)
+  - `vcov.R` — variance-covariance and meat matrix computation (shared across strategies)
+  - `utils.R` — shared helpers: SQL dialect, formula parsing, connection setup, `env2env`, `gen_xvar_pairs`
+  - `dbbinsreg.R` — binscatter on database backends
+  - `sql_model_matrix.R` — factor/interaction expansion to SQL
+  - `stats-methods.R`, `tidiers.R`, `print.R`, `gof.R`, `plot.r` — S3 methods and output
 - `inst/tinytest/` — Test suite (tinytest framework).
 - `man/` — roxygen2-generated `.Rd` files.
 - `vignettes/` — Package vignette (`intro.qmd`).
