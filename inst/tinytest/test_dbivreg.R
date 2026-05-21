@@ -272,6 +272,13 @@ db_fe3 = dbivreg(
 )
 fx_fe3 = feols(y ~ x | fe1 + fe2 + fe3 | d ~ z, data = dat_fe3, vcov = "iid")
 expect_iv_match(db_fe3, fx_fe3, tol_coef = tol, tol_se = tol, label = "Three-way FE AP IID")
+fs_fe3 = fitstat(fx_fe3, ~ ivf1, simplify = TRUE)
+expect_equal(
+  db_fe3$diagnostics$first_stage_f$d$stat,
+  extract_fixest_ivstat(fs_fe3, "ivf1", "d")$stat,
+  tolerance = tol,
+  info = "Three-way FE first-stage F matches fixest"
+)
 expect_equal(
   db_fe3$n_fe_levels,
   c(fe1 = n_units_fe3, fe2 = n_time_fe3, fe3 = n_market_fe3),
