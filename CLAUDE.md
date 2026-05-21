@@ -59,10 +59,17 @@ No strict limit, but keep lines readable. Break long SQL strings with `paste0()`
 ## Architecture
 
 ### Execution Flow (`dbreg()`)
-1. `process_dbreg_inputs()` — validate args, set up DB connection, parse formula, filter missings, validate weights
-2. `choose_strategy()` — auto-selection logic (estimates compression ratio via SQL)
-3. `execute_*_strategy()` — one of: `moments`, `demean`, `mundlak`, `compress`
-4. `finalize_dbreg_result()` — set class, attach metadata
+1. `process_dbreg_inputs()` — validate args, set up DB connection, parse formula, filter missings, validate weights. Returns an **environment** (not a list).
+2. `choose_strategy(inputs)` — auto-selection logic. Mutates `inputs[["is_balanced"]]` and `inputs[["compression_ratio_est"]]` in place (reference semantics).
+3. `execute_*_strategy(inputs)` — one of: `moments`, `demean`, `mundlak`, `compress`
+4. `finalize_dbreg_result(result, inputs, chosen_strategy)` — set class, attach metadata
+
+### The `inputs` Environment
+`inputs` is an environment (created via `list2env()`) that flows through the pipeline. Using an environment rather than a list gives reference semantics — functions like `choose_strategy()` can store computed metadata (e.g., `is_balanced`, `compression_ratio_est`) that downstream functions read without needing return-value plumbing.
+
+Strategy functions access fields via `inputs[["field"]]` and typically extract frequently-used values into local variables at the top of the function for readability.
+
+Both `dbreg()` and `dbbinsreg()` follow this pattern.
 
 ### Acceleration Strategies
 1. **compress** — GROUP BY compression → frequency-weighted least squares (Wong et al. 2021). Best when regressors are discrete.
