@@ -527,6 +527,7 @@ process_dbreg_inputs = function(
     compress_nmax = compress_nmax,
     verbose = verbose,
     any_continuous = any_continuous,
+    is_balanced = NULL,
     own_conn = own_conn
   )
 }
@@ -663,13 +664,15 @@ dbreg_is_balanced_panel = function(conn, from_statement, fe) {
   }
   fe_expr = paste(fe, collapse = ", ")
   balance_sql = glue(
-    "SELECT COUNT(DISTINCT cnt) AS n FROM (SELECT COUNT(*) AS cnt {from_statement} GROUP BY {fe_expr}) t"
+    "SELECT COUNT(DISTINCT cnt) AS n_distinct_counts, COUNT(*) AS n_cells, ",
+    "(COUNT(DISTINCT {fe[1]}) * COUNT(DISTINCT {fe[2]})) AS n_expected ",
+    "FROM (SELECT COUNT(*) AS cnt, {fe[1]}, {fe[2]} {from_statement} GROUP BY {fe_expr}) t"
   )
-  res = tryCatch(dbGetQuery(conn, balance_sql)$n, error = function(e) NA)
-  if (is.na(res)) {
+  res = tryCatch(dbGetQuery(conn, balance_sql), error = function(e) NULL)
+  if (is.null(res)) {
     return(NA)
   }
-  res == 1
+  res$n_distinct_counts == 1 && res$n_cells == res$n_expected
 }
 
 #' Alternating projections (AP) for exact two-way FE demeaning
@@ -965,12 +968,12 @@ choose_strategy = function(inputs) {
       } else {
         chosen_strategy = "compress"
       }
-    } else if (length(fe) %in% c(1, 2)) {
+    } else if (length(fe) >= 1) {
       if (fail_compress_ratio || fail_compress_nmax) {
-        # For 2-way FE, check balance
+        chosen_strategy = "demean"
         if (length(fe) == 2) {
           is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
-          chosen_strategy = "demean"
+          inputs$is_balanced = is_balanced
           if (verbose) {
             if (isTRUE(is_balanced)) {
               message("        - panel is balanced")
@@ -978,19 +981,12 @@ choose_strategy = function(inputs) {
               message("        - panel is unbalanced (using alternating projections)")
             }
           }
-        } else {
-          chosen_strategy = "demean"
+        } else if (length(fe) > 2 && verbose) {
+          message("        - more than 2 FEs, using alternating projections")
         }
       } else {
         chosen_strategy = "compress"
       }
-    } else {
-      # browser()
-      # > 3 FEs, default to compress
-      if (verbose) {
-        message("        - more than 2 FEs")
-      }
-      chosen_strategy = "compress"
     }
     if (verbose) {
       message("        - decision: ", chosen_strategy)
@@ -1009,23 +1005,9 @@ choose_strategy = function(inputs) {
     )
     chosen_strategy = "compress"
   }
-  if (chosen_strategy == "demean") {
-    if (!(length(fe) %in% c(1, 2))) {
-      if (strategy == "auto") {
-        warning("[dbreg] demean requires <= 2 FEs. Using compress.")
-        chosen_strategy = "compress"
-      } else {
-        stop(
-          "[dbreg] demean requires <= 2 FEs. Use strategy = 'compress' or 'mundlak'.",
-          call. = FALSE
-        )
-      }
-    } else if (verbose && length(fe) == 2) {
-      is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
-      if (!isTRUE(is_balanced)) {
-        message("[dbreg] Panel unbalanced. Using alternating projections for exact TWFE.")
-      }
-    }
+  if (chosen_strategy == "demean" && length(fe) == 0) {
+    warning("[dbreg] demean requires at least 1 FE. Using moments.")
+    chosen_strategy = "moments"
   }
 
   # Store compression ratio estimate for later use
@@ -1227,11 +1209,18 @@ execute_demean_strategy = function(inputs) {
   cluster_var = inputs$cluster_var
   use_ap = FALSE
   ap_tables = NULL
-  if (length(inputs$fe) == 2) {
-    is_balanced = dbreg_is_balanced_panel(inputs$conn, inputs$from_statement, inputs$fe)
-    use_ap = !is.null(inputs$weights) || !isTRUE(is_balanced)
+  if (length(inputs$fe) >= 2) {
+    if (length(inputs$fe) > 2) {
+      use_ap = TRUE
+    } else {
+      is_balanced = inputs$is_balanced
+      if (is.null(is_balanced)) {
+        is_balanced = dbreg_is_balanced_panel(inputs$conn, inputs$from_statement, inputs$fe)
+      }
+      use_ap = !is.null(inputs$weights) || !isTRUE(is_balanced)
+    }
     if (isTRUE(use_ap) && inputs$verbose) {
-      message("[dbreg] Using alternating projections for two-way FE demeaning")
+      message("[dbreg] Using alternating projections for FE demeaning")
     }
     if (isTRUE(use_ap) && inputs$sql_only) {
       stop("[dbreg] sql_only is not supported for alternating projections.", call. = FALSE)
@@ -1324,7 +1313,7 @@ execute_demean_strategy = function(inputs) {
       )
     )
   } else {
-    # Two FE: use alternating projections when needed; otherwise double demeaning
+    # 2 FE: AP when weighted/unbalanced; double demeaning otherwise
     fe1 = inputs$fe[1]
     fe2 = inputs$fe[2]
 
@@ -1344,10 +1333,12 @@ execute_demean_strategy = function(inputs) {
       weights_expr_demeaned = "__w"
       cte_sql = paste0("WITH demeaned AS (SELECT * FROM ", ap_res$table, ")")
 
+      fe_count_terms = vapply(seq_along(inputs$fe), function(k) {
+        sql_count(inputs$conn, sprintf("n_fe%d", k), inputs$fe[k], distinct = TRUE)
+      }, character(1))
       moment_terms = c(
         sql_count(inputs$conn, "n_total"),
-        sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
-        sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
+        fe_count_terms,
         sql_weighted_sum(
           glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
           weights_expr_demeaned,
@@ -1560,8 +1551,10 @@ execute_demean_strategy = function(inputs) {
     return(demean_df)
   }
   n_total = demean_df$n_total
-  n_fe1 = demean_df$n_fe1
-  n_fe2 = demean_df$n_fe2
+  n_fe_levels = vapply(seq_along(inputs$fe), function(k) {
+    val = demean_df[[sprintf("n_fe%d", k)]]
+    if (is.null(val)) 1L else as.integer(val)
+  }, integer(1))
 
   p = length(xvar_names)
   XtX = matrix(0, p, p, dimnames = list(xvar_names, xvar_names))
@@ -1599,7 +1592,8 @@ execute_demean_strategy = function(inputs) {
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
-  df_fe = n_fe1 + n_fe2 - 1
+  n_fe = length(inputs$fe)
+  df_fe = sum(n_fe_levels) - (n_fe - 1)
   df_res = max(n_total - p_kept - df_fe, 1)
   
   # Compute meat matrix if needed (HC1 or cluster)
@@ -1667,8 +1661,7 @@ execute_demean_strategy = function(inputs) {
     strategy = "demean",
     compression_ratio_est = inputs$compression_ratio_est,
     df_residual = df_res,
-    n_fe1 = n_fe1,
-    n_fe2 = n_fe2
+    n_fe_levels = n_fe_levels
   )
 }
 

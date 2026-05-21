@@ -139,6 +139,42 @@ expect_error(
   "non-negative"
 )
 
-## ---- ap-smoke --------------------------------------------------------------
+## ---- ap: weighted two-way FE ------------------------------------------------
+fe2_ap_fit = feols(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = ~weights, vcov = "iid")
 db_ap = dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat, weights = "weights", strategy = "demean", vcov = "iid")
-expect_true(db_ap$strategy == "demean", info = "weighted 2 FE demean runs via AP")
+
+ap_coefs = coef(fe2_ap_fit)
+db_ap_coefs = db_ap$coeftable[names(ap_coefs), "estimate"]
+expect_true(max(abs(ap_coefs - db_ap_coefs)) < tol_iid,
+            info = "AP: weighted two-way FE coefficients match feols")
+
+ap_ses = se(fe2_ap_fit)
+db_ap_ses = db_ap$coeftable[names(ap_ses), "std.error"]
+expect_true(max(abs(ap_ses - db_ap_ses)) < tol_iid,
+            info = "AP: weighted two-way FE SEs match feols")
+
+## ---- ap: unweighted unbalanced two-way --------------------------------------
+fe_unbal_ap = feols(y ~ x1 + x2 | fe1 + fe2, data = dat_unbal, vcov = "iid", fixef.rm = "none")
+db_unbal_ap = dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat_unbal, strategy = "demean", vcov = "iid")
+
+expect_true(max(abs(coef(fe_unbal_ap) - db_unbal_ap$coeftable[names(coef(fe_unbal_ap)), "estimate"])) < tol_iid,
+            info = "AP: unweighted unbalanced two-way coefficients match feols")
+
+expect_true(max(abs(se(fe_unbal_ap) - db_unbal_ap$coeftable[names(se(fe_unbal_ap)), "std.error"])) < tol_iid,
+            info = "AP: unweighted unbalanced two-way SEs match feols")
+
+## ---- ap: three-way FE -------------------------------------------------------
+dat$fe3 = factor(sample(1:5, nrow(dat), replace = TRUE))
+
+fe3_fit = feols(y ~ x1 + x2 | fe1 + fe2 + fe3, data = dat, weights = ~weights, vcov = "iid", fixef.rm = "none")
+db_fe3 = dbreg(y ~ x1 + x2 | fe1 + fe2 + fe3, data = dat, weights = "weights", strategy = "demean", vcov = "iid")
+
+fe3_coefs = coef(fe3_fit)
+db_fe3_coefs = db_fe3$coeftable[names(fe3_coefs), "estimate"]
+expect_true(max(abs(fe3_coefs - db_fe3_coefs)) < tol_iid,
+            info = "AP: three-way FE coefficients match feols")
+
+fe3_ses = se(fe3_fit)
+db_fe3_ses = db_fe3$coeftable[names(fe3_ses), "std.error"]
+expect_true(max(abs(fe3_ses - db_fe3_ses)) < tol_iid,
+            info = "AP: three-way FE SEs match feols")
