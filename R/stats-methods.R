@@ -210,6 +210,8 @@ predict.dbreg = function(
     fml = update(fml_xvars, as.formula(paste("~ . +", paste(gmeans, collapse = " + "))))
 
     mm = sparse.model.matrix(fml, data = newdata)
+    # Formula term order can differ from estimation order; matrix products ignore names.
+    mm = mm[, names(betas), drop = FALSE]
   } else {
     # compress/moments: use sparse model matrix with FE dummies
     mm = sparse.model.matrix(reformulate(c(xvars, fe)), data = newdata)

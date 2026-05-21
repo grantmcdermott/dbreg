@@ -73,19 +73,18 @@ sim_mundlak = dbreg(
 
 sim_mundlak_manual = feols(
   y ~ x1 + x2 + x1_mean_firm + x2_mean_firm + x1_mean_year + x2_mean_year,
-  data = sim_panel,
-  lean = TRUE
+  data = sim_panel
 )
 
 expect_equal(
-  sim_mundlak$coeftable[c("x1", "x2"), "estimate"],
-  sim_mundlak_manual$coeftable[c("x1", "x2"), "Estimate"],
+  unname(sim_mundlak$coeftable[c("x1", "x2"), "estimate"]),
+  unname(sim_mundlak_manual$coeftable[c("x1", "x2"), "Estimate"]),
   tolerance = 1e-6,
   info = "balanced panel (sim): mundlak coefs match manual"
 )
 expect_equal(
-  sim_mundlak$coeftable[c("x1", "x2"), "std.error"],
-  sim_mundlak_manual$coeftable[c("x1", "x2"), "Std. Error"],
+  unname(sim_mundlak$coeftable[c("x1", "x2"), "std.error"]),
+  unname(sim_mundlak_manual$coeftable[c("x1", "x2"), "Std. Error"]),
   tolerance = 1e-6,
   info = "balanced panel (sim): mundlak SEs match manual"
 )
@@ -153,6 +152,18 @@ expect_equal(
   as.numeric(sim_pred_feols),
   tolerance = 1e-6,
   info = "balanced panel: demean predictions match fixest"
+)
+
+# Mundlak: point predictions match explicit group-mean model
+sim_panel_no_y = sim_panel[setdiff(names(sim_panel), "y")]
+sim_pred_mundlak = predict(sim_mundlak, newdata = sim_panel_no_y)
+sim_pred_mundlak_manual = predict(sim_mundlak_manual, newdata = sim_panel_no_y)
+
+expect_equal(
+  sim_pred_mundlak,
+  as.numeric(sim_pred_mundlak_manual),
+  tolerance = 1e-6,
+  info = "balanced panel: mundlak predictions match manual"
 )
 
 # Compress: confidence intervals
