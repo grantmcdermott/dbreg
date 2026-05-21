@@ -39,9 +39,9 @@ plot.dbbinsreg = function(
   ...
 ) {
   # Extract metadata
-  opt = x$opt
-  x_var = opt$x_var
-  y_var = opt$y_var
+  opt = x[["opt"]]
+  x_var = opt[["x_var"]]
+  y_var = opt[["y_var"]]
   
   # Grab plot dimensions up front (so added layers don't get clipped)
   has_pts = !is.null(x[["points"]])
@@ -79,8 +79,8 @@ plot.dbbinsreg = function(
 
   if (has_cb) {
     tinyplot::tinyplot_add(
-      ymin = pts$cb_lwr,
-      ymax = pts$cb_upr,
+      ymin = pts[["cb_lwr"]],
+      ymax = pts[["cb_upr"]],
       type = "ribbon",
       lty = 0
     )
@@ -100,7 +100,7 @@ plot.dbbinsreg = function(
       # so that each bin is plotted separately.
       line_data = x[["line"]]
       idx = unlist(lapply(
-        split(seq_len(nrow(line_data)), line_data$bin),
+        split(seq_len(nrow(line_data)), line_data[["bin"]]),
         function(i) c(i, NA)
       ))
       line_data = line_data[idx[-length(idx)], ]
@@ -117,8 +117,8 @@ plot.dbbinsreg = function(
     type = if (!is.null(type)) type else if (has_ci) "pointrange" else "p"
     tinyplot::tinyplot_add(
       type = type,
-      ymin = pts$lwr,
-      ymax = pts$upr
+      ymin = pts[["lwr"]],
+      ymax = pts[["upr"]]
     )
   }
   

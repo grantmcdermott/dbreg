@@ -35,7 +35,7 @@ tidy.dbreg = function(x, conf.int = FALSE, conf.level = 0.95, fe = FALSE, ...) {
     }
   }
   ct = x[["coeftable"]]
-  if (!isTRUE(fe) && !is.null(x$fe)) {
+  if (!isTRUE(fe) && !is.null(x[["fe"]])) {
     coef_names = x[["coef_names"]]
     if (!is.null(coef_names)) {
       ct = ct[coef_names, , drop = FALSE]
@@ -48,8 +48,8 @@ tidy.dbreg = function(x, conf.int = FALSE, conf.level = 0.95, fe = FALSE, ...) {
   
   if (isTRUE(conf.int)) {
     ci = confint(x, level = conf.level, fe = fe)
-    out$conf.low = ci[, 1]
-    out$conf.high = ci[, 2]
+    out[["conf.low"]] = ci[, 1]
+    out[["conf.high"]] = ci[, 2]
   }
   
   return(out)
@@ -68,8 +68,8 @@ glance.dbreg = function(x, ...) {
     r.squared = gof_vals["r2"],
     adj.r.squared = gof_vals["adj_r2"],
     rmse = gof_vals["rmse"],
-    nobs = x$nobs_orig,
-    df.residual = x$df_residual,
+    nobs = x[["nobs_orig"]],
+    df.residual = x[["df_residual"]],
     row.names = NULL
   )
 }

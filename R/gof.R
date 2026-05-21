@@ -8,11 +8,11 @@
 #' gof(mod)
 #' @export
 gof = function(object, ...) {
-  nobs = object$nobs_orig
-  df_res = object$df_residual
+  nobs = object[["nobs_orig"]]
+  df_res = object[["df_residual"]]
   
-  rss = attr(object$vcov, "rss")
-  tss = attr(object$vcov, "tss")
+  rss = attr(object[["vcov"]], "rss")
+  tss = attr(object[["vcov"]], "tss")
   
   if (is.null(rss) || is.null(tss)) {
     warning("RSS or TSS not available in model object.")
