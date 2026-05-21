@@ -826,7 +826,11 @@ dbreg_alternating_projections = function(
     max_iter,
     " iterations (max abs mean = ",
     sprintf("%.4e", max_abs),
-    ").",
+    ").\n\n",
+    "Options:\n",
+    "  - Increase tolerance: options(dbreg.ap_tol = 1e-7)\n",
+    "  - Increase iterations: options(dbreg.ap_max_iter = 500)\n",
+    "  - Use strategy = 'mundlak' (single-pass CRE estimator, no iteration needed)",
     call. = FALSE
   )
 }
