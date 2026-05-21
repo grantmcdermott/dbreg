@@ -37,9 +37,7 @@
 #' @param weights Character string specifying the column name to use as weights,
 #' or NULL (default) for unweighted regression. Weights must be non-negative;
 #' rows with zero weight are dropped. Weighted regressions support `"iid"`,
-#' `"hc1"`, and clustered SEs. Weighted two-way fixed effects are supported via
-#' `strategy = "demean"` (alternating projections), `strategy = "compress"`,
-#' or `strategy = "mundlak"`.
+#' `"hc1"`, and clustered SEs, and are compatible with all strategies.
 #' @param vcov Character string or formula denoting the desired type of variance-
 #' covariance correction / standard errors. Options are `"iid"` (default),
 #' `"hc1"` (heteroskedasticity-consistent), or a one-sided formula like
@@ -132,9 +130,9 @@
 #'    however, the double demeaning strategy is not algebraically equivalent to
 #'    the fixed effects projection and therefore does not recover the exact TWFE
 #'    coefficients. In such cases, and also for weighted two-way FE, `dbreg`
-#'    uses alternating projections to recover the exact TWFE coefficients, at
-#'    the cost of extra passes over the data. Moreover, note that this
-#'    `"demean"` strategy permits at most two FE.
+#'    uses alternating projections (AP) to recover the exact FE coefficients,
+#'    at the cost of extra passes over the data. AP also generalizes the
+#'    `"demean"` strategy to three or more FE.
 #' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects
 #'    (CRE) estimator that regresses Y on X plus group means of X:
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
@@ -159,9 +157,12 @@
 #' Arkhangelsky & Imbens (2024).
 #' 
 #' However, the demeaning approaches invite tradeoffs of their own. For example,
-#' the double demeaning transformation of the `"demean"` strategy does not
-#' obtain exact TWFE results in unbalanced panels, and it is also limited to at
-#' most two FE. Conversely, the `"mundlak"` (CRE) strategy obtains consistent
+#' the single-pass double demeaning transformation only obtains exact TWFE
+#' results for balanced panels with two FE. For unbalanced panels, weighted
+#' regressions, or three or more FE, `dbreg` uses alternating projections
+#' (iterative demeaning) which is exact but requires multiple passes and may be
+#' slower to converge on very large datasets. In such cases, `"mundlak"` (CRE)
+#' may be preferable as it is a single-pass estimator that obtains consistent
 #' coefficients regardless of panel structure and FE count, but at the "cost" of
 #' recovering a different estimand. (It is a different model to TWFE, after
 #' all.) See Wooldridge (2025) for an extended discussion of these issues.
@@ -190,6 +191,8 @@
 #' - ELSE IF 2 FE AND (poor compression ratio OR too big compressed data):
 #'   - IF balanced panel THEN `"demean"`.
 #'   - ELSE `"demean"` via alternating projections.
+#' - ELSE IF 3+ FE AND (poor compression ratio OR too big compressed data)
+#'   THEN `"demean"` via alternating projections.
 #' - ELSE THEN `"compress"`.
 #' 
 #' _Tip: set `dbreg(..., verbose = TRUE)` to print information about the auto
@@ -371,7 +374,7 @@ dbreg = function(
     chosen_strategy,
     # sufficient statistics with no fixed effects
     "moments" = execute_moments_strategy(inputs),
-    # one or two-way fixed effects (double demeaning / within estimator)
+    # fixed effects via demeaning (1 FE: analytic; 2+ FE: alternating projections)
     "demean" = execute_demean_strategy(inputs),
     # true Mundlak/CRE: Y ~ X + group means of X
     "mundlak" = execute_mundlak_strategy(inputs),
@@ -1172,7 +1175,7 @@ execute_moments_strategy = function(inputs) {
   )
 }
 
-#' Execute demean strategy (1-2 fixed effects)
+#' Execute demean strategy (1+ fixed effects)
 #' 
 #' Double demeaning / within estimator. Gives identical coefficients to 
 #' fixed effects regression.
