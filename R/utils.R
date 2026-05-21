@@ -276,14 +276,17 @@ parse_regression_formula = function(fml) {
 parse_vcov_args = function(vcov, cluster = NULL, valid_types = c("iid", "hc1")) {
   vcov_type = NULL
   cluster_var = NULL
-  
- 
-  # Handle vcov: can be string or formula (for clustering)
-  if (inherits(vcov, "formula")) {
-    cluster_var = all.vars(vcov)
-    if (length(cluster_var) != 1) {
+
+  validate_single_cluster = function(x) {
+    if (length(x) != 1 || is.na(x) || !nzchar(x)) {
       stop("Only single-variable clustering is currently supported")
     }
+    x
+  }
+
+  # Handle vcov: can be string or formula (for clustering)
+  if (inherits(vcov, "formula")) {
+    cluster_var = validate_single_cluster(all.vars(vcov))
     vcov_type = "cluster"
   } else if (is.character(vcov)) {
     vcov_type = tolower(vcov[1])
@@ -295,12 +298,9 @@ parse_vcov_args = function(vcov, cluster = NULL, valid_types = c("iid", "hc1")) 
   # Handle separate cluster argument (overrides vcov if provided)
   if (!is.null(cluster)) {
     if (inherits(cluster, "formula")) {
-      cluster_var = all.vars(cluster)
-      if (length(cluster_var) != 1) {
-        stop("Only single-variable clustering is currently supported")
-      }
+      cluster_var = validate_single_cluster(all.vars(cluster))
     } else if (is.character(cluster)) {
-      cluster_var = cluster[1]
+      cluster_var = validate_single_cluster(cluster)
     } else {
       stop("cluster must be a formula (e.g., ~firm) or character string")
     }
@@ -541,3 +541,19 @@ create_temp_table_as = function(conn, table_name, select_sql, backend) {
   }
 }
 
+#' Drop a table if it exists
+#'
+#' Handles SQL dialect differences for temporary-table cleanup.
+#'
+#' @param conn Database connection
+#' @param table_name Name of the table to drop
+#' @param backend Backend name from detect_backend()
+#' @keywords internal
+drop_table_if_exists = function(conn, table_name, backend) {
+  if (backend == "sqlserver") {
+    sql = glue("IF OBJECT_ID('tempdb..{table_name}') IS NOT NULL DROP TABLE {table_name}")
+  } else {
+    sql = glue("DROP TABLE IF EXISTS {table_name}")
+  }
+  tryCatch(dbExecute(conn, sql), error = function(e) NULL)
+}

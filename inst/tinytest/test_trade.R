@@ -251,6 +251,71 @@ expect_equal(
 )
 
 # Test with moments strategy (no FE)
+#
+## Test alternating projections (3+ FEs) ----
+
+# AP needs a slightly looser convergence tolerance for larger datasets due to
+# floating-point noise from temp-table round-trips
+old_tol = getOption("dbreg.ap_tol")
+options(dbreg.ap_tol = 1e-7)
+
+# 3 FE (Origin + Destination + Product): auto should select demean via AP
+trade_3fe = dbreg(
+  Euros ~ dist_km | Origin + Destination + Product,
+  data = trade,
+  vcov = "iid"
+)
+trade_3fe_feols = feols(
+  Euros ~ dist_km | Origin + Destination + Product,
+  data = trade,
+  vcov = "iid",
+  fixef.rm = "none",
+  lean = TRUE
+)
+
+expect_true(trade_3fe$strategy == "demean", info = "3 FE auto-selects demean (AP)")
+expect_equal(
+  trade_3fe$coeftable["dist_km", "estimate"],
+  trade_3fe_feols$coeftable["dist_km", "Estimate"],
+  tolerance = 1e-6
+)
+expect_equal(
+  trade_3fe$coeftable["dist_km", "std.error"],
+  trade_3fe_feols$coeftable["dist_km", "Std. Error"],
+  tolerance = 1e-6
+)
+
+# 4 FE (Origin + Destination + Product + Year): auto should select demean via AP
+trade_4fe = dbreg(
+  Euros ~ dist_km | Origin + Destination + Product + Year,
+  data = trade,
+  vcov = "iid"
+)
+trade_4fe_feols = feols(
+  Euros ~ dist_km | Origin + Destination + Product + Year,
+  data = trade,
+  vcov = "iid",
+  fixef.rm = "none",
+  lean = TRUE
+)
+
+expect_true(trade_4fe$strategy == "demean", info = "4 FE auto-selects demean (AP)")
+expect_equal(
+  trade_4fe$coeftable["dist_km", "estimate"],
+  trade_4fe_feols$coeftable["dist_km", "Estimate"],
+  tolerance = 1e-6
+)
+expect_equal(
+  trade_4fe$coeftable["dist_km", "std.error"],
+  trade_4fe_feols$coeftable["dist_km", "Std. Error"],
+  tolerance = 1e-6
+)
+
+options(dbreg.ap_tol = old_tol)
+
+#
+## Test clustered standard errors ----
+
 trade_fml_nofe = Euros ~ dist_km
 trade_cluster_moments = dbreg(
   trade_fml_nofe,

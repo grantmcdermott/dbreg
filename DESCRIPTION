@@ -60,8 +60,8 @@ Enhances:
   dbplyr
 Config/Needs/website: etiennebacher/altdoc
 Encoding: UTF-8
-RoxygenNote: 7.3.3
 License: MIT + file LICENSE
 URL: https://grantmcdermott.com/dbreg/
 BugReports: https://github.com/grantmcdermott/dbreg/issues
 VignetteBuilder: quarto
+Config/roxygen2/version: 8.0.0

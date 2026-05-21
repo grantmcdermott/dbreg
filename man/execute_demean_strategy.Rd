@@ -2,7 +2,7 @@
 % Please edit documentation in R/dbreg.R
 \name{execute_demean_strategy}
 \alias{execute_demean_strategy}
-\title{Execute demean strategy (1-2 fixed effects)}
+\title{Execute demean strategy (1+ fixed effects)}
 \usage{
 execute_demean_strategy(inputs)
 }

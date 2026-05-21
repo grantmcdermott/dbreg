@@ -34,6 +34,10 @@
 #' part of this string, e.g. `"read_parquet('mydata/**/*.parquet')"` for DuckDB;
 #' note the use of single quotes.
 #' Ignored if either `table` or `data` is provided.
+#' @param weights Character string specifying the column name to use as weights,
+#' or NULL (default) for unweighted regression. Weights must be non-negative;
+#' rows with zero weight are dropped. Weighted regressions support `"iid"`,
+#' `"hc1"`, and clustered SEs, and are compatible with all strategies.
 #' @param vcov Character string or formula denoting the desired type of variance-
 #' covariance correction / standard errors. Options are `"iid"` (default),
 #' `"hc1"` (heteroskedasticity-consistent), or a one-sided formula like
@@ -125,8 +129,10 @@
 #'    (TWFE) case if your panel is balanced. For unbalanced two-way panels,
 #'    however, the double demeaning strategy is not algebraically equivalent to
 #'    the fixed effects projection and therefore does not recover the exact TWFE
-#'    coefficients. Moreover, note that this `"demean"` strategy permits at most
-#'    two FE.
+#'    coefficients. In such cases, and also for weighted two-way FE, `dbreg`
+#'    uses alternating projections (AP) to recover the exact FE coefficients,
+#'    at the cost of extra passes over the data. AP also generalizes the
+#'    `"demean"` strategy to three or more FE.
 #' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects
 #'    (CRE) estimator that regresses Y on X plus group means of X:
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
@@ -151,9 +157,12 @@
 #' Arkhangelsky & Imbens (2024).
 #' 
 #' However, the demeaning approaches invite tradeoffs of their own. For example,
-#' the double demeaning transformation of the `"demean"` strategy does not
-#' obtain exact TWFE results in unbalanced panels, and it is also limited to at
-#' most two FE. Conversely, the `"mundlak"` (CRE) strategy obtains consistent
+#' the single-pass double demeaning transformation only obtains exact TWFE
+#' results for balanced panels with two FE. For unbalanced panels, weighted
+#' regressions, or three or more FE, `dbreg` uses alternating projections
+#' (iterative demeaning) which is exact but requires multiple passes and may be
+#' slower to converge on very large datasets. In such cases, `"mundlak"` (CRE)
+#' may be preferable as it is a single-pass estimator that obtains consistent
 #' coefficients regardless of panel structure and FE count, but at the "cost" of
 #' recovering a different estimand. (It is a different model to TWFE, after
 #' all.) See Wooldridge (2025) for an extended discussion of these issues.
@@ -181,8 +190,9 @@
 #'   `"demean"`.
 #' - ELSE IF 2 FE AND (poor compression ratio OR too big compressed data):
 #'   - IF balanced panel THEN `"demean"`.
-#'   - ELSE error (exact TWFE infeasible; user must explicitly choose
-#'     `"compress"` or `"mundlak"`).
+#'   - ELSE `"demean"` via alternating projections.
+#' - ELSE IF 3+ FE AND (poor compression ratio OR too big compressed data)
+#'   THEN `"demean"` via alternating projections.
 #' - ELSE THEN `"compress"`.
 #' 
 #' _Tip: set `dbreg(..., verbose = TRUE)` to print information about the auto
@@ -305,6 +315,7 @@ dbreg = function(
   table = NULL,
   data = NULL,
   path = NULL,
+  weights = NULL,
   vcov = c("iid", "hc1"),
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = NULL,
@@ -320,13 +331,9 @@ dbreg = function(
 
   verbose = isTRUE(verbose)
   ssc = match.arg(ssc)
-  
- 
-  # Parse vcov/cluster arguments using shared helper
   vcov_parsed = parse_vcov_args(vcov, cluster)
   vcov = vcov_parsed$vcov_type
   cluster = vcov_parsed$cluster_var
-  
   strategy = match.arg(strategy)
   if (strategy == "within") strategy = "demean"  # alias
 
@@ -346,6 +353,7 @@ dbreg = function(
     table = table,
     data = data,
     path = path,
+    weights = weights,
     vcov = vcov,
     cluster = cluster,
     ssc = ssc,
@@ -366,7 +374,7 @@ dbreg = function(
     chosen_strategy,
     # sufficient statistics with no fixed effects
     "moments" = execute_moments_strategy(inputs),
-    # one or two-way fixed effects (double demeaning / within estimator)
+    # fixed effects via demeaning (1 FE: analytic; 2+ FE: alternating projections)
     "demean" = execute_demean_strategy(inputs),
     # true Mundlak/CRE: Y ~ X + group means of X
     "mundlak" = execute_mundlak_strategy(inputs),
@@ -387,6 +395,7 @@ process_dbreg_inputs = function(
   table,
   data,
   path,
+  weights,
   vcov,
   cluster,
   ssc,
@@ -401,8 +410,7 @@ process_dbreg_inputs = function(
   vcov_type_req = vcov
   cluster_var = cluster
 
-  # Set up database connection and data source using shared helper
-  db_setup = setup_db_connection(conn, table, data, path)
+  db_setup = setup_db_connection(conn, table, data, path, caller = "dbreg")
   conn = db_setup$conn
   own_conn = db_setup$own_conn
   from_statement = db_setup$from_statement
@@ -415,6 +423,34 @@ process_dbreg_inputs = function(
   term_labels = fml_parsed$term_labels
   has_interactions = fml_parsed$has_interactions
   fe = fml_parsed$fe
+
+  # Validate weights
+  if (!is.null(weights)) {
+    if (!is.character(weights) || length(weights) != 1) {
+      stop("`weights` must be a single character string (column name) or NULL.")
+    }
+    if (!is.null(data)) {
+      if (!weights %in% names(data)) {
+        stop("Weight column '", weights, "' not found in data.")
+      }
+      wv = data[[weights]]
+      if (any(!is.finite(wv) & !is.na(wv))) {
+        stop("Weights must be finite.")
+      }
+      if (any(wv < 0, na.rm = TRUE)) {
+        stop("Weights must be non-negative.")
+      }
+    }
+  }
+  if (!is.null(weights) && is.null(data)) {
+    neg_sql = glue(
+      "SELECT 1 FROM (SELECT * {from_statement}) t WHERE {weights} < 0 LIMIT 1"
+    )
+    has_neg = tryCatch(nrow(dbGetQuery(conn, neg_sql)) > 0, error = function(e) FALSE)
+    if (isTRUE(has_neg)) {
+      stop("Weights must be non-negative.")
+    }
+  }
 
   # Heuristic for continuous regressors (only if data passed)
   is_continuous = function(v) {
@@ -447,24 +483,30 @@ process_dbreg_inputs = function(
     stop("Argument `compress_ratio` ratio must be a numeric in the range [0, 1]\n.")
   }
 
-  # Filter missing cases
-  if (isTRUE(drop_missings)) {
+  # Filter missing cases and drop zero-weight rows
+  if (isTRUE(drop_missings) || !is.null(weights)) {
     # Wrap in subquery if from_statement contains clauses that must come after WHERE
     if (grepl("WHERE|LIMIT|ORDER\\s+BY|GROUP\\s+BY|HAVING", from_statement, ignore.case = TRUE)) {
       from_statement = glue("FROM (SELECT * {from_statement}) AS subq")
     }
+    where_clauses = character(0)
+    if (isTRUE(drop_missings)) {
+      where_clauses = c(
+        where_clauses,
+        paste0(yvar, " IS NOT NULL"),
+        paste0(xvars, " IS NOT NULL")
+      )
+      if (!is.null(fe)) {
+        where_clauses = c(where_clauses, paste0(fe, " IS NOT NULL"))
+      }
+    }
+    if (!is.null(weights)) {
+      where_clauses = c(where_clauses, paste0(weights, " > 0"))
+    }
     from_statement = glue("
     {from_statement}
-    WHERE {yvar} IS NOT NULL
-    AND {paste(xvars, collapse = ' IS NOT NULL AND ')} IS NOT NULL
-    "
-    )
-    if (!is.null(fe)) {
-      from_statement = glue("
-      {from_statement}
-      AND {paste(fe, collapse = ' IS NOT NULL AND ')} IS NOT NULL
-      ")
-    }
+    WHERE {paste(where_clauses, collapse = ' AND ')}
+    ")
   }
 
   list(
@@ -474,6 +516,7 @@ process_dbreg_inputs = function(
     term_labels = term_labels,
     has_interactions = has_interactions,
     fe = fe,
+    weights = weights,
     conn = conn,
     from_statement = from_statement,
     data = data,
@@ -487,7 +530,311 @@ process_dbreg_inputs = function(
     compress_nmax = compress_nmax,
     verbose = verbose,
     any_continuous = any_continuous,
+    is_balanced = NULL,
     own_conn = own_conn
+  )
+}
+
+# sql_weight_expr: returns a weight expression or NULL if no weights
+sql_weight_expr = function(weights) {
+  if (is.null(weights)) {
+    return(NULL)
+  }
+  glue("1.0 * {weights}")
+}
+
+# sql_weighted_sum: SUM(expr) or SUM(w * expr) with alias
+sql_weighted_sum = function(expr, weights_expr, alias) {
+  if (is.null(weights_expr)) {
+    return(glue("SUM({expr}) AS {alias}"))
+  }
+  glue("SUM(({weights_expr}) * ({expr})) AS {alias}")
+}
+
+# sql_weighted_mean: AVG(expr) or weighted mean with alias
+sql_weighted_mean = function(expr, weights_expr, alias) {
+  if (is.null(weights_expr)) {
+    return(glue("AVG({expr}) AS {alias}"))
+  }
+  glue("SUM(({weights_expr}) * ({expr})) / SUM({weights_expr}) AS {alias}")
+}
+
+# build_weighted_moment_terms: aggregate terms for weighted sufficient stats
+build_weighted_moment_terms = function(
+  y_sql,
+  x_sql = character(0),
+  x_aliases = NULL,
+  weights_expr = NULL,
+  alias_mode = c("names", "indices"),
+  prefix_terms = NULL,
+  include_w_sq = FALSE,
+  w_sq_alias_base = "sum_w2"
+) {
+  alias_mode = match.arg(alias_mode)
+  if (is.null(x_aliases)) {
+    x_aliases = x_sql
+  }
+  if (length(x_sql) != length(x_aliases)) {
+    stop("`x_sql` and `x_aliases` must have the same length.")
+  }
+
+  weights_sq_expr = if (is.null(weights_expr)) NULL else glue("({weights_expr}) * ({weights_expr})")
+  moment_terms = c(
+    prefix_terms,
+    if (is.null(weights_expr)) "COUNT(*) AS sum_w" else glue("SUM({weights_expr}) AS sum_w"),
+    sql_weighted_sum(y_sql, weights_expr, "sum_wy"),
+    sql_weighted_sum(glue("({y_sql}) * ({y_sql})"), weights_expr, "sum_wy_sq")
+  )
+
+  if (isTRUE(include_w_sq)) {
+    moment_terms = c(
+      moment_terms,
+      if (is.null(weights_sq_expr)) {
+        glue("COUNT(*) AS {w_sq_alias_base}")
+      } else {
+        glue("SUM({weights_sq_expr}) AS {w_sq_alias_base}")
+      },
+      sql_weighted_sum(y_sql, weights_sq_expr, paste0(w_sq_alias_base, "y")),
+      sql_weighted_sum(glue("({y_sql}) * ({y_sql})"), weights_sq_expr, paste0(w_sq_alias_base, "y_sq"))
+    )
+  }
+
+  if (!length(x_sql)) {
+    return(moment_terms)
+  }
+
+  if (alias_mode == "names") {
+    for (i in seq_along(x_sql)) {
+      x_expr = x_sql[i]
+      x_alias = x_aliases[i]
+      moment_terms = c(
+        moment_terms,
+        sql_weighted_sum(x_expr, weights_expr, paste0("sum_w", x_alias)),
+        sql_weighted_sum(glue("({x_expr}) * ({y_sql})"), weights_expr, paste0("sum_w", x_alias, "_y")),
+        sql_weighted_sum(glue("({x_expr}) * ({x_expr})"), weights_expr, paste0("sum_w", x_alias, "_", x_alias))
+      )
+    }
+
+    xpairs = gen_xvar_pairs(x_aliases)
+    for (pair in xpairs) {
+      i = match(pair[1], x_aliases)
+      j = match(pair[2], x_aliases)
+      moment_terms = c(
+        moment_terms,
+        sql_weighted_sum(
+          glue("({x_sql[i]}) * ({x_sql[j]})"),
+          weights_expr,
+          paste0("sum_w", pair[1], "_", pair[2])
+        )
+      )
+    }
+  } else {
+    for (i in seq_along(x_sql)) {
+      x_expr = x_sql[i]
+      moment_terms = c(
+        moment_terms,
+        sql_weighted_sum(x_expr, weights_expr, sprintf("sum_w%d", i)),
+        sql_weighted_sum(glue("({x_expr}) * ({y_sql})"), weights_expr, sprintf("sum_w%d_y", i)),
+        sql_weighted_sum(glue("({x_expr}) * ({x_expr})"), weights_expr, sprintf("sum_w%d_%d", i, i))
+      )
+    }
+
+    for (i in seq_along(x_sql)) {
+      if (i == length(x_sql)) {
+        next
+      }
+      for (j in (i + 1):length(x_sql)) {
+        moment_terms = c(
+          moment_terms,
+          sql_weighted_sum(
+            glue("({x_sql[i]}) * ({x_sql[j]})"),
+            weights_expr,
+            sprintf("sum_w%d_%d", i, j)
+          )
+        )
+      }
+    }
+  }
+
+  moment_terms
+}
+
+#' Check if a two-way panel is balanced
+#' @keywords internal
+dbreg_is_balanced_panel = function(conn, from_statement, fe) {
+  if (length(fe) != 2) {
+    return(NA)
+  }
+  fe_expr = paste(fe, collapse = ", ")
+  balance_sql = glue(
+    "SELECT COUNT(DISTINCT cnt) AS n_distinct_counts, COUNT(*) AS n_cells, ",
+    "(COUNT(DISTINCT {fe[1]}) * COUNT(DISTINCT {fe[2]})) AS n_expected ",
+    "FROM (SELECT COUNT(*) AS cnt, {fe[1]}, {fe[2]} {from_statement} GROUP BY {fe_expr}) t"
+  )
+  res = tryCatch(dbGetQuery(conn, balance_sql), error = function(e) NULL)
+  if (is.null(res)) {
+    return(NA)
+  }
+  res$n_distinct_counts == 1 && res$n_cells == res$n_expected
+}
+
+#' Alternating projections (AP) for exact multi-way FE demeaning
+#' @keywords internal
+dbreg_alternating_projections = function(
+  conn,
+  from_statement,
+  fe,
+  yvar,
+  xvars_sql,
+  xvar_names,
+  weights,
+  cluster_var = NULL,
+  verbose = FALSE,
+  max_iter = getOption("dbreg.ap_max_iter", 100L),
+  tol = getOption("dbreg.ap_tol", 1e-10)
+) {
+  backend = detect_backend(conn)$name
+  weights_expr = sql_weight_expr(weights)
+  if (is.null(weights_expr)) {
+    weights_expr = "1.0"
+  }
+
+  id_cols = unique(c(fe, cluster_var))
+  id_cols = setdiff(id_cols, c(yvar, xvar_names))
+  id_cols = id_cols[!is.na(id_cols) & id_cols != ""]
+
+  seed = paste0(
+    format(Sys.time(), "%Y%m%d_%H%M%S"),
+    "_",
+    sprintf("%06d", sample.int(1e6, 1))
+  )
+  base_table = temp_table_name(paste0("dbreg_ap_base_", seed), backend)
+  cur_table = temp_table_name(paste0("dbreg_ap_cur_", seed), backend)
+  alt_table = temp_table_name(paste0("dbreg_ap_alt_", seed), backend)
+  mean_table = temp_table_name(paste0("dbreg_ap_m_", seed), backend)
+
+  success = FALSE
+  on.exit({
+    if (!success) {
+      drop_table_if_exists(conn, cur_table, backend)
+      drop_table_if_exists(conn, alt_table, backend)
+      drop_table_if_exists(conn, mean_table, backend)
+      drop_table_if_exists(conn, base_table, backend)
+    }
+  }, add = TRUE)
+
+  base_select = c(
+    id_cols,
+    sprintf("%s AS %s", yvar, yvar),
+    sprintf("%s AS %s", xvars_sql, xvar_names),
+    sprintf("%s AS __w", weights_expr)
+  )
+  base_sql = paste0("SELECT ", paste(base_select, collapse = ", "), " ", from_statement)
+  create_temp_table_as(conn, base_table, base_sql, backend)
+
+  vars_all = c(yvar, xvar_names)
+  tilde_names = paste0(vars_all, "_tilde")
+  mean_names = paste0(vars_all, "_mean")
+
+  tilde_cols = c(
+    sprintf("%s AS %s_tilde", yvar, yvar),
+    sprintf("%s AS %s_tilde", xvar_names, xvar_names)
+  )
+  init_sql = paste0(
+    "SELECT ",
+    paste(c(id_cols, "__w", tilde_cols), collapse = ", "),
+    " FROM ",
+    base_table
+  )
+  create_temp_table_as(conn, cur_table, init_sql, backend)
+
+  for (iter in seq_len(max_iter)) {
+    for (fe_k in fe) {
+      mean_cols = vapply(vars_all, function(v) {
+        sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", v, v)
+      }, character(1))
+      mean_sql = paste0(
+        "SELECT ",
+        fe_k,
+        ", ",
+        paste(mean_cols, collapse = ", "),
+        " FROM ",
+        cur_table,
+        " GROUP BY ",
+        fe_k
+      )
+      create_temp_table_as(conn, mean_table, mean_sql, backend)
+
+      update_cols = c(
+        sprintf("t.%s", id_cols),
+        "t.__w",
+        sprintf("t.%s_tilde - m.%s_mean AS %s_tilde", vars_all, vars_all, vars_all)
+      )
+      update_sql = paste0(
+        "SELECT ",
+        paste(update_cols, collapse = ", "),
+        " FROM ",
+        cur_table,
+        " t JOIN ",
+        mean_table,
+        " m ON t.",
+        fe_k,
+        " = m.",
+        fe_k
+      )
+      create_temp_table_as(conn, alt_table, update_sql, backend)
+
+      drop_table_if_exists(conn, cur_table, backend)
+      drop_table_if_exists(conn, mean_table, backend)
+      tmp = cur_table
+      cur_table = alt_table
+      alt_table = tmp
+    }
+
+    # Convergence check: max absolute weighted group mean across all FEs
+    max_abs = 0
+    for (fe_k in fe) {
+      mean_cols = vapply(vars_all, function(v) {
+        sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", v, v)
+      }, character(1))
+      inner_sql = paste0(
+        "SELECT ",
+        paste(mean_cols, collapse = ", "),
+        " FROM ",
+        cur_table,
+        " GROUP BY ",
+        fe_k
+      )
+      outer_cols = paste(
+        sprintf("MAX(ABS(%s)) AS max_%s", mean_names, vars_all),
+        collapse = ", "
+      )
+      outer_sql = paste0("SELECT ", outer_cols, " FROM (", inner_sql, ") t")
+      res = dbGetQuery(conn, outer_sql)
+      max_abs = max(max_abs, max(res[1, ], na.rm = TRUE))
+    }
+
+    if (isTRUE(verbose)) {
+      message("[AP] iter ", iter, ": max abs mean = ", sprintf("%.4e", max_abs))
+    }
+
+    if (is.finite(max_abs) && max_abs < tol) {
+      success = TRUE
+      return(list(table = cur_table, base_table = base_table))
+    }
+  }
+
+  stop(
+    "[dbreg] Alternating projections did not converge within ",
+    max_iter,
+    " iterations (max abs mean = ",
+    sprintf("%.4e", max_abs),
+    ").\n\n",
+    "Options:\n",
+    "  - Increase tolerance: options(dbreg.ap_tol = 1e-7)\n",
+    "  - Increase iterations: options(dbreg.ap_max_iter = 500)\n",
+    "  - Use strategy = 'mundlak' (single-pass CRE estimator, no iteration needed)",
+    call. = FALSE
   )
 }
 
@@ -504,6 +851,7 @@ choose_strategy = function(inputs) {
   conn = inputs$conn
   from_statement = inputs$from_statement
   xvars = inputs$xvars
+  weights = inputs$weights
 
   # Compression ratio estimator
   estimate_compression = function(inputs) {
@@ -620,45 +968,25 @@ choose_strategy = function(inputs) {
       } else {
         chosen_strategy = "compress"
       }
-    } else if (length(fe) %in% c(1, 2)) {
+    } else if (length(fe) >= 1) {
       if (fail_compress_ratio || fail_compress_nmax) {
-        # For 2-way FE, check balance
+        chosen_strategy = "demean"
         if (length(fe) == 2) {
-          fe_expr = paste(fe, collapse = ", ")
-          balance_sql = glue(
-            "SELECT COUNT(DISTINCT cnt) AS n FROM (SELECT COUNT(*) AS cnt {from_statement} GROUP BY {fe_expr}) t"
-          )
-          is_balanced = tryCatch(dbGetQuery(conn, balance_sql)$n == 1, error = function(e) NA)
-          if (isTRUE(is_balanced)) {
-            chosen_strategy = "demean"
-            if (verbose) {
+          is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
+          inputs$is_balanced = is_balanced
+          if (verbose) {
+            if (isTRUE(is_balanced)) {
               message("        - panel is balanced")
+            } else {
+              message("        - panel is unbalanced (using alternating projections)")
             }
-          } else {
-            if (verbose) {
-              message("        - panel is unbalanced")
-            }
-            stop(
-              "[dbreg] Exact TWFE infeasible for unbalanced panel under current transfer limits.\n\n",
-              "Users have two recommended options:\n",
-              "  - strategy = 'compress' with less strict compression thresholds (for exact TWFE), or\n",
-              "  - strategy = 'mundlak' (for CRE estimator; different model so requires explicit opt-in)",
-              call. = FALSE
-            )
           }
-        } else {
-          chosen_strategy = "demean"
+        } else if (length(fe) > 2 && verbose) {
+          message("        - more than 2 FEs, using alternating projections")
         }
       } else {
         chosen_strategy = "compress"
       }
-    } else {
-      # browser()
-      # > 3 FEs, default to compress
-      if (verbose) {
-        message("        - more than 2 FEs")
-      }
-      chosen_strategy = "compress"
     }
     if (verbose) {
       message("        - decision: ", chosen_strategy)
@@ -677,21 +1005,9 @@ choose_strategy = function(inputs) {
     )
     chosen_strategy = "compress"
   }
-  if (chosen_strategy == "demean") {
-    if (!(length(fe) %in% c(1, 2))) {
-      warning("[dbreg] demean requires <= 2 FEs. Using compress.")
-      chosen_strategy = "compress"
-    } else if (verbose && length(fe) == 2) {
-      # For 2-way FE, check balance; just a warning since user has explicitly selected into demean
-      fe_expr = paste(fe, collapse = ", ")
-      balance_sql = glue(
-        "SELECT COUNT(DISTINCT cnt) AS n FROM (SELECT COUNT(*) AS cnt {from_statement} GROUP BY {fe_expr}) t"
-      )
-      is_balanced = tryCatch(dbGetQuery(conn, balance_sql)$n == 1, error = function(e) NA)
-      if (!is_balanced) {
-        warning("[dbreg] Panel appears unbalanced. Double demeaning may yield different coefficients than exact TWFE.")
-      }
-    }
+  if (chosen_strategy == "demean" && length(fe) == 0) {
+    warning("[dbreg] demean requires at least 1 FE. Using moments.")
+    chosen_strategy = "moments"
   }
 
   # Store compression ratio estimate for later use
@@ -721,31 +1037,15 @@ execute_moments_strategy = function(inputs) {
     xvar_names = inputs$xvars
   }
   
-  pair_exprs = c(
-    "COUNT(*) AS n_total",
-    glue("SUM({inputs$yvar}) AS sum_y"),
-    glue("SUM({inputs$yvar}*{inputs$yvar}) AS sum_y_sq")
+  weights_expr = sql_weight_expr(inputs$weights)
+  pair_exprs = build_weighted_moment_terms(
+    y_sql = inputs$yvar,
+    x_sql = xvars_sql,
+    x_aliases = xvar_names,
+    weights_expr = weights_expr,
+    alias_mode = "names",
+    prefix_terms = sql_count(inputs$conn, "n_total")
   )
-  for (i in seq_along(xvars_sql)) {
-    x_sql = xvars_sql[i]
-    x_name = xvar_names[i]
-    pair_exprs = c(
-      pair_exprs,
-      glue("SUM({x_sql}) AS sum_{x_name}"),
-      glue("SUM(({x_sql})*{inputs$yvar}) AS sum_{x_name}_y"),
-      glue("SUM(({x_sql})*({x_sql})) AS sum_{x_name}_{x_name}")
-    )
-  }
-  xpairs = gen_xvar_pairs(xvar_names)
-  for (k in seq_along(xpairs)) {
-    i = match(xpairs[[k]][1], xvar_names)
-    j = match(xpairs[[k]][2], xvar_names)
-    xi_sql = xvars_sql[i]
-    xj_sql = xvars_sql[j]
-    xi_name = xvar_names[i]
-    xj_name = xvar_names[j]
-    pair_exprs = c(pair_exprs, glue("SUM(({xi_sql})*({xj_sql})) AS sum_{xi_name}_{xj_name}"))
-  }
   
   # CTE structure for HC1 meat computation
   cte_sql = paste0("WITH base AS (SELECT * ", inputs$from_statement, ")")
@@ -761,34 +1061,35 @@ execute_moments_strategy = function(inputs) {
     return(moments_sql)
   }
   if (inputs$verbose) {
-    message("[dbreg] Executing moments SQL\n")
+    message(if (!is.null(inputs$weights)) "[dbreg] Executing weighted moments SQL\n" else "[dbreg] Executing moments SQL\n")
   }
   moments_df = dbGetQuery(inputs$conn, moments_sql)
   if (inputs$data_only) {
     return(moments_df)
   }
   n_total = moments_df$n_total
+  sum_w = moments_df$sum_w
 
   vars_all = c("(Intercept)", xvar_names)
   p = length(vars_all)
   XtX = matrix(0, p, p, dimnames = list(vars_all, vars_all))
   Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
 
-  XtX["(Intercept)", "(Intercept)"] = n_total
-  Xty["(Intercept)", ] = moments_df$sum_y
+  XtX["(Intercept)", "(Intercept)"] = sum_w
+  Xty["(Intercept)", ] = moments_df$sum_wy
   for (x in xvar_names) {
-    sx = moments_df[[paste0("sum_", x)]]
-    sxx = moments_df[[paste0("sum_", x, "_", x)]]
-    sxy = moments_df[[paste0("sum_", x, "_y")]]
-    XtX["(Intercept)", x] = XtX[x, "(Intercept)"] = sx
-    XtX[x, x] = sxx
-    Xty[x, ] = sxy
+    swx = moments_df[[paste0("sum_w", x)]]
+    swxx = moments_df[[paste0("sum_w", x, "_", x)]]
+    swxy = moments_df[[paste0("sum_w", x, "_y")]]
+    XtX["(Intercept)", x] = XtX[x, "(Intercept)"] = swx
+    XtX[x, x] = swxx
+    Xty[x, ] = swxy
   }
   xpairs = gen_xvar_pairs(xvar_names)
   for (pair in xpairs) {
     xi = pair[1]
     xj = pair[2]
-    val = moments_df[[paste0("sum_", xi, "_", xj)]]
+    val = moments_df[[paste0("sum_w", xi, "_", xj)]]
     XtX[xi, xj] = XtX[xj, xi] = val
   }
 
@@ -798,15 +1099,15 @@ execute_moments_strategy = function(inputs) {
   rownames(betahat) = vars_all
 
   rss = as.numeric(
-    moments_df$sum_y_sq -
+    moments_df$sum_wy_sq -
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
   df_res = max(n_total - p, 1)
   # Calculate TSS for R2
-  sum_y = moments_df$sum_y
-  sum_y_sq = moments_df$sum_y_sq
-  tss = sum_y_sq - (sum_y^2 / n_total)
+  sum_wy = moments_df$sum_wy
+  sum_wy_sq = moments_df$sum_wy_sq
+  tss = sum_wy_sq - (sum_wy^2 / sum_w)
   
   # Compute meat matrix if needed (HC1 or cluster)
   meat = NULL
@@ -822,7 +1123,8 @@ execute_moments_strategy = function(inputs) {
       is_athena = is_athena,
       var_suffix = "",
       cte_name = "base",
-      has_intercept = TRUE
+      has_intercept = TRUE,
+      weights_expr = weights_expr
     )
   } else if (inputs$vcov_type_req == "cluster") {
     meat = compute_meat_cluster_sql(
@@ -836,7 +1138,8 @@ execute_moments_strategy = function(inputs) {
       is_athena = is_athena,
       var_suffix = "",
       cte_name = "base",
-      has_intercept = TRUE
+      has_intercept = TRUE,
+      weights_expr = weights_expr
     )
   }
   
@@ -862,6 +1165,7 @@ execute_moments_strategy = function(inputs) {
     yvar = inputs$yvar,
     xvars = standardize_coef_names(inputs$xvars),
     fe = NULL,
+    weights = inputs$weights,
     query_string = moments_sql,
     nobs = 1L,
     nobs_orig = n_total,
@@ -871,7 +1175,7 @@ execute_moments_strategy = function(inputs) {
   )
 }
 
-#' Execute demean strategy (1-2 fixed effects)
+#' Execute demean strategy (1+ fixed effects)
 #' 
 #' Double demeaning / within estimator. Gives identical coefficients to 
 #' fixed effects regression.
@@ -896,9 +1200,32 @@ execute_demean_strategy = function(inputs) {
     xvar_names = inputs$xvars
   }
   
+  weights_expr_base = sql_weight_expr(inputs$weights)
+  weights_expr_demeaned = if (is.null(inputs$weights)) NULL else sql_weight_expr("weights")
+
   all_var_names = c(inputs$yvar, xvar_names)
   all_var_sql = c(inputs$yvar, xvars_sql)
   
+  cluster_var = inputs$cluster_var
+  use_ap = FALSE
+  ap_tables = NULL
+  if (length(inputs$fe) >= 2) {
+    if (length(inputs$fe) > 2) {
+      use_ap = TRUE
+    } else {
+      is_balanced = inputs$is_balanced
+      if (is.null(is_balanced)) {
+        is_balanced = dbreg_is_balanced_panel(inputs$conn, inputs$from_statement, inputs$fe)
+      }
+      use_ap = !is.null(inputs$weights) || !isTRUE(is_balanced)
+    }
+    if (isTRUE(use_ap) && inputs$verbose) {
+      message("[dbreg] Using alternating projections for FE demeaning")
+    }
+    if (isTRUE(use_ap) && inputs$sql_only) {
+      stop("[dbreg] sql_only is not supported for alternating projections.", call. = FALSE)
+    }
+  }
   if (length(inputs$fe) == 1) {
     # Single FE: simple within-group demeaning
     fe1 = inputs$fe[1]
@@ -908,15 +1235,39 @@ execute_demean_strategy = function(inputs) {
     for (i in seq_along(xvar_names)) {
       base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
     }
+    if (!is.null(inputs$weights) && !inputs$weights %in% c(fe1, inputs$yvar, xvar_names)) {
+      base_select = c(base_select, inputs$weights)
+    }
+    if (!is.null(cluster_var) && !cluster_var %in% c(fe1, inputs$yvar, xvar_names, inputs$weights)) {
+      base_select = c(base_select, cluster_var)
+    }
     
     means_cols = paste(
-      sprintf("AVG(%s) AS %s_mean", all_var_names, all_var_names),
+      vapply(
+        all_var_names,
+        function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_mean")),
+        character(1)
+      ),
       collapse = ", "
     )
     tilde_exprs = paste(
       sprintf("(b.%s - gm.%s_mean) AS %s_tilde", all_var_names, all_var_names, all_var_names),
       collapse = ",\n       "
     )
+    if (!is.null(inputs$weights)) {
+      tilde_exprs = paste(
+        tilde_exprs,
+        sprintf("b.%s AS weights", inputs$weights),
+        sep = ",\n       "
+      )
+    }
+    if (!is.null(cluster_var) && !cluster_var %in% c(fe1)) {
+      tilde_exprs = paste(
+        tilde_exprs,
+        sprintf("b.%s AS %s", cluster_var, cluster_var),
+        sep = ",\n       "
+      )
+    }
 
     # CTE part (reusable for HC1 meat computation)
     cte_sql = paste0(
@@ -955,113 +1306,175 @@ execute_demean_strategy = function(inputs) {
       sql_count(inputs$conn, "n_total"),
       sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
       "1 AS n_fe2",
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_y_sq",
-        inputs$yvar,
-        inputs$yvar
+      sql_weighted_sum(
+        glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
+        weights_expr_demeaned,
+        "sum_y_sq"
       )
     )
   } else {
-    # Two FE: double demeaning
+    # 2 FE: AP when weighted/unbalanced; double demeaning otherwise
     fe1 = inputs$fe[1]
     fe2 = inputs$fe[2]
-    
-    # Build base CTE with expanded columns
-    base_select = c(fe1, fe2, inputs$yvar)
-    for (i in seq_along(xvar_names)) {
-      base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
-    }
 
-    unit_means_cols = paste(
-      sprintf("AVG(%s) AS %s_u", all_var_names, all_var_names),
-      collapse = ", "
-    )
-    time_means_cols = paste(
-      sprintf("AVG(%s) AS %s_t", all_var_names, all_var_names),
-      collapse = ", "
-    )
-    overall_cols = paste(
-      sprintf("AVG(%s) AS %s_o", all_var_names, all_var_names),
-      collapse = ", "
-    )
-    tilde_exprs = paste(
-      sprintf(
-        "(b.%s - um.%s_u - tm.%s_t + o.%s_o) AS %s_tilde",
-        all_var_names,
-        all_var_names,
-        all_var_names,
-        all_var_names,
-        all_var_names
-      ),
-      collapse = ",\n       "
-    )
-
-    # CTE part (reusable for HC1 meat computation)
-    cte_sql = paste0(
-      "WITH base AS (
-      SELECT ", paste(base_select, collapse = ", "), " ",
-      inputs$from_statement,
-      "
-      ),
-      unit_means AS (
-      SELECT ",
-      fe1,
-      ", ",
-      unit_means_cols,
-      " FROM base GROUP BY ",
-      fe1,
-      "
-      ),
-      time_means AS (
-      SELECT ",
-      fe2,
-      ", ",
-      time_means_cols,
-      " FROM base GROUP BY ",
-      fe2,
-      "
-      ),
-      overall AS (
-      SELECT ",
-      overall_cols,
-      " FROM base
-      ),
-      demeaned AS (
-      SELECT
-          b.",
-      fe1,
-      ",
-          b.",
-      fe2,
-      ",
-          ",
-      tilde_exprs,
-      "
-      FROM base b
-      JOIN unit_means um ON b.",
-      fe1,
-      " = um.",
-      fe1,
-      "
-      JOIN time_means tm ON b.",
-      fe2,
-      " = tm.",
-      fe2,
-      "
-      CROSS JOIN overall o
-      )"
-    )
-
-    moment_terms = c(
-      sql_count(inputs$conn, "n_total"),
-      sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
-      sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_y_sq",
-        inputs$yvar,
-        inputs$yvar
+    if (isTRUE(use_ap)) {
+      ap_res = dbreg_alternating_projections(
+        conn = inputs$conn,
+        from_statement = inputs$from_statement,
+        fe = inputs$fe,
+        yvar = inputs$yvar,
+        xvars_sql = xvars_sql,
+        xvar_names = xvar_names,
+        weights = inputs$weights,
+        cluster_var = cluster_var,
+        verbose = inputs$verbose
       )
-    )
+      ap_tables = c(ap_res$table, ap_res$base_table)
+      weights_expr_demeaned = "__w"
+      cte_sql = paste0("WITH demeaned AS (SELECT * FROM ", ap_res$table, ")")
+
+      fe_count_terms = vapply(seq_along(inputs$fe), function(k) {
+        sql_count(inputs$conn, sprintf("n_fe%d", k), inputs$fe[k], distinct = TRUE)
+      }, character(1))
+      moment_terms = c(
+        sql_count(inputs$conn, "n_total"),
+        fe_count_terms,
+        sql_weighted_sum(
+          glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
+          weights_expr_demeaned,
+          "sum_y_sq"
+        )
+      )
+    } else {
+      # Double demeaning (balanced panels, unweighted)
+      base_select = c(fe1, fe2, inputs$yvar)
+      for (i in seq_along(xvar_names)) {
+        base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
+      }
+      if (!is.null(inputs$weights) && !inputs$weights %in% c(fe1, fe2, inputs$yvar, xvar_names)) {
+        base_select = c(base_select, inputs$weights)
+      }
+      if (!is.null(cluster_var) && !cluster_var %in% c(fe1, fe2, inputs$yvar, xvar_names, inputs$weights)) {
+        base_select = c(base_select, cluster_var)
+      }
+
+      unit_means_cols = paste(
+        vapply(
+          all_var_names,
+          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_u")),
+          character(1)
+        ),
+        collapse = ", "
+      )
+      time_means_cols = paste(
+        vapply(
+          all_var_names,
+          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_t")),
+          character(1)
+        ),
+        collapse = ", "
+      )
+      overall_cols = paste(
+        vapply(
+          all_var_names,
+          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_o")),
+          character(1)
+        ),
+        collapse = ", "
+      )
+      tilde_exprs = paste(
+        sprintf(
+          "(b.%s - um.%s_u - tm.%s_t + o.%s_o) AS %s_tilde",
+          all_var_names,
+          all_var_names,
+          all_var_names,
+          all_var_names,
+          all_var_names
+        ),
+        collapse = ",\n       "
+      )
+      if (!is.null(cluster_var) && !cluster_var %in% c(fe1, fe2)) {
+        tilde_exprs = paste(
+          tilde_exprs,
+          sprintf("b.%s AS %s", cluster_var, cluster_var),
+          sep = ",\n       "
+        )
+      }
+      if (!is.null(inputs$weights)) {
+        tilde_exprs = paste(
+          tilde_exprs,
+          sprintf("b.%s AS weights", inputs$weights),
+          sep = ",\n       "
+        )
+      }
+
+      # CTE part (reusable for HC1 meat computation)
+      cte_sql = paste0(
+        "WITH base AS (
+        SELECT ", paste(base_select, collapse = ", "), " ",
+        inputs$from_statement,
+        "
+        ),
+        unit_means AS (
+        SELECT ",
+        fe1,
+        ", ",
+        unit_means_cols,
+        " FROM base GROUP BY ",
+        fe1,
+        "
+        ),
+        time_means AS (
+        SELECT ",
+        fe2,
+        ", ",
+        time_means_cols,
+        " FROM base GROUP BY ",
+        fe2,
+        "
+        ),
+        overall AS (
+        SELECT ",
+        overall_cols,
+        " FROM base
+        ),
+        demeaned AS (
+        SELECT
+            b.",
+        fe1,
+        ",
+            b.",
+        fe2,
+        ",
+            ",
+        tilde_exprs,
+        "
+        FROM base b
+        JOIN unit_means um ON b.",
+        fe1,
+        " = um.",
+        fe1,
+        "
+        JOIN time_means tm ON b.",
+        fe2,
+        " = tm.",
+        fe2,
+        "
+        CROSS JOIN overall o
+        )"
+      )
+
+      moment_terms = c(
+        sql_count(inputs$conn, "n_total"),
+        sql_count(inputs$conn, "n_fe1", fe1, distinct = TRUE),
+        sql_count(inputs$conn, "n_fe2", fe2, distinct = TRUE),
+        sql_weighted_sum(
+          glue("CAST({inputs$yvar}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
+          weights_expr_demeaned,
+          "sum_y_sq"
+        )
+      )
+    }
   }
 
   # Add moment terms for xvars (shared by both 1-FE and 2-FE cases)
@@ -1070,13 +1483,15 @@ execute_demean_strategy = function(inputs) {
     x = xvar_names[i]
     moment_terms = c(
       moment_terms,
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_y",
-        x, inputs$yvar, i
+      sql_weighted_sum(
+        glue("CAST({x}_tilde AS FLOAT) * CAST({inputs$yvar}_tilde AS FLOAT)"),
+        weights_expr_demeaned,
+        sprintf("sum_%d_y", i)
       ),
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_%d",
-        x, x, i, i
+      sql_weighted_sum(
+        glue("CAST({x}_tilde AS FLOAT) * CAST({x}_tilde AS FLOAT)"),
+        weights_expr_demeaned,
+        sprintf("sum_%d_%d", i, i)
       )
     )
   }
@@ -1086,9 +1501,10 @@ execute_demean_strategy = function(inputs) {
     j = match(pair[2], xvar_names)  # smaller index
     moment_terms = c(
       moment_terms,
-      sprintf(
-        "SUM(CAST(%s_tilde AS FLOAT) * CAST(%s_tilde AS FLOAT)) AS sum_%d_%d",
-        pair[2], pair[1], j, i  # store as sum_smaller_larger
+      sql_weighted_sum(
+        glue("CAST({pair[2]}_tilde AS FLOAT) * CAST({pair[1]}_tilde AS FLOAT)"),
+        weights_expr_demeaned,
+        sprintf("sum_%d_%d", j, i)  # store as sum_smaller_larger
       )
     )
   }
@@ -1119,15 +1535,26 @@ execute_demean_strategy = function(inputs) {
 
   # Execute SQL and build matrices
   if (inputs$verbose) {
-    message("[dbreg] Executing demean SQL\n")
+    message(if (!is.null(inputs$weights)) "[dbreg] Executing weighted demean SQL\n" else "[dbreg] Executing demean SQL\n")
   }
   demean_df = dbGetQuery(inputs$conn, demean_sql)
+  ap_cleanup = function() {
+    if (!is.null(ap_tables)) {
+      backend = detect_backend(inputs$conn)$name
+      for (tbl in ap_tables) {
+        drop_table_if_exists(inputs$conn, tbl, backend)
+      }
+    }
+  }
   if (inputs$data_only) {
+    ap_cleanup()
     return(demean_df)
   }
   n_total = demean_df$n_total
-  n_fe1 = demean_df$n_fe1
-  n_fe2 = demean_df$n_fe2
+  n_fe_levels = vapply(seq_along(inputs$fe), function(k) {
+    val = demean_df[[sprintf("n_fe%d", k)]]
+    if (is.null(val)) 1L else as.integer(val)
+  }, integer(1))
 
   p = length(xvar_names)
   XtX = matrix(0, p, p, dimnames = list(xvar_names, xvar_names))
@@ -1165,7 +1592,8 @@ execute_demean_strategy = function(inputs) {
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
-  df_fe = n_fe1 + n_fe2 - 1
+  n_fe = length(inputs$fe)
+  df_fe = sum(n_fe_levels) - (n_fe - 1)
   df_res = max(n_total - p_kept - df_fe, 1)
   
   # Compute meat matrix if needed (HC1 or cluster)
@@ -1179,7 +1607,8 @@ execute_demean_strategy = function(inputs) {
       vars = xvar_names_kept,
       yvar = inputs$yvar,
       betahat = betahat,
-      is_athena = is_athena
+      is_athena = is_athena,
+      weights_expr = weights_expr_demeaned
     )
   } else if (inputs$vcov_type_req == "cluster") {
     meat = compute_meat_cluster_sql(
@@ -1189,7 +1618,8 @@ execute_demean_strategy = function(inputs) {
       yvar = inputs$yvar,
       betahat = betahat,
       cluster_var = inputs$cluster_var,
-      is_athena = is_athena
+      is_athena = is_athena,
+      weights_expr = weights_expr_demeaned
     )
     # For ssc = "nested", exclude nested FE levels from K
     if (inputs$ssc == "nested") {
@@ -1214,6 +1644,7 @@ execute_demean_strategy = function(inputs) {
   attr(vcov_mat, "tss") = demean_df$sum_y_sq
 
   coeftable = gen_coeftable(betahat, vcov_mat, df_res)
+  ap_cleanup()
 
   list(
     coeftable = coeftable,
@@ -1223,14 +1654,14 @@ execute_demean_strategy = function(inputs) {
     xvars = standardize_coef_names(xvar_names_kept),
     collin.var = standardize_coef_names(collin_vars),
     fe = inputs$fe,
+    weights = inputs$weights,
     query_string = demean_sql,
     nobs = 1L,
     nobs_orig = n_total,
     strategy = "demean",
     compression_ratio_est = inputs$compression_ratio_est,
     df_residual = df_res,
-    n_fe1 = n_fe1,
-    n_fe2 = n_fe2
+    n_fe_levels = n_fe_levels
   )
 }
 
@@ -1266,6 +1697,11 @@ execute_mundlak_strategy = function(inputs) {
     xvar_names = inputs$xvars
   }
   
+  weights_expr_base = sql_weight_expr(inputs$weights)
+  weights_expr_aug = if (is.null(inputs$weights)) NULL else sql_weight_expr("weights")
+
+  cluster_var = inputs$cluster_var
+
   # Build base CTE with expanded columns AND original xvars (for group means)
   base_select = c(fe, yvar, inputs$xvars)
   for (i in seq_along(xvar_names)) {
@@ -1273,6 +1709,12 @@ execute_mundlak_strategy = function(inputs) {
     if (!xvar_names[i] %in% inputs$xvars) {
       base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
     }
+  }
+  if (!is.null(inputs$weights) && !inputs$weights %in% c(fe, yvar, inputs$xvars, xvar_names)) {
+    base_select = c(base_select, inputs$weights)
+  }
+  if (!is.null(cluster_var) && !cluster_var %in% c(fe, yvar, inputs$xvars, xvar_names, inputs$weights)) {
+    base_select = c(base_select, cluster_var)
   }
 
   # Build group means CTEs and join clauses for each FE
@@ -1299,7 +1741,14 @@ execute_mundlak_strategy = function(inputs) {
     if (length(numeric_xvars) > 0) {
       xbar_k = paste0(numeric_xvars, suffix)
       xbar_all = c(xbar_all, xbar_k)
-      means_cols = paste(sprintf("AVG(%s) AS %s", numeric_xvars, xbar_k), collapse = ", ")
+      means_cols = paste(
+        vapply(
+          numeric_xvars,
+          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, suffix)),
+          character(1)
+        ),
+        collapse = ", "
+      )
       cte_parts = c(cte_parts, sprintf(
         "fe%d_means AS (SELECT %s, %s FROM base GROUP BY %s)",
         k, fe_k, means_cols, fe_k
@@ -1319,6 +1768,12 @@ execute_mundlak_strategy = function(inputs) {
 
   # Select columns for augmented table (include FE for counting)
   aug_select_parts = c(sprintf("b.%s", fe), sprintf("b.%s", yvar), sprintf("b.%s", xvar_names))
+  if (!is.null(cluster_var) && !cluster_var %in% c(fe, yvar, xvar_names)) {
+    aug_select_parts = c(aug_select_parts, sprintf("b.%s AS %s", cluster_var, cluster_var))
+  }
+  if (!is.null(inputs$weights)) {
+    aug_select_parts = c(aug_select_parts, sprintf("b.%s AS weights", inputs$weights))
+  }
   for (k in seq_along(fe)) {
     if (length(numeric_xvars) > 0) {
       suffix = paste0("_bar_", fe[k])
@@ -1332,35 +1787,18 @@ execute_mundlak_strategy = function(inputs) {
   all_regressors = c(xvar_names, xbar_all)
 
   # Build moment terms using numeric indices
-  moment_terms = c(
-    sql_count(inputs$conn, "n_total"),
-    if (n_fe >= 1) sql_count(inputs$conn, "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
-    if (n_fe >= 2) sql_count(inputs$conn, "n_fe2", fe[2], distinct = TRUE) else "1 AS n_fe2",
-    sprintf("SUM(CAST(%s AS FLOAT)) AS sum_y", yvar),
-    sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_y_sq", yvar, yvar)
-  )
-
-  # sum(X_j) and sum(X_j * Y) for each regressor
-  for (i in seq_along(all_regressors)) {
-    v = all_regressors[i]
-    moment_terms = c(
-      moment_terms,
-      sprintf("SUM(CAST(%s AS FLOAT)) AS sum_%d", v, i),
-      sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%d_y", v, yvar, i)
+  moment_terms = build_weighted_moment_terms(
+    y_sql = glue("CAST({yvar} AS FLOAT)"),
+    x_sql = glue("CAST({all_regressors} AS FLOAT)"),
+    x_aliases = all_regressors,
+    weights_expr = weights_expr_aug,
+    alias_mode = "indices",
+    prefix_terms = c(
+      sql_count(inputs$conn, "n_total"),
+      if (n_fe >= 1) sql_count(inputs$conn, "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
+      if (n_fe >= 2) sql_count(inputs$conn, "n_fe2", fe[2], distinct = TRUE) else "1 AS n_fe2"
     )
-  }
-
-  # sum(X_i * X_j) for all pairs (upper triangle including diagonal)
-  for (i in seq_along(all_regressors)) {
-    for (j in i:length(all_regressors)) {
-      vi = all_regressors[i]
-      vj = all_regressors[j]
-      moment_terms = c(
-        moment_terms,
-        sprintf("SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS sum_%d_%d", vi, vj, i, j)
-      )
-    }
-  }
+  )
 
   # CTE part (reusable for HC1 meat computation)
   cte_sql = paste0(
@@ -1385,7 +1823,7 @@ execute_mundlak_strategy = function(inputs) {
   }
 
   if (inputs$verbose) {
-    message("[dbreg] Executing mundlak SQL\n")
+    message(if (!is.null(inputs$weights)) "[dbreg] Executing weighted mundlak SQL\n" else "[dbreg] Executing mundlak SQL\n")
   }
   mundlak_df = dbGetQuery(inputs$conn, mundlak_sql)
   if (inputs$data_only) {
@@ -1395,6 +1833,7 @@ execute_mundlak_strategy = function(inputs) {
   n_total = mundlak_df$n_total
   n_fe1 = mundlak_df$n_fe1
   n_fe2 = mundlak_df$n_fe2
+  sum_w = mundlak_df$sum_w
 
   # Include intercept
   vars_all = c("(Intercept)", all_regressors)
@@ -1404,21 +1843,21 @@ execute_mundlak_strategy = function(inputs) {
   Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
 
   # Intercept terms
-  XtX[1, 1] = n_total
-  Xty[1, ] = mundlak_df$sum_y
+  XtX[1, 1] = sum_w
+  Xty[1, ] = mundlak_df$sum_wy
 
   # Regressor terms (using numeric indices)
   for (i in seq_along(all_regressors)) {
-    XtX[1, i + 1] = XtX[i + 1, 1] = mundlak_df[[sprintf("sum_%d", i)]]
-    XtX[i + 1, i + 1] = mundlak_df[[sprintf("sum_%d_%d", i, i)]]
-    Xty[i + 1, ] = mundlak_df[[sprintf("sum_%d_y", i)]]
+    XtX[1, i + 1] = XtX[i + 1, 1] = mundlak_df[[sprintf("sum_w%d", i)]]
+    XtX[i + 1, i + 1] = mundlak_df[[sprintf("sum_w%d_%d", i, i)]]
+    Xty[i + 1, ] = mundlak_df[[sprintf("sum_w%d_y", i)]]
   }
 
   # Cross-terms
   for (i in seq_along(all_regressors)) {
     for (j in seq_along(all_regressors)) {
       if (i < j) {
-        XtX[i + 1, j + 1] = XtX[j + 1, i + 1] = mundlak_df[[sprintf("sum_%d_%d", i, j)]]
+        XtX[i + 1, j + 1] = XtX[j + 1, i + 1] = mundlak_df[[sprintf("sum_w%d_%d", i, j)]]
       }
     }
   }
@@ -1430,11 +1869,11 @@ execute_mundlak_strategy = function(inputs) {
 
   # RSS and TSS
   rss = as.numeric(
-    mundlak_df$sum_y_sq -
+    mundlak_df$sum_wy_sq -
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
-  tss = mundlak_df$sum_y_sq - (mundlak_df$sum_y^2 / n_total)
+  tss = mundlak_df$sum_wy_sq - (mundlak_df$sum_wy^2 / sum_w)
 
   df_res = max(n_total - p, 1)
 
@@ -1451,7 +1890,8 @@ execute_mundlak_strategy = function(inputs) {
       is_athena = is_athena,
       var_suffix = "",
       cte_name = "augmented",
-      has_intercept = TRUE
+      has_intercept = TRUE,
+      weights_expr = weights_expr_aug
     )
   } else if (inputs$vcov_type_req == "cluster") {
     meat = compute_meat_cluster_sql(
@@ -1464,7 +1904,8 @@ execute_mundlak_strategy = function(inputs) {
       is_athena = is_athena,
       var_suffix = "",
       cte_name = "augmented",
-      has_intercept = TRUE
+      has_intercept = TRUE,
+      weights_expr = weights_expr_aug
     )
   }
 
@@ -1490,6 +1931,7 @@ execute_mundlak_strategy = function(inputs) {
     yvar = yvar,
     xvars = standardize_coef_names(xvar_names),
     fe = fe,
+    weights = inputs$weights,
     query_string = mundlak_sql,
     nobs = 1L,
     nobs_orig = n_total,
@@ -1533,6 +1975,7 @@ execute_compress_strategy = function(inputs) {
     xvar_names = inputs$xvars
   }
   
+  weights_expr = sql_weight_expr(inputs$weights)
   # FE columns (no expansion needed - used for grouping)
   fe_sql = if (length(inputs$fe)) paste(inputs$fe, collapse = ", ") else NULL
   
@@ -1540,39 +1983,30 @@ execute_compress_strategy = function(inputs) {
   all_cols_sql = if (!is.null(fe_sql)) paste(xvars_sql, fe_sql, sep = ", ") else xvars_sql
   group_cols = if (!is.null(fe_sql)) c(xvar_names, inputs$fe) else xvar_names
   group_cols_sql = paste(group_cols, collapse = ", ")
+  moment_terms = build_weighted_moment_terms(
+    y_sql = inputs$yvar,
+    weights_expr = weights_expr,
+    prefix_terms = "COUNT(*) AS n",
+    include_w_sq = TRUE
+  )
   
   query_string = paste0(
-    "WITH cte AS (
-    SELECT
-        ",
+    "WITH cte AS (\n    SELECT\n        ",
     all_cols_sql,
-    ",
-        COUNT(*) AS n,
-        SUM(",
-    inputs$yvar,
-    ") AS sum_Y,
-        SUM(POWER(",
-    inputs$yvar,
-    ", 2)) AS sum_Y_sq
-    ",
+    ",\n        ",
+    paste(moment_terms, collapse = ",\n        "),
+    ",\n    ",
     from_statement,
-    "
-    GROUP BY ",
+    "\n    GROUP BY ",
     group_cols_sql,
-    "
-    )
-    SELECT
-    *,
-    sum_Y / n AS mean_Y,
-    sqrt(n) AS wts
-    FROM cte"
+    "\n    )\n    SELECT\n    *,\n    sum_wy / sum_w AS mean_Y,\n    sqrt(sum_w) AS wts\n    FROM cte"
   )
 
   if (inputs$sql_only) {
     return(query_string)
   }
   if (inputs$verbose) {
-    message("[dbreg] Executing compress strategy SQL\n")
+    message(if (!is.null(inputs$weights)) "[dbreg] Executing weighted compress strategy SQL\n" else "[dbreg] Executing compress strategy SQL\n")
   }
   compressed_dat = dbGetQuery(inputs$conn, query_string)
   nobs_orig = sum(compressed_dat$n)
@@ -1634,21 +2068,29 @@ execute_compress_strategy = function(inputs) {
   rownames(betahat) = colnames(X)
   yhat = as.numeric(X %*% betahat)
 
-  n_vec = compressed_dat$n
-  sum_Y = compressed_dat$sum_Y
-  sum_Y_sq = compressed_dat$sum_Y_sq
-  rss_g = sum_Y_sq - 2 * yhat * sum_Y + n_vec * (yhat^2)
+  sum_w = compressed_dat$sum_w
+  sum_wy = compressed_dat$sum_wy
+  sum_wy_sq = compressed_dat$sum_wy_sq
+  rss_g = sum_wy_sq - 2 * yhat * sum_wy + sum_w * (yhat^2)
   rss_total = sum(rss_g)
   df_res = max(nobs_orig - ncol(X), 1)
 
   # Calculate TSS for R2
-  sum_Y_total = sum(compressed_dat$sum_Y)
-  sum_Y_sq_total = sum(compressed_dat$sum_Y_sq)
-  tss = sum_Y_sq_total - (sum_Y_total^2 / nobs_orig)
+  sum_wy_total = sum(compressed_dat$sum_wy)
+  sum_wy_sq_total = sum(compressed_dat$sum_wy_sq)
+  sum_w_total = sum(compressed_dat$sum_w)
+  tss = sum_wy_sq_total - (sum_wy_total^2 / sum_w_total)
   
   # For clustered SEs, need to query cluster-by-cell stats
   meat = NULL
   n_params_cluster = ncol(X)  # K for CR1 correction
+  if (inputs$vcov_type_req == "hc1" && !is.null(inputs$weights)) {
+    sum_w2 = compressed_dat$sum_w2
+    sum_w2y = compressed_dat$sum_w2y
+    sum_w2y_sq = compressed_dat$sum_w2y_sq
+    rss_g_w2 = sum_w2y_sq - 2 * yhat * sum_w2y + sum_w2 * (yhat^2)
+    meat = crossprod(X, Diagonal(x = as.numeric(rss_g_w2)) %*% X)
+  }
   if (inputs$vcov_type_req == "cluster") {
     meat = compute_meat_cluster_compress(
       conn = inputs$conn,
@@ -1658,7 +2100,8 @@ execute_compress_strategy = function(inputs) {
       cluster_var = inputs$cluster_var,
       compressed_dat = compressed_dat,
       X = X,
-      yhat = yhat
+      yhat = yhat,
+      weights = inputs$weights
     )
     # For ssc = "nested", exclude nested FE levels from K
     if (inputs$ssc == "nested") {
@@ -1704,6 +2147,7 @@ execute_compress_strategy = function(inputs) {
       collin.var = standardize_coef_names(collin_vars),
       coef_names = coef_names,
       fe = inputs$fe,
+      weights = inputs$weights,
       query_string = query_string,
       nobs = nobs_comp,
       nobs_orig = nobs_orig,
@@ -1766,7 +2210,7 @@ compute_vcov = function(
   meat = NULL
 ) {
   if (vcov_type == "hc1") {
-    if (strategy == "compress") {
+    if (strategy == "compress" && is.null(meat)) {
       # Compress strategy: HC1 with grouped residuals
       meat = crossprod(X, Diagonal(x = as.numeric(rss_g)) %*% X)
     }
@@ -1809,7 +2253,8 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
                             var_suffix = "_tilde",
                             cte_name = "demeaned",
                             has_intercept = FALSE,
-                            vars_sql = NULL) {
+                            vars_sql = NULL,
+                            weights_expr = NULL) {
   # Build variable SQL expressions (use provided or construct from suffix)
   if (is.null(vars_sql)) {
     vars_sql = paste0(vars, var_suffix)
@@ -1818,6 +2263,15 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
   
   # Extract beta values (betahat may be a matrix)
   beta_vals = as.numeric(betahat[vars, 1])
+  weight_sql = if (is.null(weights_expr)) {
+    NULL
+  } else {
+    sprintf("CAST((%s) * (%s) AS FLOAT)", weights_expr, weights_expr)
+  }
+  build_sum = function(parts, alias) {
+    parts = parts[!vapply(parts, is.null, logical(1))]
+    sprintf("SUM(%s) AS %s", paste(parts, collapse = " * "), alias)
+  }
   
   # Build residual expression: y - intercept - sum(beta_j * x_j)
   if (has_intercept) {
@@ -1840,24 +2294,30 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
   meat_terms = character(0)
   
   if (has_intercept) {
-    meat_terms = c(meat_terms, sprintf(
-      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_0_0",
-      resid_expr, resid_expr
-    ))
+    meat_terms = c(meat_terms, build_sum(c(
+      sprintf("CAST(%s AS FLOAT)", resid_expr),
+      sprintf("CAST(%s AS FLOAT)", resid_expr),
+      weight_sql
+    ), "meat_0_0"))
     for (j in seq_along(vars)) {
-      meat_terms = c(meat_terms, sprintf(
-        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_0_%d",
-        resid_expr, resid_expr, vars_sql[j], j
-      ))
+      meat_terms = c(meat_terms, build_sum(c(
+        sprintf("CAST(%s AS FLOAT)", resid_expr),
+        sprintf("CAST(%s AS FLOAT)", resid_expr),
+        sprintf("CAST(%s AS FLOAT)", vars_sql[j]),
+        weight_sql
+      ), sprintf("meat_0_%d", j)))
     }
   }
   
   for (i in seq_along(vars)) {
     for (j in i:length(vars)) {
-      meat_terms = c(meat_terms, sprintf(
-        "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS meat_%d_%d",
-        resid_expr, resid_expr, vars_sql[i], vars_sql[j], i, j
-      ))
+      meat_terms = c(meat_terms, build_sum(c(
+        sprintf("CAST(%s AS FLOAT)", resid_expr),
+        sprintf("CAST(%s AS FLOAT)", resid_expr),
+        sprintf("CAST(%s AS FLOAT)", vars_sql[i]),
+        sprintf("CAST(%s AS FLOAT)", vars_sql[j]),
+        weight_sql
+      ), sprintf("meat_%d_%d", i, j)))
     }
   }
   
@@ -1913,7 +2373,8 @@ compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
                                     var_suffix = "_tilde",
                                     cte_name = "demeaned",
                                     has_intercept = FALSE,
-                                    vars_sql = NULL) {
+                                    vars_sql = NULL,
+                                    weights_expr = NULL) {
   # Build variable SQL expressions (use provided or construct from suffix)
   if (is.null(vars_sql)) {
     vars_sql = paste0(vars, var_suffix)
@@ -1922,6 +2383,11 @@ compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
   
   # Extract beta values
   beta_vals = as.numeric(betahat[vars, 1])
+  weight_sql = if (is.null(weights_expr)) NULL else sprintf("CAST(%s AS FLOAT)", weights_expr)
+  build_sum = function(parts, alias) {
+    parts = parts[!vapply(parts, is.null, logical(1))]
+    sprintf("SUM(%s) AS %s", paste(parts, collapse = " * "), alias)
+  }
   
   # Build residual expression: y - intercept - sum(beta_j * x_j)
   if (has_intercept) {
@@ -1943,17 +2409,18 @@ compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
   score_terms = character(0)
   
   if (has_intercept) {
-    score_terms = c(score_terms, sprintf(
-      "SUM(CAST(%s AS FLOAT)) AS score_0",
-      resid_expr
-    ))
+    score_terms = c(score_terms, build_sum(c(
+      sprintf("CAST(%s AS FLOAT)", resid_expr),
+      weight_sql
+    ), "score_0"))
   }
   
   for (j in seq_along(vars)) {
-    score_terms = c(score_terms, sprintf(
-      "SUM(CAST(%s AS FLOAT) * CAST(%s AS FLOAT)) AS score_%d",
-      resid_expr, vars_sql[j], j
-    ))
+    score_terms = c(score_terms, build_sum(c(
+      sprintf("CAST(%s AS FLOAT)", resid_expr),
+      sprintf("CAST(%s AS FLOAT)", vars_sql[j]),
+      weight_sql
+    ), sprintf("score_%d", j)))
   }
   
   # Query: aggregate scores by cluster
@@ -2007,17 +2474,28 @@ compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
 #' @keywords internal
 compute_meat_cluster_compress = function(conn, from_statement, group_cols, 
                                          yvar, cluster_var, compressed_dat,
-                                         X, yhat) {
+                                         X, yhat, weights = NULL) {
   group_cols_sql = paste(group_cols, collapse = ", ")
+  weights_expr = sql_weight_expr(weights)
   
   # Query cluster-by-cell sufficient statistics
-  cluster_cell_sql = paste0(
-    "SELECT ", cluster_var, ", ", group_cols_sql, ",\n",
-    "  COUNT(*) AS n_gc,\n",
-    "  SUM(", yvar, ") AS sum_y_gc\n",
-    from_statement, "\n",
-    "GROUP BY ", cluster_var, ", ", group_cols_sql
-  )
+  if (is.null(weights_expr)) {
+    cluster_cell_sql = paste0(
+      "SELECT ", cluster_var, ", ", group_cols_sql, ",\n",
+      "  COUNT(*) AS n_gc,\n",
+      "  SUM(", yvar, ") AS sum_y_gc\n",
+      from_statement, "\n",
+      "GROUP BY ", cluster_var, ", ", group_cols_sql
+    )
+  } else {
+    cluster_cell_sql = paste0(
+      "SELECT ", cluster_var, ", ", group_cols_sql, ",\n",
+      "  SUM(", weights_expr, ") AS sum_w_gc,\n",
+      "  SUM((", weights_expr, ") * (", yvar, ")) AS sum_wy_gc\n",
+      from_statement, "\n",
+      "GROUP BY ", cluster_var, ", ", group_cols_sql
+    )
+  }
   
   cluster_cell_df = dbGetQuery(conn, cluster_cell_sql)
   
@@ -2030,15 +2508,25 @@ compute_meat_cluster_compress = function(conn, from_statement, group_cols,
   yhat_lookup = compressed_dat[, c("cell_key", "yhat")]
   
   # Merge to get yhat for each cluster-cell combo (only keep needed cols from cluster_cell_df)
-  cluster_cell_df = merge(
-    cluster_cell_df[, c("cell_key", cluster_var, "n_gc", "sum_y_gc")], 
-    yhat_lookup, 
-    by = "cell_key", 
-    all.x = TRUE
-  )
-  
-  # Compute summed residuals per (cluster, cell): u_sum_gc = sum_y_gc - n_gc * yhat
-  cluster_cell_df$u_sum_gc = cluster_cell_df$sum_y_gc - cluster_cell_df$n_gc * cluster_cell_df$yhat
+  if (is.null(weights_expr)) {
+    cluster_cell_df = merge(
+      cluster_cell_df[, c("cell_key", cluster_var, "n_gc", "sum_y_gc")], 
+      yhat_lookup, 
+      by = "cell_key", 
+      all.x = TRUE
+    )
+    # Compute summed residuals per (cluster, cell): u_sum_gc = sum_y_gc - n_gc * yhat
+    cluster_cell_df$u_sum_gc = cluster_cell_df$sum_y_gc - cluster_cell_df$n_gc * cluster_cell_df$yhat
+  } else {
+    cluster_cell_df = merge(
+      cluster_cell_df[, c("cell_key", cluster_var, "sum_w_gc", "sum_wy_gc")], 
+      yhat_lookup, 
+      by = "cell_key", 
+      all.x = TRUE
+    )
+    # Compute summed residuals per (cluster, cell): u_sum_gc = sum_wy_gc - sum_w_gc * yhat
+    cluster_cell_df$u_sum_gc = cluster_cell_df$sum_wy_gc - cluster_cell_df$sum_w_gc * cluster_cell_df$yhat
+  }
   
   # Get unique clusters
   clusters = unique(cluster_cell_df[[cluster_var]])

@@ -10,6 +10,7 @@ dbreg(
   table = NULL,
   data = NULL,
   path = NULL,
+  weights = NULL,
   vcov = c("iid", "hc1"),
   strategy = c("auto", "compress", "moments", "demean", "within", "mundlak"),
   compress_ratio = NULL,
@@ -55,6 +56,11 @@ part of this string, e.g. \code{"read_parquet('mydata/**/*.parquet')"} for DuckD
 note the use of single quotes.
 Ignored if either \code{table} or \code{data} is provided.
 }}
+
+\item{weights}{Character string specifying the column name to use as weights,
+or NULL (default) for unweighted regression. Weights must be non-negative;
+rows with zero weight are dropped. Weighted regressions support \code{"iid"},
+\code{"hc1"}, and clustered SEs, and are compatible with all strategies.}
 
 \item{vcov}{Character string or formula denoting the desired type of variance-
 covariance correction / standard errors. Options are \code{"iid"} (default),
@@ -165,8 +171,10 @@ the presence of a single FE. It is also identical for the two-way FE
 (TWFE) case if your panel is balanced. For unbalanced two-way panels,
 however, the double demeaning strategy is not algebraically equivalent to
 the fixed effects projection and therefore does not recover the exact TWFE
-coefficients. Moreover, note that this \code{"demean"} strategy permits at most
-two FE.
+coefficients. In such cases, and also for weighted two-way FE, \code{dbreg}
+uses alternating projections (AP) to recover the exact FE coefficients,
+at the cost of extra passes over the data. AP also generalizes the
+\code{"demean"} strategy to three or more FE.
 \item \code{"mundlak"}: a generalized Mundlak (1978), or correlated random effects
 (CRE) estimator that regresses Y on X plus group means of X:
 \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
@@ -192,9 +200,12 @@ FE are typically high dimensional, but covariate averages are not; see
 Arkhangelsky & Imbens (2024).
 
 However, the demeaning approaches invite tradeoffs of their own. For example,
-the double demeaning transformation of the \code{"demean"} strategy does not
-obtain exact TWFE results in unbalanced panels, and it is also limited to at
-most two FE. Conversely, the \code{"mundlak"} (CRE) strategy obtains consistent
+the single-pass double demeaning transformation only obtains exact TWFE
+results for balanced panels with two FE. For unbalanced panels, weighted
+regressions, or three or more FE, \code{dbreg} uses alternating projections
+(iterative demeaning) which is exact but requires multiple passes and may be
+slower to converge on very large datasets. In such cases, \code{"mundlak"} (CRE)
+may be preferable as it is a single-pass estimator that obtains consistent
 coefficients regardless of panel structure and FE count, but at the "cost" of
 recovering a different estimand. (It is a different model to TWFE, after
 all.) See Wooldridge (2025) for an extended discussion of these issues.
@@ -223,9 +234,10 @@ compressed data) THEN \code{"moments"}.
 \item ELSE IF 2 FE AND (poor compression ratio OR too big compressed data):
 \itemize{
 \item IF balanced panel THEN \code{"demean"}.
-\item ELSE error (exact TWFE infeasible; user must explicitly choose
-\code{"compress"} or \code{"mundlak"}).
+\item ELSE \code{"demean"} via alternating projections.
 }
+\item ELSE IF 3+ FE AND (poor compression ratio OR too big compressed data)
+THEN \code{"demean"} via alternating projections.
 \item ELSE THEN \code{"compress"}.
 }
 
