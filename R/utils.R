@@ -1,6 +1,21 @@
 # Internal utility functions for dbreg
 # These are general-purpose helpers used across multiple strategies
 
+#' Copy named values between environments
+#'
+#' @param source Source environment to read from
+#' @param target Target environment to write to
+#' @param keys Character vector of names to copy. If NULL, copies all.
+#' @keywords internal
+env2env = function(source, target, keys = NULL) {
+  if (is.null(keys)) {
+    keys = ls(source, all.names = TRUE)
+  }
+  for (nm in keys) {
+    assign(nm, source[[nm]], envir = target)
+  }
+}
+
 #' Convert internal interaction notation to standard R notation
 #' @keywords internal
 standardize_coef_names = function(x) gsub("_x_", ":", x, fixed = TRUE)
@@ -27,11 +42,11 @@ detect_collinearity = function(XtX, Xty, tol = 1e-10, verbose = FALSE) {
   var_names = colnames(XtX)
   
   qr_decomp = qr(XtX, tol = tol)
-  rank = qr_decomp$rank
+  rank = qr_decomp[["rank"]]
   
   if (rank < p) {
-    keep_idx = qr_decomp$pivot[seq_len(rank)]
-    drop_idx = qr_decomp$pivot[(rank + 1):p]
+    keep_idx = qr_decomp[["pivot"]][seq_len(rank)]
+    drop_idx = qr_decomp[["pivot"]][(rank + 1):p]
     drop_names = var_names[drop_idx]
     keep_names = var_names[keep_idx]
     
@@ -132,7 +147,7 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
   } else {
     # Check if user-provided connection is DuckDB
     backend_info = detect_backend(conn)
-    is_duckdb = (backend_info$name == "duckdb")
+    is_duckdb = (backend_info[["name"]] == "duckdb")
   }
 
   # Process data source with precedence: table > data > path
@@ -329,7 +344,7 @@ backend_supports_count_big = function(conn) {
   if (inherits(info, "try-error")) {
     return(FALSE)
   }
-  dbms = tolower(paste(info$dbms.name, collapse = " "))
+  dbms = tolower(paste(info[["dbms.name"]], collapse = " "))
   grepl("sql server|azure sql|microsoft sql server", dbms)
 }
 
@@ -351,7 +366,7 @@ detect_backend = function(conn) {
   if (inherits(info, "try-error")) {
     return(list(name = "unknown", supports_count_big = FALSE))
   }
-  dbms = tolower(paste(info$dbms.name, collapse = " "))
+  dbms = tolower(paste(info[["dbms.name"]], collapse = " "))
   list(
     name = if (grepl("duckdb", dbms)) {
       "duckdb"
@@ -392,12 +407,13 @@ detect_backend = function(conn) {
 #' @keywords internal
 sql_count = function(conn, alias, expr = "*", distinct = FALSE) {
   bd = detect_backend(conn)
+  use_count_big = bd[["supports_count_big"]]
   if (distinct) {
     glue(
-      "{if (bd$supports_count_big) paste0('COUNT_BIG(DISTINCT ', expr, ')') else paste0('CAST(COUNT(DISTINCT ', expr, ') AS BIGINT)')} AS {alias}"
+      "{if (use_count_big) paste0('COUNT_BIG(DISTINCT ', expr, ')') else paste0('CAST(COUNT(DISTINCT ', expr, ') AS BIGINT)')} AS {alias}"
     )
   } else {
-    if (bd$supports_count_big) {
+    if (use_count_big) {
       glue("COUNT_BIG({expr}) AS {alias}")
     } else {
       glue("CAST(COUNT({expr}) AS BIGINT) AS {alias}")
@@ -556,4 +572,21 @@ drop_table_if_exists = function(conn, table_name, backend) {
     sql = glue("DROP TABLE IF EXISTS {table_name}")
   }
   tryCatch(dbExecute(conn, sql), error = function(e) NULL)
+}
+
+#' Generate unique pairs of variables (preserves original nested loop order)
+#' @keywords internal
+gen_xvar_pairs = function(xvars) {
+  pairs = list()
+  if (length(xvars) > 1) {
+    for (i in seq_along(xvars)) {
+      if (i == 1) {
+        next
+      }
+      for (j in seq_len(i - 1)) {
+        pairs = c(pairs, list(c(xvars[i], xvars[j])))
+      }
+    }
+  }
+  pairs
 }

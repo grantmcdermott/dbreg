@@ -24,7 +24,7 @@ print.dbreg = function(x, fe = FALSE, ...) {
 
   ct = x[["coeftable"]]
   colnames(ct) = c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
-  if (!isTRUE(fe) && !is.null(x$fe)) {
+  if (!isTRUE(fe) && !is.null(x[["fe"]])) {
     # Use coef_names if available (handles interactions), fall back to xvars
     coef_names = x[["coef_names"]]
     if (!is.null(coef_names)) {
@@ -34,8 +34,8 @@ print.dbreg = function(x, fe = FALSE, ...) {
       ct = ct[xvars, , drop = FALSE]
     }
   }
-  se_type = attr(x$vcov, "type")
-  n_clusters = attr(x$vcov, "n_clusters")
+  se_type = attr(x[["vcov"]], "type")
+  n_clusters = attr(x[["vcov"]], "n_clusters")
   se_type = switch(
     se_type,
     "iid" = "IID",
@@ -46,27 +46,27 @@ print.dbreg = function(x, fe = FALSE, ...) {
       "Clustered"
     }
   )
-  if (x$strategy == "compress") {
-    cat("Compressed OLS estimation, Dep. Var.:", x$yvar, "\n")
+  if (x[["strategy"]] == "compress") {
+    cat("Compressed OLS estimation, Dep. Var.:", x[["yvar"]], "\n")
     cat(
       "Observations.:",
-      prettyNum(x$nobs_orig, big.mark = ","),
+      prettyNum(x[["nobs_orig"]], big.mark = ","),
       "(original) |",
-      prettyNum(x$nobs, big.mark = ","),
+      prettyNum(x[["nobs"]], big.mark = ","),
       "(compressed)",
       "\n"
     )
-  } else if (x$strategy == "demean") {
-    n_fe = length(x$fe)
+  } else if (x[["strategy"]] == "demean") {
+    n_fe = length(x[["fe"]])
     if (n_fe == 1) {
       mstring = "Demeaned"
     } else {
       mstring = "Double Demeaned"
     }
-    cat(paste(mstring, "OLS estimation, Dep. Var.:", x$yvar, "\n"))
-    cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
-  } else if (x$strategy == "mundlak") {
-    n_fe = length(x$fe)
+    cat(paste(mstring, "OLS estimation, Dep. Var.:", x[["yvar"]], "\n"))
+    cat("Observations.:", prettyNum(x[["nobs_orig"]], big.mark = ","), "\n")
+  } else if (x[["strategy"]] == "mundlak") {
+    n_fe = length(x[["fe"]])
     mstring = "Mundlak"
     if (n_fe == 1) {
       mstring = paste("One-way", mstring)
@@ -75,18 +75,18 @@ print.dbreg = function(x, fe = FALSE, ...) {
     } else if (n_fe > 2) {
       mstring = paste0(n_fe, "-way ", mstring)
     }
-    cat(paste(mstring, "OLS estimation, Dep. Var.:", x$yvar, "\n"))
-    cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
-  } else if (x$strategy == "moments") {
-    cat("Moments-based OLS estimation, Dep. Var.:", x$yvar, "\n")
-    cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
+    cat(paste(mstring, "OLS estimation, Dep. Var.:", x[["yvar"]], "\n"))
+    cat("Observations.:", prettyNum(x[["nobs_orig"]], big.mark = ","), "\n")
+  } else if (x[["strategy"]] == "moments") {
+    cat("Moments-based OLS estimation, Dep. Var.:", x[["yvar"]], "\n")
+    cat("Observations.:", prettyNum(x[["nobs_orig"]], big.mark = ","), "\n")
   }
   cat("Standard Errors:", se_type, "\n")
 
   # Calculate goodness-of-fit metrics
   gof_vals = gof(x)
 
-  print_coeftable(ct, gof_vals = gof_vals, has_fes = !is.null(x$fe))
+  print_coeftable(ct, gof_vals = gof_vals, has_fes = !is.null(x[["fe"]]))
   
   # Print collinearity info (like fixest)
   collin_vars = x[["collin.var"]]
@@ -203,35 +203,35 @@ decimalFormat = function(x) {
 #' @param ... Additional arguments passed to print
 #' @export
 print.dbbinsreg = function(x, ...) {
-  opt = x$opt
+  opt = x[["opt"]]
   
   cat("Binscatter Plot\n")
-  cat("Formula:", deparse(opt$formula), "\n")
+  cat("Formula:", deparse(opt[["formula"]]), "\n")
   
-  points_str = if (!is.null(opt$points)) paste0("c(", opt$points[1], ",", opt$points[2], ")") else "NULL"
-  line_str = if (!is.null(opt$line)) paste0("c(", opt$line[1], ",", opt$line[2], ")") else "NULL"
-  binspos_str = switch(opt$binspos,
+  points_str = if (!is.null(opt[["points"]])) paste0("c(", opt[["points"]][1], ",", opt[["points"]][2], ")") else "NULL"
+  line_str = if (!is.null(opt[["line"]])) paste0("c(", opt[["line"]][1], ",", opt[["line"]][2], ")") else "NULL"
+  binspos_str = switch(opt[["binspos"]],
     "qs" = "quantile-spaced",
     "es" = "evenly-spaced",
     "manual"
   )
   cat(sprintf("points = %s | line = %s | nbins = %d (%s)\n", 
-              points_str, line_str, opt$nbins, binspos_str))
+              points_str, line_str, opt[["nbins"]], binspos_str))
   
   # Get model (handles both single and dual-path structures)
-  mod = if (is.list(x$model) && !is.null(x$model$points)) x$model$points else x$model
+  mod = if (is.list(x[["model"]]) && !is.null(x[["model"]]$points)) x[["model"]]$points else x[["model"]]
   
-  if (!is.null(mod) && identical(mod$strategy, "compress")) {
+  if (!is.null(mod) && identical(mod[["strategy"]], "compress")) {
     cat(sprintf("Observations: %s (original) | %s (compressed)\n",
-                prettyNum(mod$nobs_orig, big.mark = ","),
-                prettyNum(mod$nobs, big.mark = ",")))
-  } else if (!is.null(opt$N_orig) && opt$N_orig != opt$N) {
+                prettyNum(mod[["nobs_orig"]], big.mark = ","),
+                prettyNum(mod[["nobs"]], big.mark = ",")))
+  } else if (!is.null(opt[["N_orig"]]) && opt[["N_orig"]] != opt[["N"]]) {
     # Sampled data case
     cat(sprintf("N = %s (sampled from %s)\n", 
-                prettyNum(opt$N, big.mark = ","),
-                prettyNum(opt$N_orig, big.mark = ",")))
+                prettyNum(opt[["N"]], big.mark = ","),
+                prettyNum(opt[["N_orig"]], big.mark = ",")))
   } else {
-    cat(sprintf("N = %s\n", prettyNum(opt$N, big.mark = ",")))
+    cat(sprintf("N = %s\n", prettyNum(opt[["N"]], big.mark = ",")))
   }
   
   invisible(x)

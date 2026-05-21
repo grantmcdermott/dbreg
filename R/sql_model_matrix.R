@@ -59,11 +59,11 @@ sql_model_matrix = function(
   
   for (term in term_labels) {
     expanded = expand_term(term, col_info, expand, sep, all_terms = unique(c(term_labels, fe_vars)), fe_vars = fe_vars)
-    result$select_exprs = c(result$select_exprs, vapply(expanded, `[[`, character(1), "sql"))
-    result$col_names = c(result$col_names, vapply(expanded, `[[`, character(1), "name"))
+    result[["select_exprs"]] = c(result[["select_exprs"]], vapply(expanded, `[[`, character(1), "sql"))
+    result[["col_names"]] = c(result[["col_names"]], vapply(expanded, `[[`, character(1), "name"))
   }
   
-  result$factor_levels = col_info$levels
+  result[["factor_levels"]] = col_info[["levels"]]
   result
 }
 
@@ -114,7 +114,7 @@ expand_term = function(term, col_info, expand, sep = "_x_", all_terms = characte
   # Expand each variable
   expansions = lapply(vars, function(v) {
     drop_ref = TRUE
-    if (is_interaction && identical(col_info$types[[v]], "factor")) {
+    if (is_interaction && identical(col_info[["types"]][[v]], "factor")) {
       other_term = paste(sort(setdiff(vars, v)), collapse = ":")
       drop_ref = v %in% fe_vars || other_term %in% all_terms
     }
@@ -128,11 +128,11 @@ expand_term = function(term, col_info, expand, sep = "_x_", all_terms = characte
 #' Expand a single variable into SQL expression(s)
 #' @keywords internal
 expand_variable = function(var, col_info, expand, in_interaction, drop_ref = TRUE) {
-  is_factor = identical(col_info$types[[var]], "factor")
+  is_factor = identical(col_info[["types"]][[var]], "factor")
   
   # Only expand factors if: expand="all", OR variable is part of interaction
   if (is_factor && (expand == "all" || in_interaction)) {
-    lvls = col_info$levels[[var]]
+    lvls = col_info[["levels"]][[var]]
     if (length(lvls) < 2) {
       return(list(list(sql = "1", name = paste0(var, "_constant"))))
     }
@@ -165,9 +165,11 @@ cross_product = function(expansions, sep = "_x_") {
   result = list()
   for (e1 in expansions[[1]]) {
     for (e2 in rest) {
+      e1_sql = e1[["sql"]]
+      e2_sql = e2[["sql"]]
       result = c(result, list(list(
-        sql = glue("({e1$sql}) * ({e2$sql})"),
-        name = paste0(e1$name, sep, e2$name)
+        sql = glue("({e1_sql}) * ({e2_sql})"),
+        name = paste0(e1[["name"]], sep, e2[["name"]])
       )))
     }
   }

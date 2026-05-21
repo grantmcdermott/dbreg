@@ -29,6 +29,8 @@ Internal
 - Update maintainer email.
 - Added a `CLAUDE.md` context file for sharper AI-assisted development, as well
   as a `Makefile` for automating dev workflows. (#64)
+- Refactored and modularized the codebase to make it more efficient and safer.
+  (#65)
 
 ## dbreg 0.0.3
 

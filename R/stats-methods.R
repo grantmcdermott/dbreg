@@ -39,7 +39,7 @@ coef.dbreg = function(object, fe = FALSE, ...) {
   
   ct = object[["coeftable"]]
   
-  if (!isTRUE(fe) && !is.null(object$fe)) {
+  if (!isTRUE(fe) && !is.null(object[["fe"]])) {
     coef_names = object[["coef_names"]]
     if (!is.null(coef_names)) {
       ct = ct[coef_names, , drop = FALSE]
@@ -111,8 +111,8 @@ predict.dbreg = function(
   }
 
   if (is.null(newdata)) {
-    if (strategy == "compress" && !is.null(object$data)) {
-      newdata = object$data
+    if (strategy == "compress" && !is.null(object[["data"]])) {
+      newdata = object[["data"]]
     } else {
       stop("newdata is required for predictions, as dbreg does not retain the original data.")
     }
@@ -120,10 +120,10 @@ predict.dbreg = function(
 
   # Extract common components from object
   betas = coef(object, fe = TRUE)
-  fml = object$fml
-  fe = object$fe
-  xvars = object$xvars
-  yvar = object$yvar
+  fml = object[["fml"]]
+  fe = object[["fe"]]
+  xvars = object[["xvars"]]
+  yvar = object[["yvar"]]
 
   # Ensure FE columns are factors
   for (f in fe) {
@@ -213,12 +213,12 @@ predict.dbreg = function(
  
   if (interval != "none") {
     vcovm = vcov(object)
-    dof = object$df_residual
+    dof = object[["df_residual"]]
     if (interval == "confidence") {
       ses = sqrt(Matrix::rowSums((mm %*% vcovm) * mm))
     } else if (interval == "prediction") {
       # Use stored RSS from training to estimate sigma^2
-      rss = attr(object$vcov, "rss")
+      rss = attr(object[["vcov"]], "rss")
       if (is.null(rss)) {
         stop("Prediction intervals require RSS, which is not stored in this model.")
       }
@@ -272,7 +272,7 @@ confint.dbreg = function(object, parm, level = 0.95, fe = FALSE, ...) {
 
   ct = object[["coeftable"]]
   
-  if (!isTRUE(fe) && !is.null(object$fe)) {
+  if (!isTRUE(fe) && !is.null(object[["fe"]])) {
     coef_names = object[["coef_names"]]
     if (!is.null(coef_names)) {
       ct = ct[coef_names, , drop = FALSE]
@@ -284,7 +284,7 @@ confint.dbreg = function(object, parm, level = 0.95, fe = FALSE, ...) {
   
   cf = ct[, "estimate"]
   ses = ct[, "std.error"]
-  df = object$df_residual
+  df = object[["df_residual"]]
   
   a = (1 - level) / 2
   t_crit = qt(1 - a, df)

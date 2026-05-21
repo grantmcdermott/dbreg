@@ -6,6 +6,9 @@ help: ## Show this help
 test: ## Run tinytest::test_all()
 	Rscript -e "pkgload::load_all('.'); tinytest::test_all('.')"
 
+testall: ## Run all tests including NYC taxi and binsreg
+	DBREG_TEST_NYC=TRUE Rscript -e "pkgload::load_all('.'); tinytest::test_all('.')"
+
 check: ## Full R CMD check (no manual)
 	R CMD build . && R CMD check --no-manual *.tar.gz
 
