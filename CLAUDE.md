@@ -40,6 +40,11 @@ x = 5
 
 # Prefer explicit function() (not \() for broader compatibility)
 fn = function(x) x^2
+
+# Prefer [[ over $ for element access (no partial matching, works with variables)
+inputs[["yvar"]]
+result[["coeftable"]]
+# NOT: inputs$yvar, result$coeftable
 ```
 
 ### Dependency Policy
