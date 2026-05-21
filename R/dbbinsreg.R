@@ -1209,7 +1209,7 @@ execute_constrained_binsreg = function(inputs) {
   
   # Safety check: remove any NA knots
 
-  if (any(is.na(knots))) {
+  if (anyNA(knots)) {
     warning("Some bin boundaries are NA; removing affected knots")
     knots = knots[!is.na(knots)]
   }
@@ -1455,7 +1455,7 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
   get_se = function(coef_indices, weights) {
     if (is.null(V_beta)) return(NA_real_)
     idx = match(coef_indices, rownames(V_beta))
-    if (any(is.na(idx))) return(NA_real_)
+    if (anyNA(idx)) return(NA_real_)
     
     w = numeric(nrow(V_beta))
     w[idx] = weights

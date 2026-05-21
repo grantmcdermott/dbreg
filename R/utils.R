@@ -13,7 +13,7 @@ gen_coeftable = function(betahat, vcov_mat, df_residual) {
   ses = sqrt(Matrix::diag(vcov_mat))
   tstats = coefs / ses
   pvals = 2 * pt(-abs(tstats), df_residual)
-  cbind(estimate = coefs, std.error = ses, statistic = tstats, p.values = pvals)
+  cbind(estimate = coefs, std.error = ses, statistic = tstats, p.value = pvals)
 }
 
 #' Detect and handle collinearity in design matrix

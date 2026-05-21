@@ -2,6 +2,12 @@
 
 _This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg/NEWS.html)._
 
+## Development
+
+Internal
+
+- Update maintainer email.
+
 ## dbreg 0.0.3
 
 _**dbreg** v0.0.3 is a big release, containing many new features and some
