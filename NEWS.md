@@ -4,6 +4,26 @@ _This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg
 
 ## Development
 
+New features
+
+- Added support for weighted regression via the new `weights` argument. Accepts
+  a column name string and is compatible with all strategies and SE types (iid,
+  HC1, clustered). (#12)
+- The `"demean"` strategy now supports three or more fixed effects via
+  alternating projections (AP). Previously this was limited to at most two FE.
+  The `"auto"` heuristic will select `"demean"` (AP) for 3+ FE when compression
+  is not viable. (#12)
+- For unbalanced two-way panels, `strategy = "auto"` now routes to `"demean"`
+  via alternating projections instead of erroring. Users no longer need to
+  explicitly choose between `"compress"` and `"mundlak"` for these cases.
+
+Bug fixes
+
+- Fixed a typo in `<dbreg.object>$coeftable` column names that was obscuring
+  some downstream functions, e.g. stars in `modelsummary::modelsummary`. (#62) 
+- Fixed `dbreg_is_balanced_panel()` to correctly detect unbalanced panels with
+  missing cells (previously only checked for unequal cell counts).
+
 Internal
 
 - Update maintainer email.
