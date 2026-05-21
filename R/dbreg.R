@@ -675,7 +675,7 @@ dbreg_is_balanced_panel = function(conn, from_statement, fe) {
   res$n_distinct_counts == 1 && res$n_cells == res$n_expected
 }
 
-#' Alternating projections (AP) for exact two-way FE demeaning
+#' Alternating projections (AP) for exact multi-way FE demeaning
 #' @keywords internal
 dbreg_alternating_projections = function(
   conn,
@@ -707,14 +707,16 @@ dbreg_alternating_projections = function(
   )
   base_table = temp_table_name(paste0("dbreg_ap_base_", seed), backend)
   cur_table = temp_table_name(paste0("dbreg_ap_cur_", seed), backend)
+  alt_table = temp_table_name(paste0("dbreg_ap_alt_", seed), backend)
+  mean_table = temp_table_name(paste0("dbreg_ap_m_", seed), backend)
 
-  created = character(0) # track created temp tables for cleanup
   success = FALSE
   on.exit({
     if (!success) {
-      for (tbl in rev(created)) {
-        drop_table_if_exists(conn, tbl, backend)
-      }
+      drop_table_if_exists(conn, cur_table, backend)
+      drop_table_if_exists(conn, alt_table, backend)
+      drop_table_if_exists(conn, mean_table, backend)
+      drop_table_if_exists(conn, base_table, backend)
     }
   }, add = TRUE)
 
@@ -726,7 +728,10 @@ dbreg_alternating_projections = function(
   )
   base_sql = paste0("SELECT ", paste(base_select, collapse = ", "), " ", from_statement)
   create_temp_table_as(conn, base_table, base_sql, backend)
-  created = c(created, base_table)
+
+  vars_all = c(yvar, xvar_names)
+  tilde_names = paste0(vars_all, "_tilde")
+  mean_names = paste0(vars_all, "_mean")
 
   tilde_cols = c(
     sprintf("%s AS %s_tilde", yvar, yvar),
@@ -739,19 +744,12 @@ dbreg_alternating_projections = function(
     base_table
   )
   create_temp_table_as(conn, cur_table, init_sql, backend)
-  created = c(created, cur_table)
-
-  vars_all = c(yvar, xvar_names)
-  mean_names = paste0(vars_all, "_mean")
-  max_abs = Inf
 
   for (iter in seq_len(max_iter)) {
     for (fe_k in fe) {
-      mean_cols = vapply(
-        vars_all,
-        function(v) sql_weighted_mean(paste0(v, "_tilde"), "__w", paste0(v, "_mean")),
-        character(1)
-      )
+      mean_cols = vapply(vars_all, function(v) {
+        sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", v, v)
+      }, character(1))
       mean_sql = paste0(
         "SELECT ",
         fe_k,
@@ -762,9 +760,7 @@ dbreg_alternating_projections = function(
         " GROUP BY ",
         fe_k
       )
-      mean_table = temp_table_name(paste0("dbreg_ap_mean_", seed, "_", fe_k, "_", iter), backend)
       create_temp_table_as(conn, mean_table, mean_sql, backend)
-      created = c(created, mean_table)
 
       update_cols = c(
         sprintf("t.%s", id_cols),
@@ -783,26 +779,23 @@ dbreg_alternating_projections = function(
         " = m.",
         fe_k
       )
-      new_table = temp_table_name(paste0("dbreg_ap_step_", seed, "_", fe_k, "_", iter), backend)
-      create_temp_table_as(conn, new_table, update_sql, backend)
-      created = c(created, new_table)
+      create_temp_table_as(conn, alt_table, update_sql, backend)
 
       drop_table_if_exists(conn, cur_table, backend)
       drop_table_if_exists(conn, mean_table, backend)
-      cur_table = new_table
+      tmp = cur_table
+      cur_table = alt_table
+      alt_table = tmp
     }
 
+    # Convergence check: max absolute weighted group mean across all FEs
     max_abs = 0
     for (fe_k in fe) {
-      mean_cols = vapply(
-        vars_all,
-        function(v) sql_weighted_mean(paste0(v, "_tilde"), "__w", paste0(v, "_mean")),
-        character(1)
-      )
+      mean_cols = vapply(vars_all, function(v) {
+        sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", v, v)
+      }, character(1))
       inner_sql = paste0(
         "SELECT ",
-        fe_k,
-        ", ",
         paste(mean_cols, collapse = ", "),
         " FROM ",
         cur_table,
