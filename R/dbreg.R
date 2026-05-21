@@ -369,7 +369,10 @@ dbreg = function(
   )
 
   # Choose strategy
-  chosen_strategy = choose_strategy(inputs)
+  strategy_choice = choose_strategy(inputs)
+  chosen_strategy = strategy_choice$strategy
+  inputs$is_balanced = strategy_choice$is_balanced
+  inputs$compression_ratio_est = strategy_choice$compression_ratio_est
 
   # Execute chosen strategy
   result = switch(
@@ -532,6 +535,8 @@ process_dbreg_inputs = function(
     compress_nmax = compress_nmax,
     verbose = verbose,
     any_continuous = any_continuous,
+    is_balanced = NULL,
+    compression_ratio_est = NA_real_,
     own_conn = own_conn
   )
 }
@@ -909,6 +914,7 @@ choose_strategy = function(inputs) {
 
   chosen_strategy = strategy
   est_cr = NA_real_
+  is_balanced = NULL
 
   # Auto logic
   if (strategy == "auto") {
@@ -1007,17 +1013,20 @@ choose_strategy = function(inputs) {
         )
       }
     } else if (verbose && length(fe) == 2) {
-      is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
+      if (is.null(is_balanced)) {
+        is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
+      }
       if (!isTRUE(is_balanced)) {
         message("[dbreg] Panel unbalanced. Using alternating projections for exact TWFE.")
       }
     }
   }
 
-  # Store compression ratio estimate for later use
-  inputs$compression_ratio_est = est_cr
-
-  chosen_strategy
+  list(
+    strategy = chosen_strategy,
+    is_balanced = is_balanced,
+    compression_ratio_est = est_cr
+  )
 }
 
 #' Execute moments strategy (no fixed effects)
@@ -1222,7 +1231,10 @@ execute_demean_strategy = function(inputs) {
     )
   }
   if (length(inputs$fe) == 2) {
-    is_balanced = dbreg_is_balanced_panel(inputs$conn, inputs$from_statement, inputs$fe)
+    is_balanced = inputs$is_balanced
+    if (is.null(is_balanced)) {
+      is_balanced = dbreg_is_balanced_panel(inputs$conn, inputs$from_statement, inputs$fe)
+    }
     use_ap = !is.null(inputs$weights) || !isTRUE(is_balanced)
   }
   if (isTRUE(use_ap) && inputs$verbose) {
