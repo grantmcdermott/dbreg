@@ -207,6 +207,17 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p><em>This NEWS file is best viewed on our <a href="https://grantmcdermott.com/dbreg/NEWS.html">website</a>.</em></p>
 <section id="development" class="level2">
 <h2 class="anchored" data-anchor-id="development">Development</h2>
+<p>New features</p>
+<ul>
+<li>Added support for weighted regression via the new <code>weights</code> argument. Accepts a column name string and is compatible with all strategies and SE types (iid, HC1, clustered). (<a href="https://github.com/grantmcdermott/dbreg/issues/12">#12</a>)</li>
+<li>The <code>"demean"</code> strategy now supports three or more fixed effects via alternating projections (AP). Previously this was limited to at most two FE. The <code>"auto"</code> heuristic will select <code>"demean"</code> (AP) for 3+ FE when compression is not viable. (<a href="https://github.com/grantmcdermott/dbreg/issues/12">#12</a>)</li>
+<li>For unbalanced two-way panels, <code>strategy = "auto"</code> now routes to <code>"demean"</code> via alternating projections instead of erroring. Users no longer need to explicitly choose between <code>"compress"</code> and <code>"mundlak"</code> for these cases.</li>
+</ul>
+<p>Bug fixes</p>
+<ul>
+<li>Fixed a typo in <code>&lt;dbreg.object&gt;$coeftable</code> column names that was obscuring some downstream functions, e.g.&nbsp;stars in <code>modelsummary::modelsummary</code>. (<a href="https://github.com/grantmcdermott/dbreg/issues/62">#62</a>)</li>
+<li>Fixed <code>dbreg_is_balanced_panel()</code> to correctly detect unbalanced panels with missing cells (previously only checked for unequal cell counts).</li>
+</ul>
 <p>Internal</p>
 <ul>
 <li>Update maintainer email.</li>
