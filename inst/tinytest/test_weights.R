@@ -98,7 +98,8 @@ expect_true(max(abs(w1_mom$coeftable[names_mom, "std.error"] - unw_mom$coeftable
 set.seed(321)
 drop_idx = sample(seq_len(nrow(dat)), size = round(0.2 * nrow(dat)))
 dat_unbal = dat[-drop_idx, ]
-fe2_unbal = feols(y ~ x1 + x2 | fe1 + fe2, data = dat_unbal, weights = ~weights, vcov = "iid")
+# suppressMessages: silence fixest singleton removal notes
+fe2_unbal = suppressMessages(feols(y ~ x1 + x2 | fe1 + fe2, data = dat_unbal, weights = ~weights, vcov = "iid"))
 db_unbal = dbreg(y ~ x1 + x2 | fe1 + fe2, data = dat_unbal, weights = "weights", strategy = "compress", vcov = "iid")
 
 unbal_coefs = coef(fe2_unbal)
@@ -121,7 +122,8 @@ zero_idx = sample(seq_len(nrow(dat)), size = 10)
 dat_zero = dat
 dat_zero$weights[zero_idx] = 0
 
-fe_zero = feols(y ~ x1 + x2 | fe1, data = dat_zero[dat_zero$weights > 0, ], weights = ~weights, vcov = "iid")
+# suppressMessages: silence fixest singleton removal notes
+fe_zero = suppressMessages(feols(y ~ x1 + x2 | fe1, data = dat_zero[dat_zero$weights > 0, ], weights = ~weights, vcov = "iid"))
 db_zero = dbreg(y ~ x1 + x2 | fe1, data = dat_zero, weights = "weights", strategy = "demean", vcov = "iid")
 
 zero_coefs = coef(fe_zero)
