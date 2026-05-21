@@ -13,3 +13,5 @@ vignettes/
 ^.here
 ^.agents/
 README.qmd
+^Makefile$
+^CLAUDE\.md$
