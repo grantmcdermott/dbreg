@@ -244,6 +244,45 @@ expect_equal(
   info = "Two-way FE cluster first-stage Wald matches fixest"
 )
 
+set.seed(2033)
+
+n_units_fe3 = 18L
+n_time_fe3 = 4L
+n_market_fe3 = 3L
+dat_fe3 = expand.grid(unit = 1:n_units_fe3, time = 1:n_time_fe3, market = 1:n_market_fe3)
+dat_fe3$fe1 = factor(dat_fe3$unit)
+dat_fe3$fe2 = factor(dat_fe3$time)
+dat_fe3$fe3 = factor(dat_fe3$market)
+
+alpha_3 = rnorm(n_units_fe3)[dat_fe3$unit]
+tau_3 = rnorm(n_time_fe3)[dat_fe3$time]
+gamma_3 = rnorm(n_market_fe3)[dat_fe3$market]
+dat_fe3$z = rnorm(nrow(dat_fe3))
+dat_fe3$x = rnorm(nrow(dat_fe3))
+v_3 = rnorm(nrow(dat_fe3))
+dat_fe3$d = 0.8 * dat_fe3$z + 0.4 * dat_fe3$x + alpha_3 + tau_3 + gamma_3 + v_3
+dat_fe3$y = 1.9 * dat_fe3$d + 0.25 * dat_fe3$x + alpha_3 + tau_3 + gamma_3 +
+  0.5 * v_3 + rnorm(nrow(dat_fe3))
+
+db_fe3 = dbivreg(
+  y ~ x | fe1 + fe2 + fe3 | d ~ z,
+  data = dat_fe3,
+  vcov = "iid",
+  strategy = "demean"
+)
+fx_fe3 = feols(y ~ x | fe1 + fe2 + fe3 | d ~ z, data = dat_fe3, vcov = "iid")
+expect_iv_match(db_fe3, fx_fe3, tol_coef = tol, tol_se = tol, label = "Three-way FE AP IID")
+expect_equal(
+  db_fe3$n_fe_levels,
+  c(fe1 = n_units_fe3, fe2 = n_time_fe3, fe3 = n_market_fe3),
+  info = "Three-way FE levels are retained in the fitted object"
+)
+expect_equal(
+  db_fe3$n_fe3,
+  n_market_fe3,
+  info = "Third fixed-effect count is available by position"
+)
+
 set.seed(2032)
 
 n_over = 700L
@@ -424,12 +463,5 @@ expect_error(
 
 expect_error(
   dbivreg(y ~ x | d ~ z, data = dat, strategy = "demean"),
-  "requires one or two fixed effects"
-)
-
-dat_fe3 = dat_ap
-dat_fe3$fe3 = factor(sample(1:4, nrow(dat_fe3), replace = TRUE))
-expect_error(
-  dbivreg(y ~ x | fe1 + fe2 + fe3 | d ~ z, data = dat_fe3, strategy = "auto"),
-  "at most two fixed effects"
+  "requires at least one fixed effect"
 )

@@ -23,8 +23,8 @@ dbivreg(
 }
 \arguments{
 \item{fml}{A fixest-style IV formula. Use \code{y ~ x1 + x2 | d ~ z} for models
-without absorbed fixed effects, and \code{y ~ x1 + x2 | fe1 + fe2 | d ~ z} when
-fixed effects are present. The IV block must always be the final
+without absorbed fixed effects, and \code{y ~ x1 + x2 | fe1 + fe2 + fe3 | d ~ z}
+when fixed effects are present. The IV block must always be the final
 pipe-separated block.}
 
 \item{conn}{Database connection, or \code{NULL} to create an ephemeral DuckDB
@@ -68,9 +68,10 @@ Estimates a linear IV model via exact sufficient statistics on a database
 backend. The current implementation supports two exact strategies:
 \itemize{
 \item \code{strategy = "moments"} for models without absorbed fixed effects.
-\item \code{strategy = "demean"} for one-way or two-way absorbed fixed effects.
+\item \code{strategy = "demean"} for one or more absorbed fixed effects.
 }
 
-Two-way fixed effects use exact alternating projections when the panel is
-unbalanced or weights are supplied.
+Multi-way fixed effects use exact alternating projections when there are
+more than two fixed effects, or when two-way fixed effects are unbalanced or
+weights are supplied.
 }

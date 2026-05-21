@@ -6,14 +6,15 @@
 #' backend. The current implementation supports two exact strategies:
 #'
 #' - `strategy = "moments"` for models without absorbed fixed effects.
-#' - `strategy = "demean"` for one-way or two-way absorbed fixed effects.
+#' - `strategy = "demean"` for one or more absorbed fixed effects.
 #'
-#' Two-way fixed effects use exact alternating projections when the panel is
-#' unbalanced or weights are supplied.
+#' Multi-way fixed effects use exact alternating projections when there are
+#' more than two fixed effects, or when two-way fixed effects are unbalanced or
+#' weights are supplied.
 #'
 #' @param fml A fixest-style IV formula. Use `y ~ x1 + x2 | d ~ z` for models
-#'   without absorbed fixed effects, and `y ~ x1 + x2 | fe1 + fe2 | d ~ z` when
-#'   fixed effects are present. The IV block must always be the final
+#'   without absorbed fixed effects, and `y ~ x1 + x2 | fe1 + fe2 + fe3 | d ~ z`
+#'   when fixed effects are present. The IV block must always be the final
 #'   pipe-separated block.
 #' @param conn Database connection, or `NULL` to create an ephemeral DuckDB
 #'   connection.
@@ -337,19 +338,16 @@ choose_dbivreg_strategy = function(inputs) {
       "'. Supported IV strategies are 'moments' and 'demean'."
     )
   }
-  if (length(fe) > 2) {
-    stop("dbivreg() currently supports at most two fixed effects.")
-  }
   if (chosen_strategy == "moments" && length(fe) > 0) {
     stop(
       "strategy = 'moments' is only available without fixed effects. ",
       "Use strategy = 'demean' or strategy = 'auto'."
     )
   }
-  if (chosen_strategy == "demean" && !(length(fe) %in% c(1, 2))) {
+  if (chosen_strategy == "demean" && length(fe) < 1) {
     stop(
-      "strategy = 'demean' requires one or two fixed effects. ",
-      "Current dbivreg() supports no FE via 'moments' and 1-2 FE via 'demean'."
+      "strategy = 'demean' requires at least one fixed effect. ",
+      "Use strategy = 'moments' or strategy = 'auto' for models without fixed effects."
     )
   }
 
@@ -438,11 +436,15 @@ execute_iv_demean_strategy = function(inputs) {
   ap_tables = NULL
 
   use_ap = FALSE
-  if (length(fe) == 2) {
-    is_balanced = dbreg_is_balanced_panel(inputs[["conn"]], inputs[["from_statement"]], fe)
-    use_ap = !is.null(inputs[["weights"]]) || !isTRUE(is_balanced)
+  if (length(fe) >= 2) {
+    if (length(fe) > 2) {
+      use_ap = TRUE
+    } else {
+      is_balanced = dbreg_is_balanced_panel(inputs[["conn"]], inputs[["from_statement"]], fe)
+      use_ap = !is.null(inputs[["weights"]]) || !isTRUE(is_balanced)
+    }
     if (isTRUE(use_ap) && inputs[["verbose"]]) {
-      message("[dbivreg] Using alternating projections for two-way FE demeaning")
+      message("[dbivreg] Using alternating projections for FE demeaning")
     }
     if (isTRUE(use_ap) && inputs[["sql_only"]]) {
       stop("[dbivreg] sql_only is not supported for alternating projections.", call. = FALSE)
@@ -658,10 +660,15 @@ execute_iv_demean_strategy = function(inputs) {
     }
   }
 
+  fe_count_terms = vapply(seq_along(fe), function(k) {
+    sql_count(inputs[["conn"]], sprintf("n_fe%d", k), fe[k], distinct = TRUE)
+  }, character(1))
+  if (length(fe) == 1) {
+    fe_count_terms = c(fe_count_terms, "1 AS n_fe2")
+  }
   moment_terms = c(
     sql_count(inputs[["conn"]], "n_total"),
-    sql_count(inputs[["conn"]], "n_fe1", fe[1], distinct = TRUE),
-    if (length(fe) == 2) sql_count(inputs[["conn"]], "n_fe2", fe[2], distinct = TRUE) else "1 AS n_fe2",
+    fe_count_terms,
     sql_weighted_sum(
       glue("CAST({yvar}_tilde AS FLOAT) * CAST({yvar}_tilde AS FLOAT)"),
       weights_expr_demeaned,
@@ -798,7 +805,19 @@ dbivreg_finalize_fit = function(
       Matrix::t(betahat) %*% S_xx %*% betahat
   )
 
-  df_fe = if (length(inputs[["fe"]]) == 0) 0 else moment_df$n_fe1 + moment_df$n_fe2 - 1
+  n_fe = length(inputs[["fe"]])
+  n_fe_levels = if (n_fe == 0) {
+    numeric(0)
+  } else {
+    stats::setNames(
+      vapply(seq_len(n_fe), function(k) {
+        val = moment_df[[sprintf("n_fe%d", k)]]
+        if (is.null(val)) 1 else as.numeric(val)
+      }, numeric(1)),
+      inputs[["fe"]]
+    )
+  }
+  df_fe = if (n_fe == 0) 0 else sum(n_fe_levels) - (n_fe - 1)
   df_res = max(moment_df$n_total - length(x_names_full) - df_fe, 1)
   n_params = length(x_names_full) + df_fe
 
@@ -877,7 +896,7 @@ dbivreg_finalize_fit = function(
     meat = meat
   )
 
-  list(
+  out = list(
     coeftable = coeftable,
     vcov = vcov_mat,
     fml = inputs[["structural_fml"]],
@@ -893,9 +912,16 @@ dbivreg_finalize_fit = function(
     instruments = inputs[["instr_vars"]],
     diagnostics = iv_diagnostics,
     df_residual = df_res,
+    n_fe_levels = if (n_fe > 0) n_fe_levels else NULL,
     n_fe1 = if ("n_fe1" %in% names(moment_df)) moment_df$n_fe1 else NULL,
     n_fe2 = if ("n_fe2" %in% names(moment_df)) moment_df$n_fe2 else NULL
   )
+  if (n_fe > 2) {
+    for (k in seq.int(3L, n_fe)) {
+      out[[sprintf("n_fe%d", k)]] = unname(n_fe_levels[k])
+    }
+  }
+  out
 }
 
 #' @keywords internal
@@ -1731,7 +1757,13 @@ print.dbivreg = function(x, ...) {
     cat("Moments-based 2SLS estimation, Dep. Var.:", x$yvar, "\n")
     cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
   } else if (x$strategy == "demean") {
-    mstring = if (length(x$fe) == 1) "Demeaned" else "Double Demeaned"
+    mstring = if (length(x$fe) == 1) {
+      "Demeaned"
+    } else if (length(x$fe) == 2) {
+      "Double Demeaned"
+    } else {
+      "Multi-way Demeaned"
+    }
     cat(mstring, "2SLS estimation, Dep. Var.:", x$yvar, "\n")
     cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
   }
