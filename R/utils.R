@@ -1,6 +1,21 @@
 # Internal utility functions for dbreg
 # These are general-purpose helpers used across multiple strategies
 
+#' Copy named values between environments
+#'
+#' @param source Source environment to read from
+#' @param target Target environment to write to
+#' @param keys Character vector of names to copy. If NULL, copies all.
+#' @keywords internal
+env2env = function(source, target, keys = NULL) {
+  if (is.null(keys)) {
+    keys = ls(source, all.names = TRUE)
+  }
+  for (nm in keys) {
+    assign(nm, source[[nm]], envir = target)
+  }
+}
+
 #' Convert internal interaction notation to standard R notation
 #' @keywords internal
 standardize_coef_names = function(x) gsub("_x_", ":", x, fixed = TRUE)

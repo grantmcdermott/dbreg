@@ -366,7 +366,7 @@ dbreg = function(
     verbose = verbose
   )
 
-  # Choose strategy
+  # Choose strategy (mutates inputs$is_balanced, inputs$compression_ratio_est)
   chosen_strategy = choose_strategy(inputs)
 
   # Execute chosen strategy
@@ -509,7 +509,7 @@ process_dbreg_inputs = function(
     ")
   }
 
-  list(
+  list2env(list(
     fml = fml,
     yvar = yvar,
     xvars = xvars,
@@ -532,7 +532,7 @@ process_dbreg_inputs = function(
     any_continuous = any_continuous,
     is_balanced = NULL,
     own_conn = own_conn
-  )
+  ), parent = emptyenv())
 }
 
 # sql_weight_expr: returns a weight expression or NULL if no weights
@@ -973,7 +973,6 @@ choose_strategy = function(inputs) {
         chosen_strategy = "demean"
         if (length(fe) == 2) {
           is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
-          inputs$is_balanced = is_balanced
           if (verbose) {
             if (isTRUE(is_balanced)) {
               message("        - panel is balanced")
@@ -1010,8 +1009,10 @@ choose_strategy = function(inputs) {
     chosen_strategy = "moments"
   }
 
-  # Store compression ratio estimate for later use
   inputs$compression_ratio_est = est_cr
+  if (exists("is_balanced", inherits = FALSE)) {
+    inputs$is_balanced = is_balanced
+  }
 
   chosen_strategy
 }
