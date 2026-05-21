@@ -332,8 +332,8 @@ dbreg = function(
   verbose = isTRUE(verbose)
   ssc = match.arg(ssc)
   vcov_parsed = parse_vcov_args(vcov, cluster)
-  vcov = vcov_parsed$vcov_type
-  cluster = vcov_parsed$cluster_var
+  vcov = vcov_parsed[["vcov_type"]]
+  cluster = vcov_parsed[["cluster_var"]]
   strategy = match.arg(strategy)
   if (strategy == "within") strategy = "demean"  # alias
 
@@ -414,18 +414,18 @@ process_dbreg_inputs = function(
   cluster_var = cluster
 
   db_setup = setup_db_connection(conn, table, data, path, caller = "dbreg")
-  conn = db_setup$conn
-  own_conn = db_setup$own_conn
-  from_statement = db_setup$from_statement
+  conn = db_setup[["conn"]]
+  own_conn = db_setup[["own_conn"]]
+  from_statement = db_setup[["from_statement"]]
 
   # Parse formula using shared helper
   fml_parsed = parse_regression_formula(fml)
-  fml = fml_parsed$fml
-  yvar = fml_parsed$yvar
-  xvars = fml_parsed$xvars
-  term_labels = fml_parsed$term_labels
-  has_interactions = fml_parsed$has_interactions
-  fe = fml_parsed$fe
+  fml = fml_parsed[["fml"]]
+  yvar = fml_parsed[["yvar"]]
+  xvars = fml_parsed[["xvars"]]
+  term_labels = fml_parsed[["term_labels"]]
+  has_interactions = fml_parsed[["has_interactions"]]
+  fe = fml_parsed[["fe"]]
 
   # Validate weights
   if (!is.null(weights)) {
@@ -678,7 +678,7 @@ dbreg_is_balanced_panel = function(conn, from_statement, fe) {
   if (is.null(res)) {
     return(NA)
   }
-  res$n_distinct_counts == 1 && res$n_cells == res$n_expected
+  res[["n_distinct_counts"]] == 1 && res[["n_cells"]] == res[["n_expected"]]
 }
 
 #' Alternating projections (AP) for exact multi-way FE demeaning
@@ -696,7 +696,7 @@ dbreg_alternating_projections = function(
   max_iter = getOption("dbreg.ap_max_iter", 100L),
   tol = getOption("dbreg.ap_tol", 1e-10)
 ) {
-  backend = detect_backend(conn)$name
+  backend = detect_backend(conn)[["name"]]
   weights_expr = sql_weight_expr(weights)
   if (is.null(weights_expr)) {
     weights_expr = "1.0"
@@ -873,7 +873,7 @@ choose_strategy = function(inputs) {
     total_sql = glue(
       "SELECT CAST(COUNT(*) AS BIGINT) AS n FROM (SELECT * {from_statement}) t"
     )
-    total_n = dbGetQuery(conn, total_sql)$n
+    total_n = dbGetQuery(conn, total_sql)[["n"]]
 
     # Helper to count distinct tuples (works for single or multi-column)
     count_distinct_tuples = function(cols) {
@@ -882,7 +882,7 @@ choose_strategy = function(inputs) {
       sql = glue(
         "SELECT CAST(COUNT(*) AS BIGINT) AS g FROM (SELECT DISTINCT {cols_expr} {from_statement}) t"
       )
-      dbGetQuery(conn, sql)$g
+      dbGetQuery(conn, sql)[["g"]]
     }
 
     if (length(fe)) {
@@ -1030,7 +1030,7 @@ finalize_dbreg_result = function(result, inputs, chosen_strategy) {
   if (inputs[["data_only"]]) {
     return(result)
   }
-  result$strategy = chosen_strategy
+  result[["strategy"]] = chosen_strategy
   class(result) = c("dbreg", class(result))
   result
 }

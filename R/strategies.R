@@ -15,8 +15,8 @@ execute_moments_strategy = function(inputs) {
       expand = "all",
       fe_vars = inputs[["fe"]]
     )
-    xvars_sql = sql_design$select_exprs
-    xvar_names = sql_design$col_names
+    xvars_sql = sql_design[["select_exprs"]]
+    xvar_names = sql_design[["col_names"]]
   } else {
     xvars_sql = inputs[["xvars"]]
     xvar_names = inputs[["xvars"]]
@@ -52,8 +52,8 @@ execute_moments_strategy = function(inputs) {
   if (inputs[["data_only"]]) {
     return(moments_df)
   }
-  n_total = moments_df$n_total
-  sum_w = moments_df$sum_w
+  n_total = moments_df[["n_total"]]
+  sum_w = moments_df[["sum_w"]]
 
   vars_all = c("(Intercept)", xvar_names)
   p = length(vars_all)
@@ -61,7 +61,7 @@ execute_moments_strategy = function(inputs) {
   Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
 
   XtX["(Intercept)", "(Intercept)"] = sum_w
-  Xty["(Intercept)", ] = moments_df$sum_wy
+  Xty["(Intercept)", ] = moments_df[["sum_wy"]]
   for (x in xvar_names) {
     swx = moments_df[[paste0("sum_w", x)]]
     swxx = moments_df[[paste0("sum_w", x, "_", x)]]
@@ -79,19 +79,19 @@ execute_moments_strategy = function(inputs) {
   }
 
   solve_result = solve_with_fallback(XtX, Xty)
-  betahat = solve_result$betahat
-  XtX_inv = solve_result$XtX_inv
+  betahat = solve_result[["betahat"]]
+  XtX_inv = solve_result[["XtX_inv"]]
   rownames(betahat) = vars_all
 
   rss = as.numeric(
-    moments_df$sum_wy_sq -
+    moments_df[["sum_wy_sq"]] -
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
   df_res = max(n_total - p, 1)
   # Calculate TSS for R2
-  sum_wy = moments_df$sum_wy
-  sum_wy_sq = moments_df$sum_wy_sq
+  sum_wy = moments_df[["sum_wy"]]
+  sum_wy_sq = moments_df[["sum_wy_sq"]]
   tss = sum_wy_sq - (sum_wy^2 / sum_w)
   
   # Compute meat matrix if needed (HC1 or cluster)
@@ -178,8 +178,8 @@ execute_demean_strategy = function(inputs) {
       expand = "all",
       fe_vars = inputs[["fe"]]
     )
-    xvars_sql = sql_design$select_exprs
-    xvar_names = sql_design$col_names
+    xvars_sql = sql_design[["select_exprs"]]
+    xvar_names = sql_design[["col_names"]]
   } else {
     xvars_sql = inputs[["xvars"]]
     xvar_names = inputs[["xvars"]]
@@ -315,9 +315,9 @@ execute_demean_strategy = function(inputs) {
         cluster_var = cluster_var,
         verbose = inputs[["verbose"]]
       )
-      ap_tables = c(ap_res$table, ap_res$base_table)
+      ap_tables = c(ap_res[["table"]], ap_res[["base_table"]])
       weights_expr_demeaned = "__w"
-      cte_sql = paste0("WITH demeaned AS (SELECT * FROM ", ap_res$table, ")")
+      cte_sql = paste0("WITH demeaned AS (SELECT * FROM ", ap_res[["table"]], ")")
 
       fe_count_terms = vapply(seq_along(inputs[["fe"]]), function(k) {
         sql_count(inputs[["conn"]], sprintf("n_fe%d", k), inputs[["fe"]][k], distinct = TRUE)
@@ -526,7 +526,7 @@ execute_demean_strategy = function(inputs) {
   demean_df = dbGetQuery(inputs[["conn"]], demean_sql)
   ap_cleanup = function() {
     if (!is.null(ap_tables)) {
-      backend = detect_backend(inputs[["conn"]])$name
+      backend = detect_backend(inputs[["conn"]])[["name"]]
       for (tbl in ap_tables) {
         drop_table_if_exists(inputs[["conn"]], tbl, backend)
       }
@@ -536,7 +536,7 @@ execute_demean_strategy = function(inputs) {
     ap_cleanup()
     return(demean_df)
   }
-  n_total = demean_df$n_total
+  n_total = demean_df[["n_total"]]
   n_fe_levels = vapply(seq_along(inputs[["fe"]]), function(k) {
     val = demean_df[[sprintf("n_fe%d", k)]]
     if (is.null(val)) 1L else as.integer(val)
@@ -562,19 +562,19 @@ execute_demean_strategy = function(inputs) {
 
   # Detect and handle collinearity
   collin = detect_collinearity(XtX, Xty, verbose = inputs[["verbose"]])
-  XtX = collin$XtX
-  Xty = collin$Xty
-  xvar_names_kept = collin$keep_names
-  collin_vars = collin$drop_names
+  XtX = collin[["XtX"]]
+  Xty = collin[["Xty"]]
+  xvar_names_kept = collin[["keep_names"]]
+  collin_vars = collin[["drop_names"]]
 
   solve_result = solve_with_fallback(XtX, Xty)
-  betahat = solve_result$betahat
-  XtX_inv = solve_result$XtX_inv
+  betahat = solve_result[["betahat"]]
+  XtX_inv = solve_result[["XtX_inv"]]
   rownames(betahat) = xvar_names_kept
   p_kept = length(xvar_names_kept)
 
   rss = as.numeric(
-    demean_df$sum_y_sq -
+    demean_df[["sum_y_sq"]] -
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
@@ -627,7 +627,7 @@ execute_demean_strategy = function(inputs) {
     meat = meat
   )
   attr(vcov_mat, "rss") = rss
-  attr(vcov_mat, "tss") = demean_df$sum_y_sq
+  attr(vcov_mat, "tss") = demean_df[["sum_y_sq"]]
 
   coeftable = gen_coeftable(betahat, vcov_mat, df_res)
   ap_cleanup()
@@ -676,8 +676,8 @@ execute_mundlak_strategy = function(inputs) {
       expand = "all",
       fe_vars = inputs[["fe"]]
     )
-    xvars_sql = sql_design$select_exprs
-    xvar_names = sql_design$col_names
+    xvars_sql = sql_design[["select_exprs"]]
+    xvar_names = sql_design[["col_names"]]
   } else {
     xvars_sql = inputs[["xvars"]]
     xvar_names = inputs[["xvars"]]
@@ -714,7 +714,7 @@ execute_mundlak_strategy = function(inputs) {
   # between original covariates and the FE
   if (isTRUE(inputs[["has_interactions"]])) {
     # Filter to numeric vars only (factors are in sql_design$factor_levels)
-    factor_vars = names(sql_design$factor_levels)
+    factor_vars = names(sql_design[["factor_levels"]])
     numeric_xvars = setdiff(inputs[["xvars"]], factor_vars)
   } else {
     numeric_xvars = inputs[["xvars"]]
@@ -816,10 +816,10 @@ execute_mundlak_strategy = function(inputs) {
     return(mundlak_df)
   }
 
-  n_total = mundlak_df$n_total
-  n_fe1 = mundlak_df$n_fe1
-  n_fe2 = mundlak_df$n_fe2
-  sum_w = mundlak_df$sum_w
+  n_total = mundlak_df[["n_total"]]
+  n_fe1 = mundlak_df[["n_fe1"]]
+  n_fe2 = mundlak_df[["n_fe2"]]
+  sum_w = mundlak_df[["sum_w"]]
 
   # Include intercept
   vars_all = c("(Intercept)", all_regressors)
@@ -830,7 +830,7 @@ execute_mundlak_strategy = function(inputs) {
 
   # Intercept terms
   XtX[1, 1] = sum_w
-  Xty[1, ] = mundlak_df$sum_wy
+  Xty[1, ] = mundlak_df[["sum_wy"]]
 
   # Regressor terms (using numeric indices)
   for (i in seq_along(all_regressors)) {
@@ -849,17 +849,17 @@ execute_mundlak_strategy = function(inputs) {
   }
 
   solve_result = solve_with_fallback(XtX, Xty)
-  betahat = solve_result$betahat
-  XtX_inv = solve_result$XtX_inv
+  betahat = solve_result[["betahat"]]
+  XtX_inv = solve_result[["XtX_inv"]]
   rownames(betahat) = vars_all
 
   # RSS and TSS
   rss = as.numeric(
-    mundlak_df$sum_wy_sq -
+    mundlak_df[["sum_wy_sq"]] -
       2 * t(betahat) %*% Xty +
       t(betahat) %*% XtX %*% betahat
   )
-  tss = mundlak_df$sum_wy_sq - (mundlak_df$sum_wy^2 / sum_w)
+  tss = mundlak_df[["sum_wy_sq"]] - (mundlak_df[["sum_wy"]]^2 / sum_w)
 
   df_res = max(n_total - p, 1)
 
@@ -953,9 +953,9 @@ execute_compress_strategy = function(inputs) {
     )
     
     # Build SELECT expressions with aliases
-    select_exprs = paste0(sql_design$select_exprs, " AS ", sql_design$col_names)
+    select_exprs = paste0(sql_design[["select_exprs"]], " AS ", sql_design[["col_names"]])
     xvars_sql = paste(select_exprs, collapse = ", ")
-    xvar_names = sql_design$col_names
+    xvar_names = sql_design[["col_names"]]
   } else {
     xvars_sql = paste(inputs[["xvars"]], collapse = ", ")
     xvar_names = inputs[["xvars"]]
@@ -995,7 +995,7 @@ execute_compress_strategy = function(inputs) {
     message(if (!is.null(inputs[["weights"]])) "[dbreg] Executing weighted compress strategy SQL\n" else "[dbreg] Executing compress strategy SQL\n")
   }
   compressed_dat = dbGetQuery(inputs[["conn"]], query_string)
-  nobs_orig = sum(compressed_dat$n)
+  nobs_orig = sum(compressed_dat[["n"]])
   nobs_comp = nrow(compressed_dat)
   compression_ratio = nobs_comp / max(nobs_orig, 1)
 
@@ -1037,43 +1037,43 @@ execute_compress_strategy = function(inputs) {
 
   # Detect and handle collinearity
   collin = detect_collinearity(XtX, XtY, verbose = inputs[["verbose"]])
-  XtX = collin$XtX
-  XtY = collin$Xty
-  collin_vars = collin$drop_names
-  if (collin$collinear) {
-    keep_idx = match(collin$keep_names, colnames(X))
+  XtX = collin[["XtX"]]
+  XtY = collin[["Xty"]]
+  collin_vars = collin[["drop_names"]]
+  if (collin[["collinear"]]) {
+    keep_idx = match(collin[["keep_names"]], colnames(X))
     X = X[, keep_idx, drop = FALSE]
   }
 
   solve_result = solve_with_fallback(XtX, XtY)
-  betahat = solve_result$betahat
-  XtX_inv = solve_result$XtX_inv
+  betahat = solve_result[["betahat"]]
+  XtX_inv = solve_result[["XtX_inv"]]
   if (is.null(dim(betahat))) {
     betahat = matrix(betahat, ncol = 1)
   }
   rownames(betahat) = colnames(X)
   yhat = as.numeric(X %*% betahat)
 
-  sum_w = compressed_dat$sum_w
-  sum_wy = compressed_dat$sum_wy
-  sum_wy_sq = compressed_dat$sum_wy_sq
+  sum_w = compressed_dat[["sum_w"]]
+  sum_wy = compressed_dat[["sum_wy"]]
+  sum_wy_sq = compressed_dat[["sum_wy_sq"]]
   rss_g = sum_wy_sq - 2 * yhat * sum_wy + sum_w * (yhat^2)
   rss_total = sum(rss_g)
   df_res = max(nobs_orig - ncol(X), 1)
 
   # Calculate TSS for R2
-  sum_wy_total = sum(compressed_dat$sum_wy)
-  sum_wy_sq_total = sum(compressed_dat$sum_wy_sq)
-  sum_w_total = sum(compressed_dat$sum_w)
+  sum_wy_total = sum(compressed_dat[["sum_wy"]])
+  sum_wy_sq_total = sum(compressed_dat[["sum_wy_sq"]])
+  sum_w_total = sum(compressed_dat[["sum_w"]])
   tss = sum_wy_sq_total - (sum_wy_total^2 / sum_w_total)
   
   # For clustered SEs, need to query cluster-by-cell stats
   meat = NULL
   n_params_cluster = ncol(X)  # K for CR1 correction
   if (inputs[["vcov_type_req"]] == "hc1" && !is.null(inputs[["weights"]])) {
-    sum_w2 = compressed_dat$sum_w2
-    sum_w2y = compressed_dat$sum_w2y
-    sum_w2y_sq = compressed_dat$sum_w2y_sq
+    sum_w2 = compressed_dat[["sum_w2"]]
+    sum_w2y = compressed_dat[["sum_w2y"]]
+    sum_w2y_sq = compressed_dat[["sum_w2y_sq"]]
     rss_g_w2 = sum_w2y_sq - 2 * yhat * sum_w2y + sum_w2 * (yhat^2)
     meat = crossprod(X, Diagonal(x = as.numeric(rss_g_w2)) %*% X)
   }
@@ -1173,7 +1173,7 @@ count_nested_fe_levels = function(conn, from_statement, fe, cluster_var) {
       count_sql = glue(
         "SELECT COUNT(DISTINCT {f}) AS n FROM (SELECT * {from_statement}) t"
       )
-      n_levels = tryCatch(dbGetQuery(conn, count_sql)$n, error = function(e) 0L)
+      n_levels = tryCatch(dbGetQuery(conn, count_sql)[["n"]], error = function(e) 0L)
       nested_levels = nested_levels + n_levels
     }
   }

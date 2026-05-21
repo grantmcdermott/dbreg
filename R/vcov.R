@@ -149,7 +149,7 @@ compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
   meat_mat = matrix(0, p, p, dimnames = list(vars_all, vars_all))
 
   if (has_intercept) {
-    meat_mat[1, 1] = meat_df$meat_0_0
+    meat_mat[1, 1] = meat_df[["meat_0_0"]]
     for (j in seq_along(vars)) {
       val = meat_df[[sprintf("meat_0_%d", j)]]
       meat_mat[1, j + 1] = meat_mat[j + 1, 1] = val
@@ -306,11 +306,11 @@ compute_meat_cluster_compress = function(conn, from_statement, group_cols,
   cluster_cell_df = dbGetQuery(conn, cluster_cell_sql)
 
   # Create cell key for matching (same grouping as compress strategy)
-  compressed_dat$cell_key = interaction(compressed_dat[, group_cols, drop = FALSE])
-  cluster_cell_df$cell_key = interaction(cluster_cell_df[, group_cols, drop = FALSE])
+  compressed_dat[["cell_key"]] = interaction(compressed_dat[, group_cols, drop = FALSE])
+  cluster_cell_df[["cell_key"]] = interaction(cluster_cell_df[, group_cols, drop = FALSE])
 
   # Add yhat to compressed_dat and create lookup
-  compressed_dat$yhat = yhat
+  compressed_dat[["yhat"]] = yhat
   yhat_lookup = compressed_dat[, c("cell_key", "yhat")]
 
   # Merge to get yhat for each cluster-cell combo (only keep needed cols from cluster_cell_df)
@@ -322,7 +322,7 @@ compute_meat_cluster_compress = function(conn, from_statement, group_cols,
       all.x = TRUE
     )
     # Compute summed residuals per (cluster, cell): u_sum_gc = sum_y_gc - n_gc * yhat
-    cluster_cell_df$u_sum_gc = cluster_cell_df$sum_y_gc - cluster_cell_df$n_gc * cluster_cell_df$yhat
+    cluster_cell_df[["u_sum_gc"]] = cluster_cell_df[["sum_y_gc"]] - cluster_cell_df[["n_gc"]] * cluster_cell_df[["yhat"]]
   } else {
     cluster_cell_df = merge(
       cluster_cell_df[, c("cell_key", cluster_var, "sum_w_gc", "sum_wy_gc")],
@@ -331,7 +331,7 @@ compute_meat_cluster_compress = function(conn, from_statement, group_cols,
       all.x = TRUE
     )
     # Compute summed residuals per (cluster, cell): u_sum_gc = sum_wy_gc - sum_w_gc * yhat
-    cluster_cell_df$u_sum_gc = cluster_cell_df$sum_wy_gc - cluster_cell_df$sum_w_gc * cluster_cell_df$yhat
+    cluster_cell_df[["u_sum_gc"]] = cluster_cell_df[["sum_wy_gc"]] - cluster_cell_df[["sum_w_gc"]] * cluster_cell_df[["yhat"]]
   }
 
   # Get unique clusters
@@ -343,17 +343,17 @@ compute_meat_cluster_compress = function(conn, from_statement, group_cols,
   meat_mat = matrix(0, p, p, dimnames = list(colnames(X), colnames(X)))
 
   # Create cell_key to row index mapping for X matrix
-  cell_to_row = setNames(seq_len(nrow(compressed_dat)), as.character(compressed_dat$cell_key))
+  cell_to_row = setNames(seq_len(nrow(compressed_dat)), as.character(compressed_dat[["cell_key"]]))
 
   # For each cluster, compute score vector and add outer product to meat
   for (g in clusters) {
     cells_in_g = cluster_cell_df[cluster_cell_df[[cluster_var]] == g, ]
 
     # Find which rows in X correspond to these cells
-    cell_matches = cell_to_row[as.character(cells_in_g$cell_key)]
+    cell_matches = cell_to_row[as.character(cells_in_g[["cell_key"]])]
 
     # Compute s_g = X' * u_sum (weighted by u_sum_gc for each cell)
-    s_g = as.numeric(crossprod(X[cell_matches, , drop = FALSE], cells_in_g$u_sum_gc))
+    s_g = as.numeric(crossprod(X[cell_matches, , drop = FALSE], cells_in_g[["u_sum_gc"]]))
     meat_mat = meat_mat + tcrossprod(s_g)
   }
 
