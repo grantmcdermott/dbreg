@@ -2,7 +2,7 @@
 % Please edit documentation in R/dbreg.R
 \name{dbreg_alternating_projections}
 \alias{dbreg_alternating_projections}
-\title{Alternating projections (AP) for exact two-way FE demeaning}
+\title{Alternating projections (AP) for exact multiway FE demeaning}
 \usage{
 dbreg_alternating_projections(
   conn,
@@ -15,10 +15,10 @@ dbreg_alternating_projections(
   cluster_var = NULL,
   verbose = FALSE,
   max_iter = getOption("dbreg.ap_max_iter", 100L),
-  tol = getOption("dbreg.ap_tol", 1e-10)
+  tol = getOption("dbreg.ap_tol", 1e-06)
 )
 }
 \description{
-Alternating projections (AP) for exact two-way FE demeaning
+Alternating projections (AP) for exact multiway FE demeaning
 }
 \keyword{internal}

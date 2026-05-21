@@ -131,10 +131,10 @@
 #'    (TWFE) case if your panel is balanced. For unbalanced two-way panels,
 #'    however, the double demeaning strategy is not algebraically equivalent to
 #'    the fixed effects projection and therefore does not recover the exact TWFE
-#'    coefficients. In such cases, and also for weighted two-way FE, `dbreg`
-#'    uses alternating projections to recover the exact TWFE coefficients, at
-#'    the cost of extra passes over the data. Moreover, note that this
-#'    `"demean"` strategy permits at most two FE.
+#'    coefficients. In such cases, for weighted two-way FE, and for models
+#'    with more than two FE, `dbreg` switches to alternating projections to
+#'    recover the exact FE coefficients, at the cost of extra passes over the
+#'    data.
 #' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects
 #'    (CRE) estimator that regresses Y on X plus group means of X:
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
@@ -159,12 +159,14 @@
 #' Arkhangelsky & Imbens (2024).
 #' 
 #' However, the demeaning approaches invite tradeoffs of their own. For example,
-#' the double demeaning transformation of the `"demean"` strategy does not
-#' obtain exact TWFE results in unbalanced panels, and it is also limited to at
-#' most two FE. Conversely, the `"mundlak"` (CRE) strategy obtains consistent
-#' coefficients regardless of panel structure and FE count, but at the "cost" of
-#' recovering a different estimand. (It is a different model to TWFE, after
-#' all.) See Wooldridge (2025) for an extended discussion of these issues.
+#' the single-pass double demeaning transformation underlying the `"demean"`
+#' strategy does not obtain exact TWFE results in unbalanced two-way panels.
+#' In those cases, and for weighted or 3+ FE models, `dbreg` falls back to
+#' alternating projections, which is exact but slower. Conversely, the
+#' `"mundlak"` (CRE) strategy obtains consistent coefficients regardless of
+#' panel structure and FE count, but at the "cost" of recovering a different
+#' estimand. (It is a different model to TWFE, after all.) See Wooldridge
+#' (2025) for an extended discussion of these issues.
 #' 
 #' Users should weigh these tradeoffs when choosing their acceleration strategy.
 #' Summarising, we can provide a few guiding principles. `"compress"` is a good
@@ -173,7 +175,8 @@
 #' another efficient alternative provided that the CRE estimand is acceptable
 #' (don't be alarmed if your coefficients are not identical). Finally, the
 #' `"demean"` and `"moments"` strategies are great for particular use cases
-#' (i.e., balanced panels and cases without FE, respectively).
+#' (i.e., balanced panels or cases where alternating projections is
+#' acceptable, and cases without FE, respectively).
 #' 
 #' If this all sounds like too much to think about, don't fret. The good news
 #' is that `dbreg` can do a lot (all?) of the deciding for you. Specifically, it
@@ -190,6 +193,8 @@
 #' - ELSE IF 2 FE AND (poor compression ratio OR too big compressed data):
 #'   - IF balanced panel THEN `"demean"`.
 #'   - ELSE `"demean"` via alternating projections.
+#' - ELSE IF 3+ FE AND (poor compression ratio OR too big compressed data)
+#'   THEN `"demean"` via alternating projections.
 #' - ELSE THEN `"compress"`.
 #' 
 #' _Tip: set `dbreg(..., verbose = TRUE)` to print information about the auto
@@ -672,7 +677,7 @@ dbreg_is_balanced_panel = function(conn, from_statement, fe) {
   res == 1
 }
 
-#' Alternating projections (AP) for exact two-way FE demeaning
+#' Alternating projections (AP) for exact multiway FE demeaning
 #' @keywords internal
 dbreg_alternating_projections = function(
   conn,
@@ -685,7 +690,7 @@ dbreg_alternating_projections = function(
   cluster_var = NULL,
   verbose = FALSE,
   max_iter = getOption("dbreg.ap_max_iter", 100L),
-  tol = getOption("dbreg.ap_tol", 1e-10)
+  tol = getOption("dbreg.ap_tol", 1e-6)
 ) {
   backend = detect_backend(conn)$name
   weights_expr = sql_weight_expr(weights)
@@ -740,9 +745,10 @@ dbreg_alternating_projections = function(
 
   vars_all = c(yvar, xvar_names)
   mean_names = paste0(vars_all, "_mean")
-  max_abs = Inf
+  max_delta = Inf
 
   for (iter in seq_len(max_iter)) {
+    max_delta = 0
     for (fe_k in fe) {
       mean_cols = vapply(
         vars_all,
@@ -762,6 +768,14 @@ dbreg_alternating_projections = function(
       mean_table = temp_table_name(paste0("dbreg_ap_mean_", seed, "_", fe_k, "_", iter), backend)
       create_temp_table_as(conn, mean_table, mean_sql, backend)
       created = c(created, mean_table)
+
+      delta_cols = paste(
+        sprintf("MAX(ABS(%s)) AS max_%s", mean_names, vars_all),
+        collapse = ", "
+      )
+      delta_sql = paste0("SELECT ", delta_cols, " FROM ", mean_table)
+      delta_res = dbGetQuery(conn, delta_sql)
+      max_delta = max(max_delta, max(delta_res[1, ], na.rm = TRUE))
 
       update_cols = c(
         sprintf("t.%s", id_cols),
@@ -789,37 +803,11 @@ dbreg_alternating_projections = function(
       cur_table = new_table
     }
 
-    max_abs = 0
-    for (fe_k in fe) {
-      mean_cols = vapply(
-        vars_all,
-        function(v) sql_weighted_mean(paste0(v, "_tilde"), "__w", paste0(v, "_mean")),
-        character(1)
-      )
-      inner_sql = paste0(
-        "SELECT ",
-        fe_k,
-        ", ",
-        paste(mean_cols, collapse = ", "),
-        " FROM ",
-        cur_table,
-        " GROUP BY ",
-        fe_k
-      )
-      outer_cols = paste(
-        sprintf("MAX(ABS(%s)) AS max_%s", mean_names, vars_all),
-        collapse = ", "
-      )
-      outer_sql = paste0("SELECT ", outer_cols, " FROM (", inner_sql, ") t")
-      res = dbGetQuery(conn, outer_sql)
-      max_abs = max(max_abs, max(res[1, ], na.rm = TRUE))
-    }
-
     if (isTRUE(verbose)) {
-      message("[AP] iter ", iter, ": max abs mean = ", sprintf("%.4e", max_abs))
+      message("[AP] iter ", iter, ": max abs FE coefficient change = ", sprintf("%.4e", max_delta))
     }
 
-    if (is.finite(max_abs) && max_abs < tol) {
+    if (is.finite(max_delta) && max_delta < tol) {
       success = TRUE
       return(list(table = cur_table, base_table = base_table))
     }
@@ -828,8 +816,8 @@ dbreg_alternating_projections = function(
   stop(
     "[dbreg] Alternating projections did not converge within ",
     max_iter,
-    " iterations (max abs mean = ",
-    sprintf("%.4e", max_abs),
+    " iterations (max abs FE coefficient change = ",
+    sprintf("%.4e", max_delta),
     ").",
     call. = FALSE
   )
