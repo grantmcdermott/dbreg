@@ -147,3 +147,4 @@ expect_true(max(abs(fe2_coefs - db_ap_coefs)) < tol_iid, info = "weighted 2 FE A
 
 db_ap_ses = db_ap$coeftable[names(fe2_ses), "std.error"]
 expect_true(max(abs(fe2_ses - db_ap_ses)) < tol_iid, info = "weighted 2 FE AP SEs match feols")
+expect_error(predict(db_ap, newdata = dat), "alternating projections")

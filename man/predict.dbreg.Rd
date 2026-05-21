@@ -36,15 +36,18 @@ Predict method for dbreg objects
 
 
 Predicting on `dbreg` objects should generally work as expected. However,
-predictions from `"demean"` strategy models carry two important caveats:
+predictions from `"demean"` strategy models carry three important caveats:
 
-1. Predictions require group means to transform back to the original scale.
+1. Predictions are currently unsupported for `"demean"` models estimated via
+alternating projections.
+
+2. Predictions require group means to transform back to the original scale.
 If `newdata` contains the outcome variable, group means are computed from
 `newdata` and used to return level predictions. If the outcome is absent,
 within-group predictions (deviations from group means) are returned instead,
 with a message.
 
-2. Confidence/prediction intervals are not supported. A demeaned model cannot
+3. Confidence/prediction intervals are not supported. A demeaned model cannot
 account for uncertainty in the fixed-effects (since these were absorbed at
 estimation time), which in turn would yield intervals that are too narrow.
 Requesting intervals for `"demean"` strategy models will return point

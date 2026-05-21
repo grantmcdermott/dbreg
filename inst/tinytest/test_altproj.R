@@ -28,7 +28,7 @@ expect_equal(db3$coeftable["x", "std.error"], unname(se(fe3)["x"]), tolerance = 
              info = "3 FE AP IID SE matches feols")
 expect_true(grepl("Alternating-projection", capture.output(print(db3))[1], fixed = TRUE),
             info = "3 FE AP print method identifies alternating projections")
-expect_error(predict(db3, newdata = dat3), "more than two fixed effects")
+expect_error(predict(db3, newdata = dat3), "alternating projections")
 
 ## ---- 4 FE ----------------------------------------------------------------
 set.seed(43)

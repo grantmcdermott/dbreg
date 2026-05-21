@@ -71,15 +71,18 @@ coef.dbreg = function(object, fe = FALSE, ...) {
 #' @section Predicting on "demean" strategy objects:
 #' 
 #' Predicting on `dbreg` objects should generally work as expected. However,
-#' predictions from `"demean"` strategy models carry two important caveats:
+#' predictions from `"demean"` strategy models carry three important caveats:
 #' 
-#' 1. Predictions require group means to transform back to the original scale.
+#' 1. Predictions are currently unsupported for `"demean"` models estimated via
+#' alternating projections.
+#'
+#' 2. Predictions require group means to transform back to the original scale.
 #' If `newdata` contains the outcome variable, group means are computed from
 #' `newdata` and used to return level predictions. If the outcome is absent,
 #' within-group predictions (deviations from group means) are returned instead,
 #' with a message.
 #' 
-#' 2. Confidence/prediction intervals are not supported. A demeaned model cannot
+#' 3. Confidence/prediction intervals are not supported. A demeaned model cannot
 #' account for uncertainty in the fixed-effects (since these were absorbed at
 #' estimation time), which in turn would yield intervals that are too narrow.
 #' Requesting intervals for `"demean"` strategy models will return point
@@ -100,6 +103,13 @@ predict.dbreg = function(
 ) {
   interval = match.arg(interval)
   strategy = object[["strategy"]] 
+
+  if (strategy == "demean" && identical(object[["demean_method"]], "ap")) {
+    stop(
+      "predict() is not supported for demean strategy models estimated with alternating projections.",
+      call. = FALSE
+    )
+  }
 
   # Demean strategy doesn't support intervals (FE uncertainty not available)
   if (strategy == "demean" && interval != "none") {
@@ -132,12 +142,6 @@ predict.dbreg = function(
 
   if (strategy == "demean") {
     # demean: compute group means from newdata to demean predictors
-    if (length(fe) > 2) {
-      stop(
-        "predict() is not supported for demean strategy models with more than two fixed effects.",
-        call. = FALSE
-      )
-    }
     has_y = yvar %in% names(newdata)
     mean_fn = function(y) mean(y, na.rm = TRUE)
     
