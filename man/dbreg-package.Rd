@@ -20,6 +20,7 @@ Useful links:
 
 Authors:
 \itemize{
+  \item Grant McDermott \email{gmcd@amazon.com} (\href{https://orcid.org/0000-0001-7883-8573}{ORCID})
   \item James Brand \email{jamesbrandecon@gmail.com} (\href{https://orcid.org/0000-0002-1663-5583}{ORCID})
 }
 
