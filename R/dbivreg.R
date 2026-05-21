@@ -1418,7 +1418,7 @@ compute_dbivreg_first_stage_wald = function(
   regressors = c(inputs[["exog_names"]], excluded)
   is_athena = inherits(inputs[["conn"]], "AthenaConnection")
   q = length(excluded)
-  vcov_label = dbivreg_vcov_label(inputs[["vcov_type_req"]], NULL)
+  vcov_label = format_vcov_label(inputs[["vcov_type_req"]], NULL)
   out = vector("list", length(endogenous))
   names(out) = standardize_coef_names(endogenous)
 
@@ -1462,7 +1462,7 @@ compute_dbivreg_first_stage_wald = function(
         n_params = length(unrestricted) + df_fe,
         meat = meat
       )
-      vcov_label = dbivreg_vcov_label("hc1", NULL)
+      vcov_label = format_vcov_label("hc1", NULL)
     } else if (inputs[["vcov_type_req"]] == "cluster") {
       meat = compute_meat_cluster_sql(
         conn = inputs[["conn"]],
@@ -1492,7 +1492,7 @@ compute_dbivreg_first_stage_wald = function(
       vcov_u = vcov_u * ((n_total - 1) / n_total)
       attr(vcov_u, "type") = "cluster"
       attr(vcov_u, "n_clusters") = n_clusters
-      vcov_label = dbivreg_vcov_label("cluster", attr(vcov_u, "n_clusters"))
+      vcov_label = format_vcov_label("cluster", attr(vcov_u, "n_clusters"))
     } else {
       stop("Unsupported vcov type for first-stage diagnostics: ", inputs[["vcov_type_req"]])
     }
@@ -1542,17 +1542,6 @@ compute_dbivreg_overid = function(inputs, betahat, S_zz, S_zx, S_zy, rss, n_tota
     p = stats::pchisq(stat, df = df, lower.tail = FALSE),
     df = df,
     test = test_name
-  )
-}
-
-#' @keywords internal
-dbivreg_vcov_label = function(vcov_type, n_clusters = NULL) {
-  switch(
-    vcov_type,
-    "iid" = "IID",
-    "hc1" = "Heteroskedasticity-robust",
-    "cluster" = if (!is.null(n_clusters)) sprintf("Clustered (%d clusters)", n_clusters) else "Clustered",
-    vcov_type
   )
 }
 
@@ -1752,7 +1741,7 @@ print.dbivreg = function(x, ...) {
 
   se_type = attr(x$vcov, "type")
   n_clusters = attr(x$vcov, "n_clusters")
-  se_type = dbivreg_vcov_label(se_type, n_clusters)
+  se_type = format_vcov_label(se_type, n_clusters)
 
   if (x$strategy == "moments") {
     cat("Moments-based 2SLS estimation, Dep. Var.:", x$yvar, "\n")
