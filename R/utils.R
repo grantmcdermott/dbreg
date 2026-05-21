@@ -572,3 +572,20 @@ drop_table_if_exists = function(conn, table_name, backend) {
   }
   tryCatch(dbExecute(conn, sql), error = function(e) NULL)
 }
+
+#' Generate unique pairs of variables (preserves original nested loop order)
+#' @keywords internal
+gen_xvar_pairs = function(xvars) {
+  pairs = list()
+  if (length(xvars) > 1) {
+    for (i in seq_along(xvars)) {
+      if (i == 1) {
+        next
+      }
+      for (j in seq_len(i - 1)) {
+        pairs = c(pairs, list(c(xvars[i], xvars[j])))
+      }
+    }
+  }
+  pairs
+}
