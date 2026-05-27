@@ -3,9 +3,10 @@
 #' @md
 #' @description
 #' Estimates a linear IV model via exact sufficient statistics on a database
-#' backend. The current implementation supports two exact strategies:
+#' backend. The current implementation supports three exact strategies:
 #'
 #' - `strategy = "moments"` for models without absorbed fixed effects.
+#' - `strategy = "compress"` for repeated no-FE design rows.
 #' - `strategy = "demean"` for one or more absorbed fixed effects.
 #'
 #' Multi-way fixed effects use exact alternating projections when there are
@@ -25,8 +26,8 @@
 #'   options are `"iid"` and `"hc1"`.
 #' @param strategy Character string selecting the IV backend. Supported values
 #'   are `"auto"` (default), `"moments"`, `"demean"` (alias `"within"`),
-#'   `"compress"`, and `"mundlak"`. The latter two currently error because they
-#'   are not yet implemented for IV.
+#'   `"compress"`, and `"mundlak"`. The latter currently errors because it is
+#'   not yet implemented for IV.
 #' @param cluster Optional clustering variable, supplied as a one-sided formula
 #'   or character string.
 #' @param sql_only Logical indicating whether to return only the underlying SQL
@@ -116,6 +117,7 @@ dbivreg = function(
   result = switch(
     chosen_strategy,
     "moments" = execute_iv_moments_strategy(inputs),
+    "compress" = execute_iv_compress_strategy(inputs),
     "demean" = execute_iv_demean_strategy(inputs),
     stop("Unknown IV strategy: ", chosen_strategy)
   )
@@ -331,11 +333,17 @@ choose_dbivreg_strategy = function(inputs) {
     }
   }
 
-  if (chosen_strategy %in% c("compress", "mundlak")) {
+  if (chosen_strategy == "mundlak") {
     stop(
       "dbivreg() does not yet implement strategy = '",
       chosen_strategy,
-      "'. Supported IV strategies are 'moments' and 'demean'."
+      "'. Supported IV strategies are 'moments', 'compress', and 'demean'."
+    )
+  }
+  if (chosen_strategy == "compress" && length(fe) > 0) {
+    stop(
+      "strategy = 'compress' is only available without fixed effects in dbivreg(). ",
+      "Use strategy = 'demean' or strategy = 'auto' when fixed effects are present."
     )
   }
   if (chosen_strategy == "moments" && length(fe) > 0) {
@@ -421,6 +429,105 @@ execute_iv_moments_strategy = function(inputs) {
     z_vars_sql = inputs[["z_all_names"]],
     yvar_sql = inputs[["yvar"]]
   )
+}
+
+#' @keywords internal
+execute_iv_compress_strategy = function(inputs) {
+  if (length(inputs[["fe"]]) > 0) {
+    stop(
+      "strategy = 'compress' is only available without fixed effects in dbivreg(). ",
+      "Use strategy = 'demean' or strategy = 'auto' when fixed effects are present."
+    )
+  }
+
+  yvar = inputs[["yvar"]]
+  weight_alias = "__dbivreg_weight"
+  base_select = c(sprintf("%s AS %s", yvar, yvar))
+  for (i in seq_along(inputs[["union_names"]])) {
+    if (identical(inputs[["union_sql"]][i], inputs[["union_names"]][i])) {
+      base_select = c(base_select, inputs[["union_names"]][i])
+    } else {
+      base_select = c(base_select, sprintf("%s AS %s", inputs[["union_sql"]][i], inputs[["union_names"]][i]))
+    }
+  }
+  if (!is.null(inputs[["weights"]])) {
+    base_select = c(base_select, sprintf("%s AS %s", inputs[["weights"]], weight_alias))
+  }
+  if (!is.null(inputs[["cluster_var"]]) && !inputs[["cluster_var"]] %in% c(yvar, inputs[["union_names"]], weight_alias)) {
+    base_select = c(base_select, inputs[["cluster_var"]])
+  }
+
+  weights_expr = if (is.null(inputs[["weights"]])) NULL else sql_weight_expr(weight_alias)
+  compressed_terms = c(
+    sql_count(inputs[["conn"]], "n"),
+    if (is.null(weights_expr)) sql_count(inputs[["conn"]], "sum_w") else glue("SUM({weights_expr}) AS sum_w"),
+    sql_weighted_sum(yvar, weights_expr, "sum_wy"),
+    sql_weighted_sum(glue("({yvar}) * ({yvar})"), weights_expr, "sum_wy_sq")
+  )
+  compressed_moment_terms = dbivreg_compressed_moment_terms(
+    conn = inputs[["conn"]],
+    union_names = inputs[["union_names"]],
+    has_intercept = TRUE
+  )
+  group_cols_sql = paste(inputs[["union_names"]], collapse = ", ")
+
+  cte_sql = paste0(
+    "WITH base AS (\n  SELECT ",
+    paste(base_select, collapse = ", "),
+    " ",
+    inputs[["from_statement"]],
+    "\n)"
+  )
+  compress_sql = paste0(
+    cte_sql,
+    ",\ncompressed AS (\n  SELECT\n    ",
+    group_cols_sql,
+    ",\n    ",
+    paste(compressed_terms, collapse = ",\n    "),
+    "\n  FROM base\n  GROUP BY ",
+    group_cols_sql,
+    "\n),\nmoments AS (\n  SELECT\n    ",
+    paste(compressed_moment_terms, collapse = ",\n    "),
+    "\n  FROM compressed\n)\nSELECT * FROM moments"
+  )
+
+  if (inputs[["sql_only"]]) {
+    return(compress_sql)
+  }
+  if (inputs[["verbose"]]) {
+    message(if (!is.null(inputs[["weights"]])) "[dbivreg] Executing weighted compressed IV SQL\n" else "[dbivreg] Executing compressed IV SQL\n")
+  }
+
+  moments_df = dbGetQuery(inputs[["conn"]], compress_sql)
+  if (inputs[["data_only"]]) {
+    return(moments_df)
+  }
+
+  compression_ratio = moments_df[["n_compressed"]] / max(moments_df[["n_total"]], 1)
+  if (inputs[["verbose"]] && compression_ratio > 0.8) {
+    warning(paste0(
+      sprintf("[dbivreg] compression ineffective (%.1f%% of original rows). ", 100 * compression_ratio),
+      "Consider strategy = 'moments'."
+    ))
+  }
+
+  result = dbivreg_finalize_fit(
+    inputs = inputs,
+    moment_df = moments_df,
+    query_string = compress_sql,
+    cte_sql = cte_sql,
+    cte_name = "base",
+    x_names_full = c("(Intercept)", inputs[["x_all_names"]]),
+    z_names_full = c("(Intercept)", inputs[["z_all_names"]]),
+    has_intercept = TRUE,
+    weights_expr = weights_expr,
+    x_vars_sql = inputs[["x_all_names"]],
+    z_vars_sql = inputs[["z_all_names"]],
+    yvar_sql = yvar
+  )
+  result[["nobs"]] = moments_df[["n_compressed"]]
+  result[["compression_ratio"]] = compression_ratio
+  result
 }
 
 #' @keywords internal
@@ -1010,6 +1117,44 @@ dbivreg_union_moment_terms = function(conn, union_names, y_expr, weights_expr, h
         terms = c(
           terms,
           sql_weighted_sum(glue("({union_names[j]}) * ({union_names[i]})"), weights_expr, sprintf("sum_u%d_%d", j, i))
+        )
+      }
+    }
+  }
+  terms
+}
+
+#' @keywords internal
+dbivreg_compressed_moment_terms = function(conn, union_names, has_intercept) {
+  terms = c(
+    "SUM(n) AS n_total",
+    sql_count(conn, "n_compressed"),
+    "SUM(sum_w) AS sum_w",
+    "SUM(sum_wy) AS sum_wy",
+    "SUM(sum_wy_sq) AS sum_wy_sq"
+  )
+  for (i in seq_along(union_names)) {
+    if (has_intercept) {
+      terms = c(
+        terms,
+        glue("SUM(sum_w * ({union_names[i]})) AS sum_u{i}")
+      )
+    }
+    terms = c(
+      terms,
+      glue("SUM(sum_wy * ({union_names[i]})) AS sum_u{i}_y"),
+      glue("SUM(sum_w * ({union_names[i]}) * ({union_names[i]})) AS sum_u{i}_{i}")
+    )
+  }
+  if (length(union_names) > 1) {
+    for (i in seq_along(union_names)) {
+      if (i == 1) {
+        next
+      }
+      for (j in seq_len(i - 1)) {
+        terms = c(
+          terms,
+          glue("SUM(sum_w * ({union_names[j]}) * ({union_names[i]})) AS sum_u{j}_{i}")
         )
       }
     }

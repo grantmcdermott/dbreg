@@ -126,6 +126,66 @@ expect_true(
   info = "Auto strategy selects moments when no fixed effects are present"
 )
 
+set.seed(2034)
+
+n_comp_cells = 80L
+comp_reps = sample(2:6, n_comp_cells, replace = TRUE)
+dat_comp_cell = data.frame(
+  cell = seq_len(n_comp_cells),
+  cluster = factor(sample(1:20, n_comp_cells, replace = TRUE))
+)
+dat_comp_cell$x = round(rnorm(n_comp_cells), 2)
+dat_comp_cell$z = round(rnorm(n_comp_cells), 2)
+v_comp_cell = rnorm(n_comp_cells)
+dat_comp_cell$d = round(0.8 * dat_comp_cell$z + 0.4 * dat_comp_cell$x + v_comp_cell, 2)
+
+dat_comp = dat_comp_cell[rep(seq_len(n_comp_cells), comp_reps), ]
+rownames(dat_comp) = NULL
+dat_comp$w = runif(nrow(dat_comp), min = 0.5, max = 2.0)
+dat_comp$y = 1.0 + 2.0 * dat_comp$d + 0.3 * dat_comp$x +
+  0.6 * v_comp_cell[dat_comp$cell] + rnorm(nrow(dat_comp))
+
+db_comp_hc1 = dbivreg(
+  y ~ x | d ~ z,
+  data = dat_comp,
+  weights = "w",
+  vcov = "hc1",
+  strategy = "compress"
+)
+fx_comp_hc1 = feols(y ~ x | d ~ z, data = dat_comp, weights = ~w, vcov = "hc1")
+expect_iv_match(db_comp_hc1, fx_comp_hc1, tol_coef = tol, tol_se = tol, label = "Compressed IV HC1")
+expect_true(
+  db_comp_hc1$nobs < db_comp_hc1$nobs_orig && db_comp_hc1$compression_ratio < 1,
+  info = "Compressed IV records fewer design rows than original observations"
+)
+fs_comp_hc1 = fitstat(fx_comp_hc1, ~ ivwald1, simplify = TRUE)
+expect_equal(
+  db_comp_hc1$diagnostics$first_stage_wald$d$stat,
+  extract_fixest_ivstat(fs_comp_hc1, "ivwald1", "d")$stat,
+  tolerance = tol,
+  info = "Compressed IV first-stage Wald matches fixest"
+)
+
+db_comp_cl = dbivreg(
+  y ~ x | d ~ z,
+  data = dat_comp,
+  weights = "w",
+  vcov = ~cluster,
+  strategy = "compress"
+)
+fx_comp_cl = feols(y ~ x | d ~ z, data = dat_comp, weights = ~w, vcov = ~cluster)
+expect_iv_match(db_comp_cl, fx_comp_cl, tol_coef = tol, tol_se = tol_cluster, label = "Compressed IV cluster")
+
+sql_comp = invisible(capture.output(
+  dbivreg(
+    y ~ x | d ~ z,
+    data = dat_comp,
+    strategy = "compress",
+    sql_only = TRUE
+  )
+))
+expect_true(any(grepl("compressed AS", sql_comp)), info = "Compressed IV sql_only exposes compressed CTE")
+
 set.seed(2027)
 
 n_fe = 700L
@@ -454,13 +514,13 @@ expect_error(
 )
 
 expect_error(
-  dbivreg(y ~ x | d ~ z, data = dat, strategy = "compress"),
-  "does not yet implement strategy = 'compress'"
+  dbivreg(y ~ x | d ~ z, data = dat, strategy = "mundlak"),
+  "does not yet implement strategy = 'mundlak'"
 )
 
 expect_error(
-  dbivreg(y ~ x | d ~ z, data = dat, strategy = "mundlak"),
-  "does not yet implement strategy = 'mundlak'"
+  dbivreg(y ~ x | fe1 | d ~ z, data = dat_fe1, strategy = "compress"),
+  "only available without fixed effects"
 )
 
 expect_error(

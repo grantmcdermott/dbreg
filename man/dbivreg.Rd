@@ -40,8 +40,8 @@ options are \code{"iid"} and \code{"hc1"}.}
 
 \item{strategy}{Character string selecting the IV backend. Supported values
 are \code{"auto"} (default), \code{"moments"}, \code{"demean"} (alias
-\code{"within"}), \code{"compress"}, and \code{"mundlak"}. The latter two
-currently error because they are not yet implemented for IV.}
+\code{"within"}), \code{"compress"}, and \code{"mundlak"}. The latter currently
+errors because it is not yet implemented for IV.}
 
 \item{cluster}{Optional clustering variable, supplied as a one-sided formula
 or character string.}
@@ -65,9 +65,10 @@ A list of class \code{"dbivreg"} and \code{"dbreg"}.
 }
 \description{
 Estimates a linear IV model via exact sufficient statistics on a database
-backend. The current implementation supports two exact strategies:
+backend. The current implementation supports three exact strategies:
 \itemize{
 \item \code{strategy = "moments"} for models without absorbed fixed effects.
+\item \code{strategy = "compress"} for repeated no-FE design rows.
 \item \code{strategy = "demean"} for one or more absorbed fixed effects.
 }
 
