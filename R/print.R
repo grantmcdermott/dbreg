@@ -36,16 +36,7 @@ print.dbreg = function(x, fe = FALSE, ...) {
   }
   se_type = attr(x[["vcov"]], "type")
   n_clusters = attr(x[["vcov"]], "n_clusters")
-  se_type = switch(
-    se_type,
-    "iid" = "IID",
-    "hc1" = "Heteroskedasticity-robust",
-    "cluster" = if (!is.null(n_clusters)) {
-      sprintf("Clustered (%d clusters)", n_clusters)
-    } else {
-      "Clustered"
-    }
-  )
+  se_type = format_vcov_label(se_type, n_clusters)
   if (x[["strategy"]] == "compress") {
     cat("Compressed OLS estimation, Dep. Var.:", x[["yvar"]], "\n")
     cat(
@@ -236,4 +227,3 @@ print.dbbinsreg = function(x, ...) {
   
   invisible(x)
 }
-

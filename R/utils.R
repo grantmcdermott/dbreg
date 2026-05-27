@@ -20,6 +20,18 @@ env2env = function(source, target, keys = NULL) {
 #' @keywords internal
 standardize_coef_names = function(x) gsub("_x_", ":", x, fixed = TRUE)
 
+#' Format variance-covariance type labels for printing
+#' @keywords internal
+format_vcov_label = function(vcov_type, n_clusters = NULL) {
+  switch(
+    vcov_type,
+    "iid" = "IID",
+    "hc1" = "Heteroskedasticity-robust",
+    "cluster" = if (!is.null(n_clusters)) sprintf("Clustered (%d clusters)", n_clusters) else "Clustered",
+    vcov_type
+  )
+}
+
 #' Generate coefficient table from estimates and vcov matrix
 #' @keywords internal
 gen_coeftable = function(betahat, vcov_mat, df_residual) {
