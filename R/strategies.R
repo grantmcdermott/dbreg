@@ -981,7 +981,7 @@ execute_compress_strategy = function(inputs) {
     all_cols_sql,
     ",\n        ",
     paste(moment_terms, collapse = ",\n        "),
-    ",\n    ",
+    "\n    ",
     from_statement,
     "\n    GROUP BY ",
     group_cols_sql,
