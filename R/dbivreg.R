@@ -1869,7 +1869,17 @@ print.dbivreg = function(x, ...) {
   n_clusters = attr(x$vcov, "n_clusters")
   se_type = format_vcov_label(se_type, n_clusters)
 
-  if (x$strategy == "moments") {
+  if (x$strategy == "compress") {
+    cat("Compressed 2SLS estimation, Dep. Var.:", x$yvar, "\n")
+    cat(
+      "Observations.:",
+      prettyNum(x$nobs_orig, big.mark = ","),
+      "(original) |",
+      prettyNum(x$nobs, big.mark = ","),
+      "(compressed)",
+      "\n"
+    )
+  } else if (x$strategy == "moments") {
     cat("Moments-based 2SLS estimation, Dep. Var.:", x$yvar, "\n")
     cat("Observations.:", prettyNum(x$nobs_orig, big.mark = ","), "\n")
   } else if (x$strategy == "demean") {

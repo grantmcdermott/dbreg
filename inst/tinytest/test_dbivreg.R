@@ -185,6 +185,7 @@ sql_comp = invisible(capture.output(
   )
 ))
 expect_true(any(grepl("compressed AS", sql_comp)), info = "Compressed IV sql_only exposes compressed CTE")
+expect_stdout(print(db_comp_hc1), "Compressed 2SLS estimation", info = "Compressed IV print header")
 
 set.seed(2027)
 
