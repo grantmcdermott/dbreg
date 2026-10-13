@@ -609,10 +609,9 @@ execute_demean_strategy = function(inputs) {
     )
     # For ssc = "nested", exclude nested FE levels from K
     if (inputs[["ssc"]] == "nested") {
-      nested_levels = count_nested_fe_levels(
+      n_params_cluster = p_kept + df_fe - nested_fe_df(
         inputs[["conn"]], inputs[["from_statement"]], inputs[["fe"]], inputs[["cluster_var"]]
       )
-      n_params_cluster = p_kept + df_fe - nested_levels
     }
   }
   
@@ -1091,10 +1090,9 @@ execute_compress_strategy = function(inputs) {
     )
     # For ssc = "nested", exclude nested FE levels from K
     if (inputs[["ssc"]] == "nested") {
-      nested_levels = count_nested_fe_levels(
+      n_params_cluster = ncol(X) - nested_fe_df(
         inputs[["conn"]], from_statement, inputs[["fe"]], inputs[["cluster_var"]]
       )
-      n_params_cluster = ncol(X) - nested_levels
     }
   }
   
@@ -1145,18 +1143,21 @@ execute_compress_strategy = function(inputs) {
   )
 }
 
-#' Count levels of FE variables nested within cluster variable
+#' Degrees of freedom of FE variables nested within cluster variable
 #' 
-#' For ssc = "nested", we exclude FE levels from K if the FE is nested within
-#' the cluster variable (i.e., each FE value belongs to exactly one cluster).
+#' For ssc = "nested", we exclude an FE's parameters from K if the FE is nested
+#' within the cluster variable (i.e., each FE value belongs to exactly one
+#' cluster). Matching fixest, each nested FE contributes G - 1 parameters (its
+#' levels less one for the absorbed intercept), so the result is
+#' sum(G_j - 1) over nested FEs.
 #' 
 #' @keywords internal
-count_nested_fe_levels = function(conn, from_statement, fe, cluster_var) {
+nested_fe_df = function(conn, from_statement, fe, cluster_var) {
   if (is.null(fe) || length(fe) == 0 || is.null(cluster_var)) {
     return(0L)
   }
   
-  nested_levels = 0L
+  nested_df = 0L
   for (f in fe) {
     # Check if FE is nested: each FE value should map to exactly one cluster
     # If any FE value spans multiple clusters, it's not nested
@@ -1168,15 +1169,16 @@ count_nested_fe_levels = function(conn, from_statement, fe, cluster_var) {
     )
     result = tryCatch(dbGetQuery(conn, nested_sql), error = function(e) NULL)
     
-    if (is.null(result) || nrow(result) == 0) {
+    # Query errors are treated as not nested (conservative: keeps K larger)
+    if (!is.null(result) && nrow(result) == 0) {
       # FE is nested; count its levels
       count_sql = glue(
         "SELECT COUNT(DISTINCT {f}) AS n FROM (SELECT * {from_statement}) t"
       )
       n_levels = tryCatch(dbGetQuery(conn, count_sql)[["n"]], error = function(e) 0L)
-      nested_levels = nested_levels + n_levels
+      nested_df = nested_df + max(n_levels - 1L, 0L)
     }
   }
   
-  nested_levels
+  nested_df
 }

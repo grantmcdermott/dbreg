@@ -936,15 +936,12 @@ dbivreg_finalize_fit = function(
   }
   df_fe = if (n_fe == 0) 0 else sum(n_fe_levels) - (n_fe - 1)
   df_res = max(moment_df$n_total - length(x_names_full) - df_fe, 1)
-  # For ssc = "nested", exclude nested FE levels from the CR1 K. Like fixest,
-  # K = k + 1 + sum(G_j - 1) over non-nested FEs, so one level is kept back
-  # for the absorbed intercept.
+  # For ssc = "nested", exclude nested FE parameters from the CR1 K
   nested_levels = 0L
   if (inputs[["vcov_type_req"]] == "cluster" && inputs[["ssc"]] == "nested") {
-    nested_levels = count_nested_fe_levels(
+    nested_levels = nested_fe_df(
       inputs[["conn"]], inputs[["from_statement"]], inputs[["fe"]], inputs[["cluster_var"]]
     )
-    nested_levels = max(nested_levels - 1L, 0L)
   }
   n_params = length(x_names_full) + df_fe - nested_levels
 
@@ -991,16 +988,22 @@ dbivreg_finalize_fit = function(
     )
   }
 
-  vcov_mat = compute_iv_vcov(
+  # 2SLS sandwich: A^-1 [X'Z (Z'Z)^-1 Omega (Z'Z)^-1 Z'X] A^-1 has the same
+  # form as OLS's (X'X)^-1 Omega (X'X)^-1, so reuse the shared vcov scaling
+  meat_x = NULL
+  if (!is.null(meat)) {
+    meat_x = Matrix::t(S_zx) %*% z_inv %*% meat %*% z_inv %*% S_zx
+    attr(meat_x, "n_clusters") = attr(meat, "n_clusters")
+  }
+  vcov_mat = compute_vcov(
     vcov_type = inputs[["vcov_type_req"]],
-    A_inv = A_inv,
-    ZtZ_inv = z_inv,
-    ZtX = S_zx,
+    strategy = if (has_intercept) "moments" else "demean",
+    XtX_inv = A_inv,
     rss = rss,
     df_res = df_res,
     nobs_orig = moment_df$n_total,
     n_params = n_params,
-    meat = meat
+    meat = meat_x
   )
   attr(vcov_mat, "rss") = rss
   attr(vcov_mat, "tss") = tss
@@ -1424,48 +1427,6 @@ dbivreg_trim_ws = function(x) {
 }
 
 #' @keywords internal
-compute_iv_vcov = function(
-  vcov_type = "iid",
-  A_inv,
-  ZtZ_inv,
-  ZtX,
-  rss,
-  df_res,
-  nobs_orig,
-  n_params,
-  meat = NULL
-) {
-  if (vcov_type == "iid") {
-    sigma2 = rss / df_res
-    vcov_mat = sigma2 * A_inv
-    attr(vcov_mat, "type") = "iid"
-  } else {
-    if (is.null(meat)) {
-      stop("Robust IV variance requires a meat matrix.")
-    }
-    middle = Matrix::t(ZtX) %*% ZtZ_inv %*% meat %*% ZtZ_inv %*% ZtX
-    if (vcov_type == "hc1") {
-      scale_hc1 = nobs_orig / df_res
-      vcov_mat = scale_hc1 * (A_inv %*% middle %*% A_inv)
-      attr(vcov_mat, "type") = "hc1"
-    } else if (vcov_type == "cluster") {
-      n_clusters = attr(meat, "n_clusters")
-      if (is.null(n_clusters)) {
-        stop("Clustered IV meat matrix missing n_clusters attribute.")
-      }
-      scale_cr1 = (n_clusters / (n_clusters - 1)) * ((nobs_orig - 1) / (nobs_orig - n_params))
-      vcov_mat = scale_cr1 * (A_inv %*% middle %*% A_inv)
-      attr(vcov_mat, "type") = "cluster"
-      attr(vcov_mat, "n_clusters") = n_clusters
-    } else {
-      stop("Unsupported vcov type: ", vcov_type)
-    }
-  }
-  dimnames(vcov_mat) = dimnames(A_inv)
-  vcov_mat
-}
-
-#' @keywords internal
 compute_dbivreg_diagnostics = function(
   inputs,
   moms,
@@ -1657,10 +1618,6 @@ compute_dbivreg_first_stage_wald = function(
         n_params = length(unrestricted) + df_fe - nested_levels,
         meat = meat
       )
-      n_clusters = attr(vcov_u, "n_clusters")
-      vcov_u = vcov_u * ((n_total - 1) / n_total)
-      attr(vcov_u, "type") = "cluster"
-      attr(vcov_u, "n_clusters") = n_clusters
       vcov_label = format_vcov_label("cluster", attr(vcov_u, "n_clusters"))
     } else {
       stop("Unsupported vcov type for first-stage diagnostics: ", inputs[["vcov_type_req"]])

@@ -23,6 +23,14 @@ Bug fixes
   some downstream functions, e.g. stars in `modelsummary::modelsummary`. (#62) 
 - Fixed `dbreg_is_balanced_panel()` to correctly detect unbalanced panels with
   missing cells (previously only checked for unequal cell counts).
+- The CR1 small-sample correction for clustered SEs now uses
+  `(G/(G-1)) * ((N-1)/(N-K))`, matching `fixest`, instead of
+  `(G/(G-1)) * (N/(N-K))`. Similarly, `ssc = "nested"` now excludes `G-1` (not
+  `G`) parameters for each fixed effect nested within the cluster variable. In
+  practice, clustered SEs shift by a relative factor of roughly `1/(2N)` under
+  the default `ssc = "full"` (and are essentially unchanged under `"nested"`),
+  which is negligible for large datasets. But it does mean that `dbreg` now
+  matches `fixest` to numerical precision in small samples too. (#66)
 
 Internal
 
