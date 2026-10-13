@@ -212,6 +212,34 @@ db_fe1 = dbivreg(
 fx_fe1 = feols(y ~ x | fe1 | d ~ z, data = dat_fe1, weights = ~w, vcov = "hc1")
 expect_iv_match(db_fe1, fx_fe1, tol_coef = tol, tol_se = tol, label = "One-way FE HC1")
 
+# Cluster on the FE itself (FE nested in cluster): ssc controls whether the
+# nested FE levels count towards K in the CR1 correction
+db_fe1_nested = dbivreg(
+  y ~ x | fe1 | d ~ z,
+  data = dat_fe1,
+  vcov = ~fe1,
+  ssc = "nested",
+  strategy = "demean"
+)
+fx_fe1_nested = feols(y ~ x | fe1 | d ~ z, data = dat_fe1, vcov = ~fe1)
+expect_iv_match(db_fe1_nested, fx_fe1_nested, tol_coef = tol, tol_se = tol_cluster, label = "One-way FE nested cluster")
+expect_equal(
+  db_fe1_nested$diagnostics$first_stage_wald$d$stat,
+  extract_fixest_ivstat(fitstat(fx_fe1_nested, ~ivwald1, simplify = TRUE), "ivwald1", "d")$stat,
+  tolerance = tol_cluster,
+  info = "One-way FE nested cluster first-stage Wald matches fixest"
+)
+
+db_fe1_full = dbivreg(
+  y ~ x | fe1 | d ~ z,
+  data = dat_fe1,
+  vcov = ~fe1,
+  ssc = "full",
+  strategy = "demean"
+)
+fx_fe1_full = feols(y ~ x | fe1 | d ~ z, data = dat_fe1, vcov = ~fe1, ssc = ssc(K.fixef = "full"))
+expect_iv_match(db_fe1_full, fx_fe1_full, tol_coef = tol, tol_se = tol_cluster, label = "One-way FE full-K cluster")
+
 db_fe1_within = dbivreg(
   y ~ x | fe1 | d ~ z,
   data = dat_fe1,
@@ -303,6 +331,17 @@ expect_equal(
   tolerance = tol_cluster,
   info = "Two-way FE cluster first-stage Wald matches fixest"
 )
+
+db_ap_nested = dbivreg(
+  y ~ x | fe1 + fe2 | d ~ z,
+  data = dat_ap,
+  weights = "w",
+  vcov = ~fe1,
+  ssc = "nested",
+  strategy = "demean"
+)
+fx_ap_nested = feols(y ~ x | fe1 + fe2 | d ~ z, data = dat_ap, weights = ~w, vcov = ~fe1)
+expect_iv_match(db_ap_nested, fx_ap_nested, tol_coef = tol, tol_se = tol_cluster, label = "Two-way FE AP nested cluster")
 
 set.seed(2033)
 

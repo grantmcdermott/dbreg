@@ -30,6 +30,11 @@
 #'   not yet implemented for IV.
 #' @param cluster Optional clustering variable, supplied as a one-sided formula
 #'   or character string.
+#' @param ssc Character string controlling the small-sample correction for
+#'   clustered standard errors. Options are `"full"` (default) or `"nested"`.
+#'   With `"nested"`, fixed effects nested within the cluster variable are
+#'   excluded from K, matching the default behavior of `fixest::feols`. See
+#'   [dbreg()] for details.
 #' @param sql_only Logical indicating whether to return only the underlying SQL
 #'   query.
 #' @param data_only Logical indicating whether to return only the aggregated
@@ -51,6 +56,7 @@ dbivreg = function(
   vcov = c("iid", "hc1"),
   strategy = c("auto", "moments", "demean", "within", "compress", "mundlak"),
   cluster = NULL,
+  ssc = c("full", "nested"),
   sql_only = FALSE,
   data_only = FALSE,
   drop_missings = TRUE,
@@ -59,6 +65,7 @@ dbivreg = function(
 ) {
   verbose = isTRUE(verbose)
   strategy = match.arg(strategy)
+  ssc = match.arg(ssc)
   if (strategy == "within") {
     strategy = "demean"
   }
@@ -91,6 +98,7 @@ dbivreg = function(
     weights = weights,
     vcov = vcov_parsed[["vcov_type"]],
     cluster = vcov_parsed[["cluster_var"]],
+    ssc = ssc,
     strategy = strategy,
     sql_only = sql_only,
     data_only = data_only,
@@ -150,6 +158,7 @@ process_dbivreg_inputs = function(
   weights,
   vcov,
   cluster,
+  ssc,
   strategy,
   sql_only,
   data_only,
@@ -306,6 +315,7 @@ process_dbivreg_inputs = function(
     weights = weights,
     vcov_type_req = vcov_type_req,
     cluster_var = cluster_var,
+    ssc = ssc,
     strategy = strategy,
     sql_only = sql_only,
     data_only = data_only,
@@ -926,7 +936,17 @@ dbivreg_finalize_fit = function(
   }
   df_fe = if (n_fe == 0) 0 else sum(n_fe_levels) - (n_fe - 1)
   df_res = max(moment_df$n_total - length(x_names_full) - df_fe, 1)
-  n_params = length(x_names_full) + df_fe
+  # For ssc = "nested", exclude nested FE levels from the CR1 K. Like fixest,
+  # K = k + 1 + sum(G_j - 1) over non-nested FEs, so one level is kept back
+  # for the absorbed intercept.
+  nested_levels = 0L
+  if (inputs[["vcov_type_req"]] == "cluster" && inputs[["ssc"]] == "nested") {
+    nested_levels = count_nested_fe_levels(
+      inputs[["conn"]], inputs[["from_statement"]], inputs[["fe"]], inputs[["cluster_var"]]
+    )
+    nested_levels = max(nested_levels - 1L, 0L)
+  }
+  n_params = length(x_names_full) + df_fe - nested_levels
 
   tss = if (has_intercept) {
     moms$sum_y_sq - (moms$sum_wy^2 / moms$sum_w)
@@ -1000,7 +1020,8 @@ dbivreg_finalize_fit = function(
     S_zz = S_zz,
     S_zx = S_zx,
     S_zy = S_zy,
-    meat = meat
+    meat = meat,
+    nested_levels = nested_levels
   )
 
   out = list(
@@ -1459,7 +1480,8 @@ compute_dbivreg_diagnostics = function(
   S_zz,
   S_zx,
   S_zy,
-  meat
+  meat,
+  nested_levels = 0L
 ) {
   overid = compute_dbivreg_overid(
     inputs = inputs,
@@ -1487,7 +1509,8 @@ compute_dbivreg_diagnostics = function(
       has_intercept = has_intercept,
       weights_expr = weights_expr,
       n_total = n_total,
-      df_fe = df_fe
+      df_fe = df_fe,
+      nested_levels = nested_levels
     ),
     overid = overid,
     sargan = if (identical(overid$test, "Sargan")) overid else NULL,
@@ -1551,7 +1574,8 @@ compute_dbivreg_first_stage_wald = function(
   has_intercept,
   weights_expr,
   n_total,
-  df_fe
+  df_fe,
+  nested_levels = 0L
 ) {
   excluded = inputs[["instr_names"]]
   endogenous = inputs[["endog_names"]]
@@ -1630,7 +1654,7 @@ compute_dbivreg_first_stage_wald = function(
         rss = rss_u,
         df_res = df2,
         nobs_orig = n_total,
-        n_params = length(unrestricted) + df_fe,
+        n_params = length(unrestricted) + df_fe - nested_levels,
         meat = meat
       )
       n_clusters = attr(vcov_u, "n_clusters")

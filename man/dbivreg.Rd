@@ -14,6 +14,7 @@ dbivreg(
   vcov = c("iid", "hc1"),
   strategy = c("auto", "moments", "demean", "within", "compress", "mundlak"),
   cluster = NULL,
+  ssc = c("full", "nested"),
   sql_only = FALSE,
   data_only = FALSE,
   drop_missings = TRUE,
@@ -39,12 +40,18 @@ precedence \verb{table > data > path}.}
 options are \code{"iid"} and \code{"hc1"}.}
 
 \item{strategy}{Character string selecting the IV backend. Supported values
-are \code{"auto"} (default), \code{"moments"}, \code{"demean"} (alias
-\code{"within"}), \code{"compress"}, and \code{"mundlak"}. The latter currently
-errors because it is not yet implemented for IV.}
+are \code{"auto"} (default), \code{"moments"}, \code{"demean"} (alias \code{"within"}),
+\code{"compress"}, and \code{"mundlak"}. The latter currently errors because it is
+not yet implemented for IV.}
 
 \item{cluster}{Optional clustering variable, supplied as a one-sided formula
 or character string.}
+
+\item{ssc}{Character string controlling the small-sample correction for
+clustered standard errors. Options are \code{"full"} (default) or \code{"nested"}.
+With \code{"nested"}, fixed effects nested within the cluster variable are
+excluded from K, matching the default behavior of \code{fixest::feols}. See
+\code{\link[=dbreg]{dbreg()}} for details.}
 
 \item{sql_only}{Logical indicating whether to return only the underlying SQL
 query.}
@@ -57,8 +64,7 @@ dropped.}
 
 \item{verbose}{Logical indicating whether progress messages are printed.}
 
-\item{...}{Additional unused arguments. Passing legacy \code{endog} or
-\code{instruments} arguments now errors.}
+\item{...}{Additional unused arguments.}
 }
 \value{
 A list of class \code{"dbivreg"} and \code{"dbreg"}.
