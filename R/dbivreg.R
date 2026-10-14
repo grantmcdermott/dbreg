@@ -424,21 +424,20 @@ execute_iv_compress_strategy = function(inputs) {
   # Meat from the cells: HC1 from within-cell residual sums of squares;
   # clustered from cluster-by-cell residual sums (one query, shared by the
   # 2SLS fit and its first stages, whose outcomes are cell columns)
-  cells = NULL
+  vcov_type = inputs[["vcov_type_req"]]
+  cells = if (vcov_type == "cluster") {
+    query_cluster_cells(
+      conn = conn,
+      from_statement = paste0("FROM (", frame[["base_sql"]], ") AS base"),
+      group_cols = union_names,
+      yvar = yvar,
+      cluster_var = inputs[["cluster_var"]],
+      weights = weights
+    )
+  }
   meats_fn = function(fits, ys) {
-    vcov_type = inputs[["vcov_type_req"]]
     if (!vcov_type %in% c("hc1", "cluster")) {
       return(vector("list", length(fits)))
-    }
-    if (vcov_type == "cluster" && is.null(cells)) {
-      cells <<- query_cluster_cells(
-        conn = conn,
-        from_statement = paste0("FROM (", frame[["base_sql"]], ") AS base"),
-        group_cols = union_names,
-        yvar = yvar,
-        cluster_var = inputs[["cluster_var"]],
-        weights = weights
-      )
     }
     Map(function(fit, y) {
       Z = U[, fit[["scores"]], drop = FALSE]
