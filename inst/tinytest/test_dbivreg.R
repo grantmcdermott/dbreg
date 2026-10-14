@@ -650,3 +650,14 @@ tables_before = DBI::dbListTables(con_val)
 expect_error(dbivreg(y ~ x | d ~ z, conn = con_val, data = dat, weights = "not_a_column"))
 expect_equal(DBI::dbListTables(con_val), tables_before, info = "no registered table left behind after a validation error")
 DBI::dbDisconnect(con_val, shutdown = TRUE)
+con_val = DBI::dbConnect(duckdb::duckdb())
+expect_error(dbivreg(y ~ x | d ~ z, conn = con_val, data = dat, compress_ratio = 2), "compress_ratio")
+expect_equal(DBI::dbListTables(con_val), character(0), info = "no registered table left behind after a late validation error")
+DBI::dbDisconnect(con_val, shutdown = TRUE)
+
+# predict() refuses demean models with more than two FE (would omit the rest)
+expect_error(
+  predict(db_fe3, newdata = dat_fe3),
+  "more than two fixed effects",
+  info = "IV predict with 3 FE errors"
+)

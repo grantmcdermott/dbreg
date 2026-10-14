@@ -46,6 +46,9 @@ Bug fixes
   throw an informative error. Previously these were silently reduced to their
   underlying variables (e.g., regressing on `x` instead of `log(x)`). Please
   create such variables in the data (or a database view) first. (#66)
+- `predict()` now errors for `"demean"` models with more than two fixed
+  effects. Previously it silently ignored the third and later fixed effects,
+  returning incorrect predictions. (#66)
 - `sql_model_matrix()` (and thus interaction/factor terms) now generates
   backend-portable schema and factor-level queries, fixing failures on SQL
   Server and other non-DuckDB backends. (#66)

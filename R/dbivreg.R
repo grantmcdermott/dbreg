@@ -265,8 +265,7 @@ process_dbivreg_inputs = function(
   union_names = names(union_map)
   union_sql = unname(union_map)
 
-  setup_ok = TRUE
-  list2env(list(
+  out = list2env(list(
     fml = fml,
     structural_fml = dbivreg_structural_formula(
       yvar = yvar,
@@ -300,7 +299,6 @@ process_dbivreg_inputs = function(
     any_continuous = any_continuous_vars(data, raw_vars),
     compress_ratio = resolve_compress_ratio(compress_ratio, fe),
     compress_nmax = compress_nmax,
-    compress_fe = FALSE,
     is_balanced = NULL,
     caller = "dbivreg",
     sql_only = sql_only,
@@ -309,6 +307,8 @@ process_dbivreg_inputs = function(
     own_conn = own_conn,
     registered_table = registered_table
   ), parent = emptyenv())
+  setup_ok = TRUE
+  out
 }
 
 #' @keywords internal
@@ -317,8 +317,15 @@ choose_dbivreg_strategy = function(inputs) {
   fe = inputs[["fe"]]
   verbose = inputs[["verbose"]]
 
-  if (strategy == "auto") {
-    # Shared with dbreg(); compress_fe = FALSE routes FE models to demean
+  if (strategy == "auto" && length(fe) > 0) {
+    # IV compress does not (yet) support FE, so auto can only pick demean;
+    # skip the compression estimate (a full SELECT DISTINCT) it wouldn't use
+    chosen_strategy = "demean"
+    if (verbose) {
+      message("[dbivreg] Auto strategy: demean (FE present; compress does not support FE here)")
+    }
+  } else if (strategy == "auto") {
+    # Shared with dbreg()
     chosen_strategy = choose_strategy(inputs)
   } else {
     chosen_strategy = strategy

@@ -118,6 +118,15 @@ predict.dbreg = function(
     }
   }
 
+  # Demean predictions recover the FE contribution via (double) demeaning,
+  # which only covers one or two FE
+  if (strategy == "demean" && length(object[["fe"]]) > 2) {
+    stop(
+      "predict() is not yet supported for demean models with more than two fixed effects.",
+      call. = FALSE
+    )
+  }
+
   # Extract common components from object
   betas = coef(object, fe = TRUE)
   fml = object[["fml"]]

@@ -30,3 +30,11 @@ expect_error(dbreg(log(Temp) ~ Wind, data = airquality), "Transformed or functio
 expect_error(dbreg(Temp ~ log(Wind), data = airquality), "Transformed or function terms .* regressors")
 expect_error(dbreg(Temp ~ Wind + I(Wind^2), data = airquality), "regressors: I\\(Wind\\^2\\)")
 expect_error(dbreg(Temp ~ Wind | factor(Month), data = airquality), "fixed effects")
+
+# Test 6: predict() refuses demean models with more than two FE
+aq = na.omit(airquality)
+aq$wk = rep(1:5, length.out = nrow(aq))
+expect_error(
+  predict(dbreg(Temp ~ Wind | Month + Day + wk, data = aq, strategy = "demean"), newdata = aq),
+  "more than two fixed effects"
+)

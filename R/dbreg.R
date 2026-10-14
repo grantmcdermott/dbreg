@@ -826,8 +826,6 @@ choose_strategy = function(inputs) {
   xvars = inputs[["xvars"]]
   weights = inputs[["weights"]]
   tag = if (is.null(inputs[["caller"]])) "dbreg" else inputs[["caller"]]
-  # Callers whose compress strategy does not (yet) support FE, e.g. dbivreg()
-  compress_fe = !isFALSE(inputs[["compress_fe"]])
 
   # Compression ratio estimator
   estimate_compression = function(inputs) {
@@ -945,11 +943,8 @@ choose_strategy = function(inputs) {
         chosen_strategy = "compress"
       }
     } else if (length(fe) >= 1) {
-      if (fail_compress_ratio || fail_compress_nmax || !compress_fe) {
+      if (fail_compress_ratio || fail_compress_nmax) {
         chosen_strategy = "demean"
-        if (verbose && !compress_fe && !(fail_compress_ratio || fail_compress_nmax)) {
-          message("        - compress does not support FE here")
-        }
         if (length(fe) == 2) {
           is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
           if (verbose) {
