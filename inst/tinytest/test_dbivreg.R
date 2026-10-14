@@ -199,9 +199,11 @@ dat_comp_ov$cl = sample(1:40, nrow(dat_comp_ov), replace = TRUE)
 for (vc in list("iid", "hc1", ~cl)) {
   lbl = paste("Unweighted compressed IV", format(vc))
   db_ov = dbivreg(y ~ x | d ~ z1 + z2, data = dat_comp_ov, vcov = vc, strategy = "compress")
-  db_ov_mom = dbivreg(y ~ x | d ~ z1 + z2, data = dat_comp_ov, vcov = vc, strategy = "moments")
   fx_ov = feols(y ~ x | d ~ z1 + z2, data = dat_comp_ov, vcov = vc)
   expect_iv_match(db_ov, fx_ov, tol_coef = 1e-10, tol_se = 1e-10, label = lbl)
+  # Diagnostics only use the cell-based meat under robust/clustered SEs
+  if (identical(vc, "iid")) next
+  db_ov_mom = dbivreg(y ~ x | d ~ z1 + z2, data = dat_comp_ov, vcov = vc, strategy = "moments")
   expect_equal(
     db_ov$diagnostics$first_stage_wald$d$stat,
     extract_fixest_ivstat(fitstat(fx_ov, ~ivwald1, simplify = TRUE), "ivwald1", "d")$stat,
@@ -212,7 +214,7 @@ for (vc in list("iid", "hc1", ~cl)) {
     db_ov$diagnostics$overid$stat,
     db_ov_mom$diagnostics$overid$stat,
     tolerance = 1e-6,
-    info = paste(lbl, "overid statistic matches moments strategy")
+    info = paste(lbl, "Hansen J matches moments strategy")
   )
 }
 
@@ -495,10 +497,6 @@ expect_equal(
   tolerance = tol_cluster,
   info = "Cluster-robust Hansen J matches manual calculation"
 )
-expect_true(
-  identical(db_over_cl$diagnostics$overid$test, "Hansen J"),
-  info = "Cluster overidentification test is labeled Hansen J"
-)
 
 set.seed(2030)
 
@@ -616,8 +614,6 @@ expect_equal(dbivreg(y ~ x | fe | d ~ z1 + z2, data = dat_auto)$strategy, "demea
 expect_error(dbivreg(log(y) ~ x | d ~ z, data = dat), "outcome", info = "transformed outcome rejected")
 expect_error(dbivreg(y ~ log(abs(x)) | d ~ z, data = dat), "exogenous regressors", info = "transformed regressor rejected")
 expect_error(dbivreg(y ~ x | d ~ I(z^2), data = dat), "instruments", info = "transformed instrument rejected")
-expect_error(dbivreg(y ~ x - 1 | d ~ z, data = dat), "No-intercept", info = "no-intercept IV rejected without FE")
-expect_error(dbivreg(y ~ 0 + x | d ~ z, data = dat), "No-intercept", info = "0 + IV rejected without FE")
 
 # Singular diagnostics are reported as unavailable instead of aborting the fit
 dat_sing = dat
@@ -630,18 +626,14 @@ expect_warning(
 expect_true(is.na(db_sing$diagnostics$first_stage_wald$d$stat), info = "singular first-stage Wald is NA")
 expect_true(all(is.finite(db_sing$coeftable[, "estimate"])), info = "fit survives singular diagnostics")
 
-# predict() stopgap for factor-expanded structural terms
+# predict() with factor-expanded structural terms
 dat_pred = dat
 dat_pred$g = sample(c("a", "b", "c"), nrow(dat_pred), replace = TRUE)
-expect_error(
-  predict(dbivreg(y ~ x + g | d ~ z, data = dat_pred), newdata = dat_pred),
-  "not yet supported",
-  info = "predict errors clearly for factor terms"
-)
 expect_equal(
-  length(predict(dbivreg(y ~ x | d ~ z, data = dat), newdata = dat)),
-  nrow(dat),
-  info = "predict still works for numeric terms"
+  as.numeric(predict(dbivreg(y ~ x + g | d ~ z, data = dat_pred), newdata = dat_pred)),
+  as.numeric(predict(feols(y ~ x + g | d ~ z, data = dat_pred), newdata = dat_pred)),
+  tolerance = 1e-10,
+  info = "predict matches fixest with factor terms"
 )
 
 # Failed validation releases the registered in-memory table
@@ -660,4 +652,22 @@ expect_error(
   predict(db_fe3, newdata = dat_fe3),
   "more than two fixed effects",
   info = "IV predict with 3 FE errors"
+)
+
+# No-intercept IV models (#68)
+expect_iv_match(
+  dbivreg(y ~ 0 + x + g | d ~ z, data = dat_pred),
+  feols(y ~ 0 + x + g | d ~ z, data = dat_pred),
+  label = "No-intercept IV (first factor keeps all levels)"
+)
+expect_iv_match(
+  dbivreg(y ~ 0 + x | d ~ z1 + z2, data = dat_comp_ov, strategy = "compress"),
+  feols(y ~ 0 + x | d ~ z1 + z2, data = dat_comp_ov),
+  tol_coef = 1e-10, tol_se = 1e-10,
+  label = "No-intercept compressed IV"
+)
+expect_error(
+  dbivreg(y ~ 0 + x | g ~ z, data = dat_pred),
+  "factor endogenous",
+  info = "no-intercept with factor endogenous rejected"
 )

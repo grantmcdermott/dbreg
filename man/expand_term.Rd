@@ -10,7 +10,8 @@ expand_term(
   expand,
   sep = "_x_",
   all_terms = character(),
-  fe_vars = character()
+  fe_vars = character(),
+  keep_all_levels = FALSE
 )
 }
 \description{

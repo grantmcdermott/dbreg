@@ -263,6 +263,7 @@ parse_regression_formula = function(fml) {
   tt = terms(rhs1)
   term_labels = attr(tt, "term.labels")
   check_simple_terms(term_labels, "regressors")
+  has_intercept = attr(tt, "intercept") == 1L
   xvars = all.vars(rhs1)  # unique variable names
   has_interactions = any(grepl(":", term_labels))
   
@@ -285,6 +286,7 @@ parse_regression_formula = function(fml) {
     xvars = xvars,
     term_labels = term_labels,
     has_interactions = has_interactions,
+    has_intercept = has_intercept,
     fe = fe
   )
 }

@@ -184,3 +184,47 @@ invisible(capture.output({
 expect_true(is.character(sql_int), info = "sql_only returns string")
 expect_true(grepl("CASE WHEN", sql_int), info = "SQL contains factor expansion")
 
+
+#
+## No-intercept models (#68) ----
+
+set.seed(68)
+dat68 = data.frame(x = rnorm(200), x2 = sample(1:5, 200, TRUE), g = sample(c("a", "b", "c"), 200, TRUE))
+dat68$y = 1 + 2 * dat68$x + (dat68$g == "b") + rnorm(200)
+db68 = dbreg(y ~ 0 + x, data = dat68, strategy = "moments")
+expect_equal(coef(db68, fe = TRUE), coef(feols(y ~ 0 + x, data = dat68)), tolerance = 1e-10, info = "moments honours no intercept")
+fx68c = feols(y ~ 0 + x2 + g, data = dat68)
+expect_equal(
+  coef(dbreg(y ~ 0 + x2 + g, data = dat68, strategy = "compress"), fe = TRUE)[names(coef(fx68c))],
+  coef(fx68c),
+  tolerance = 1e-10,
+  info = "compress no-intercept keeps all levels of the first factor"
+)
+expect_equal(
+  as.numeric(predict(db68, newdata = dat68)),
+  as.numeric(predict(lm(y ~ 0 + x, data = dat68))),
+  tolerance = 1e-10,
+  info = "no-intercept predictions match lm"
+)
+
+#
+## predict() with interactions, incl. mundlak (#67) ----
+
+set.seed(3)
+dat67 = data.frame(fe = factor(sample(1:8, 80, TRUE)), x1 = rnorm(80), x3 = rnorm(80))
+dat67$x1_bar_fe = ave(dat67$x1, dat67$fe, FUN = mean)
+dat67$x3_bar_fe = ave(dat67$x3, dat67$fe, FUN = mean)
+dat67$y = 1 + 2 * dat67$x1 - 0.5 * dat67$x3 + 1.2 * dat67$x1 * dat67$x3 +
+  0.8 * dat67$x1_bar_fe - 0.3 * dat67$x3_bar_fe + rnorm(80, sd = 0.1)
+expect_equal(
+  as.numeric(predict(dbreg(y ~ x1 * x3 | fe, data = dat67, strategy = "mundlak"), newdata = dat67)),
+  as.numeric(predict(lm(y ~ x1 * x3 + x1_bar_fe + x3_bar_fe, data = dat67))),
+  tolerance = 1e-6,
+  info = "mundlak predict with interactions matches lm (#67)"
+)
+expect_equal(
+  as.numeric(predict(dbreg(y ~ x1 * x3 | fe, data = dat67, strategy = "demean"), newdata = dat67)),
+  as.numeric(predict(feols(y ~ x1 * x3 | fe, data = dat67), newdata = dat67)),
+  tolerance = 1e-6,
+  info = "demean predict with interactions matches fixest"
+)

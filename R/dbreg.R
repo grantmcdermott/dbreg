@@ -433,6 +433,8 @@ process_dbreg_inputs = function(
   term_labels = fml_parsed[["term_labels"]]
   has_interactions = fml_parsed[["has_interactions"]]
   fe = fml_parsed[["fe"]]
+  # With FE the intercept is absorbed, so `- 1` / `0 +` only matters without FE
+  intercept = fml_parsed[["has_intercept"]] || length(fe) > 0
 
   validate_weights(weights, data, conn, from_statement)
 
@@ -452,6 +454,7 @@ process_dbreg_inputs = function(
     xvars = xvars,
     term_labels = term_labels,
     has_interactions = has_interactions,
+    intercept = intercept,
     fe = fe,
     weights = weights,
     conn = conn,

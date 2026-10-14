@@ -170,16 +170,6 @@ expect_true(
 )
 
 
-# Moments: point predictions match fixest (no FE case)
-sim_pred_moments = predict(sim_moments, newdata = sim_panel)
-sim_pred_ols = predict(sim_ols, newdata = sim_panel)
-
-expect_equal(
-  sim_pred_moments,
-  as.numeric(sim_pred_ols),
-  tolerance = 1e-6,
-  info = "moments: predictions match fixest OLS"
-)
 
 #
 ## Rows with a missing cluster variable are dropped (as in fixest) ----

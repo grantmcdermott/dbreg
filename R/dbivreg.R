@@ -193,9 +193,18 @@ process_dbivreg_inputs = function(
   )
 
   design_source = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
-  exog_design = dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe)
+  intercept = parsed_fml[["intercept"]]
+  exog_design = dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe, intercept)
   endog_design = dbivreg_expand_block(parsed_fml[["endog_rhs"]], conn, design_source, fe)
   instr_design = dbivreg_expand_block(parsed_fml[["instr_rhs"]], conn, design_source, fe)
+  # Without an intercept, factor coding of the endogenous/instrument blocks
+  # would depend on the combined X and Z designs; not supported yet
+  if (!intercept && length(c(endog_design[["factor_levels"]], instr_design[["factor_levels"]]))) {
+    stop(
+      "No-intercept IV models with factor endogenous regressors or instruments are not supported yet.",
+      call. = FALSE
+    )
+  }
 
   if (!length(endog_design[["names"]])) {
     stop("At least one endogenous regressor is required in the IV block.")
@@ -283,6 +292,7 @@ process_dbivreg_inputs = function(
     compress_nmax = compress_nmax,
     is_balanced = NULL,
     caller = "dbivreg",
+    intercept = intercept,
     sql_only = sql_only,
     data_only = data_only,
     verbose = verbose,
@@ -436,7 +446,10 @@ execute_iv_compress_strategy = function(inputs) {
 
   # Cell-level design over the union of X and Z, and the cross moments
   # U'WU, U'Wy, y'Wy (exact, since U is constant within cells)
-  U = cbind("(Intercept)" = 1, as.matrix(dat[, union_names, drop = FALSE]))
+  U = as.matrix(dat[, union_names, drop = FALSE])
+  if (inputs[["intercept"]]) {
+    U = cbind("(Intercept)" = 1, U)
+  }
   S = rbind(
     cbind(crossprod(U, dat[["sum_w"]] * U), crossprod(U, dat[["sum_wy"]])),
     c(crossprod(dat[["sum_wy"]], U), sum(dat[["sum_wy_sq"]]))
@@ -656,11 +669,8 @@ dbivreg_parse_formula = function(fml) {
     fe = unique(fe_terms)
     fe_rhs_text = text(blocks[[2]])
   }
-  # With FE the intercept is absorbed anyway; without FE, honouring `- 1` /
-  # `0 +` is not supported yet, so refuse rather than silently add one
-  if (is.null(fe) && attr(terms(rhs(exog_expr)), "intercept") == 0L) {
-    stop("No-intercept IV models (`- 1` or `0 +`) are not supported yet.", call. = FALSE)
-  }
+  # With FE the intercept is absorbed, so `- 1` / `0 +` only matters without FE
+  intercept = !is.null(fe) || attr(terms(rhs(exog_expr)), "intercept") == 1L
 
   list(
     fml = fml,
@@ -676,13 +686,14 @@ dbivreg_parse_formula = function(fml) {
     instr_rhs_text = text(instr_expr),
     instr_vars = all.vars(instr_expr),
     fe = fe,
-    fe_rhs_text = fe_rhs_text
+    fe_rhs_text = fe_rhs_text,
+    intercept = intercept
   )
 }
 
 #' @keywords internal
 #' Expands the right-hand side of the structural formula into SQL expressions for the design matrix, including fixed effects if specified.
-dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character()) {
+dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(), intercept = TRUE) {
   if (is.null(fe_vars)) {
     fe_vars = character()
   }
@@ -691,7 +702,8 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character())
     conn,
     table,
     expand = "all",
-    fe_vars = fe_vars
+    fe_vars = fe_vars,
+    intercept = intercept
   )
   if (anyDuplicated(sql_design$col_names) > 0) {
     dupes = unique(sql_design$col_names[duplicated(sql_design$col_names)])
@@ -703,6 +715,7 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character())
   list(
     sql = sql_design$select_exprs,
     names = sql_design$col_names,
+    factor_levels = sql_design$factor_levels,
     vars = all.vars(rhs_formula),
     term_labels = attr(terms(rhs_formula), "term.labels")
   )
@@ -860,20 +873,6 @@ compute_dbivreg_overid = function(inputs, S, fit, z, n_total, meat = NULL) {
 dbivreg_diag_unavailable = function(what, e) {
   warning("[dbivreg] ", what, " unavailable: ", conditionMessage(e), call. = FALSE)
   NA_real_
-}
-
-#' @rdname predict.dbreg
-#' @export
-predict.dbivreg = function(object, ...) {
-  # Coefficient names from factor/interaction expansion are not input columns,
-  # which the inherited method assumes
-  if (!all(object[["xvars"]] %in% all.vars(object[["fml"]]))) {
-    stop(
-      "predict() is not yet supported for dbivreg models with factor or interaction terms.",
-      call. = FALSE
-    )
-  }
-  NextMethod()
 }
 
 #' Print method for `dbivreg` objects

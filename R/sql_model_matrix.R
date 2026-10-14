@@ -16,6 +16,9 @@
 #' @param fe_vars Character vector of fixed effect variable names. These are
 #'   treated as "in the model" for determining whether to drop reference levels
 #'   in interactions.
+#' @param intercept Logical. Whether the model has an intercept. As in
+#'   [stats::model.matrix()], without an intercept the first factor main effect
+#'   keeps all of its levels (no reference level is dropped).
 #' @return List with:
 #'   - `select_exprs`: character vector of SQL expressions
 #'   - `col_names`: corresponding column names
@@ -37,7 +40,8 @@ sql_model_matrix = function(
   table,
   expand = c("all", "interactions"),
   sep = "_x_",
-  fe_vars = character()
+  fe_vars = character(),
+  intercept = TRUE
 ) {
   expand = match.arg(expand)
   
@@ -57,8 +61,20 @@ sql_model_matrix = function(
   
   result = list(select_exprs = character(), col_names = character())
   
+  # Without an intercept, the first factor main effect keeps all its levels
+  full_factor = if (!intercept) {
+    is_factor_main = vapply(term_labels, function(t) {
+      !grepl(":", t, fixed = TRUE) && identical(col_info[["types"]][[t]], "factor")
+    }, logical(1))
+    term_labels[is_factor_main][1]
+  }
   for (term in term_labels) {
-    expanded = expand_term(term, col_info, expand, sep, all_terms = unique(c(term_labels, fe_vars)), fe_vars = fe_vars)
+    expanded = expand_term(
+      term, col_info, expand, sep,
+      all_terms = unique(c(term_labels, fe_vars)),
+      fe_vars = fe_vars,
+      keep_all_levels = identical(term, full_factor)
+    )
     result[["select_exprs"]] = c(result[["select_exprs"]], vapply(expanded, `[[`, character(1), "sql"))
     result[["col_names"]] = c(result[["col_names"]], vapply(expanded, `[[`, character(1), "name"))
   }
@@ -105,7 +121,7 @@ get_column_info = function(conn, table, term_labels) {
 
 #' Expand a single term into SQL expressions
 #' @keywords internal
-expand_term = function(term, col_info, expand, sep = "_x_", all_terms = character(), fe_vars = character()) {
+expand_term = function(term, col_info, expand, sep = "_x_", all_terms = character(), fe_vars = character(), keep_all_levels = FALSE) {
   vars = strsplit(term, ":")[[1]]
   is_interaction = length(vars) > 1
   
@@ -116,7 +132,7 @@ expand_term = function(term, col_info, expand, sep = "_x_", all_terms = characte
   
   # Expand each variable
   expansions = lapply(vars, function(v) {
-    drop_ref = TRUE
+    drop_ref = !keep_all_levels
     if (is_interaction && identical(col_info[["types"]][[v]], "factor")) {
       other_term = paste(sort(setdiff(vars, v)), collapse = ":")
       drop_ref = v %in% fe_vars || other_term %in% all_terms
