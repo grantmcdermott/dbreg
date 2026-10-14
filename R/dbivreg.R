@@ -27,7 +27,15 @@
 #' @param strategy Character string selecting the IV backend. Supported values
 #'   are `"auto"` (default), `"moments"`, `"demean"` (alias `"within"`),
 #'   `"compress"`, and `"mundlak"`. The latter currently errors because it is
-#'   not yet implemented for IV.
+#'   not yet implemented for IV. As in [dbreg()], `"auto"` chooses
+#'   `"compress"` when the data compress well (see `compress_ratio` and
+#'   `compress_nmax`), and otherwise `"moments"` (no FE) or `"demean"` (FE).
+#'   Since IV compression does not yet support fixed effects, models with FE
+#'   always use `"demean"`.
+#' @param compress_ratio,compress_nmax Thresholds (compression ratio and
+#'   maximum compressed rows) that decide whether `strategy = "auto"` chooses
+#'   `"compress"`. Same defaults and meaning as in [dbreg()]; see its
+#'   *Acceleration Strategies* section.
 #' @param cluster Optional clustering variable, supplied as a one-sided formula
 #'   or character string.
 #' @param ssc Character string controlling the small-sample correction for
@@ -55,6 +63,8 @@ dbivreg = function(
   weights = NULL,
   vcov = c("iid", "hc1"),
   strategy = c("auto", "moments", "demean", "within", "compress", "mundlak"),
+  compress_ratio = NULL,
+  compress_nmax = 1e6,
   cluster = NULL,
   ssc = c("full", "nested"),
   sql_only = FALSE,
@@ -100,6 +110,8 @@ dbivreg = function(
     cluster = vcov_parsed[["cluster_var"]],
     ssc = ssc,
     strategy = strategy,
+    compress_ratio = compress_ratio,
+    compress_nmax = compress_nmax,
     sql_only = sql_only,
     data_only = data_only,
     drop_missings = drop_missings,
@@ -150,6 +162,8 @@ process_dbivreg_inputs = function(
   cluster,
   ssc,
   strategy,
+  compress_ratio,
+  compress_nmax,
   sql_only,
   data_only,
   drop_missings,
@@ -169,6 +183,9 @@ process_dbivreg_inputs = function(
   registered_table = db_setup[["registered_table"]]
 
   validate_weights(weights, data, conn, from_statement)
+  # Raw variables behind X and Z: their distinct tuples define the compress
+  # cells, so the "auto" strategy estimates compression over them
+  raw_vars = unique(c(parsed_fml[["exog_vars"]], parsed_fml[["endog_vars"]], parsed_fml[["instr_vars"]]))
   from_statement = filter_estimation_sample(
     from_statement,
     vars = c(
@@ -268,6 +285,13 @@ process_dbivreg_inputs = function(
     cluster_var = cluster_var,
     ssc = ssc,
     strategy = strategy,
+    xvars = raw_vars,
+    any_continuous = any_continuous_vars(data, raw_vars),
+    compress_ratio = resolve_compress_ratio(compress_ratio, fe),
+    compress_nmax = compress_nmax,
+    compress_fe = FALSE,
+    is_balanced = NULL,
+    caller = "dbivreg",
     sql_only = sql_only,
     data_only = data_only,
     verbose = verbose,
@@ -283,10 +307,8 @@ choose_dbivreg_strategy = function(inputs) {
   verbose = inputs[["verbose"]]
 
   if (strategy == "auto") {
-    chosen_strategy = if (length(fe) == 0) "moments" else "demean"
-    if (verbose) {
-      message("[dbivreg] Auto strategy: ", chosen_strategy)
-    }
+    # Shared with dbreg(); compress_fe = FALSE routes FE models to demean
+    chosen_strategy = choose_strategy(inputs)
   } else {
     chosen_strategy = strategy
     if (verbose) {

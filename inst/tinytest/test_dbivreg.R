@@ -606,3 +606,15 @@ expect_error(
   dbivreg(y ~ x | d ~ z, data = dat, strategy = "demean"),
   "requires at least one fixed effect"
 )
+
+# "auto" strategy selection is shared with dbreg()
+set.seed(2040)
+auto_cell = data.frame(x = sample(1:5, 300, TRUE), z1 = sample(0:3, 300, TRUE), z2 = sample(0:3, 300, TRUE))
+auto_cell$d = auto_cell$z1 + auto_cell$z2 + sample(0:1, 300, TRUE)
+dat_auto = auto_cell[rep(seq_len(300), 50), ]
+dat_auto$y = dat_auto$d + dat_auto$x + rnorm(nrow(dat_auto))
+dat_auto$fe = sample(1:10, nrow(dat_auto), TRUE)
+expect_equal(dbivreg(y ~ x | d ~ z1 + z2, data = dat_auto)$strategy, "compress", info = "auto picks compress for discrete no-FE IV")
+expect_equal(dbivreg(y ~ x | d ~ z1 + z2, data = transform(dat_auto, z1 = rnorm(nrow(dat_auto))))$strategy, "moments", info = "auto avoids compress with continuous instruments")
+expect_equal(dbivreg(y ~ x | d ~ z1 + z2, data = dat_auto, compress_nmax = 10)$strategy, "moments", info = "auto respects compress_nmax")
+expect_equal(dbivreg(y ~ x | fe | d ~ z1 + z2, data = dat_auto)$strategy, "demean", info = "auto uses demean with FE (no FE compress for IV)")

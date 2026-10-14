@@ -15,6 +15,8 @@ process_dbivreg_inputs(
   cluster,
   ssc,
   strategy,
+  compress_ratio,
+  compress_nmax,
   sql_only,
   data_only,
   drop_missings,

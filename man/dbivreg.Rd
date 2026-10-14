@@ -13,6 +13,8 @@ dbivreg(
   weights = NULL,
   vcov = c("iid", "hc1"),
   strategy = c("auto", "moments", "demean", "within", "compress", "mundlak"),
+  compress_ratio = NULL,
+  compress_nmax = 1e+06,
   cluster = NULL,
   ssc = c("full", "nested"),
   sql_only = FALSE,
@@ -42,7 +44,16 @@ options are \code{"iid"} and \code{"hc1"}.}
 \item{strategy}{Character string selecting the IV backend. Supported values
 are \code{"auto"} (default), \code{"moments"}, \code{"demean"} (alias \code{"within"}),
 \code{"compress"}, and \code{"mundlak"}. The latter currently errors because it is
-not yet implemented for IV.}
+not yet implemented for IV. As in \code{\link[=dbreg]{dbreg()}}, \code{"auto"} chooses
+\code{"compress"} when the data compress well (see \code{compress_ratio} and
+\code{compress_nmax}), and otherwise \code{"moments"} (no FE) or \code{"demean"} (FE).
+Since IV compression does not yet support fixed effects, models with FE
+always use \code{"demean"}.}
+
+\item{compress_ratio, compress_nmax}{Thresholds (compression ratio and
+maximum compressed rows) that decide whether \code{strategy = "auto"} chooses
+\code{"compress"}. Same defaults and meaning as in \code{\link[=dbreg]{dbreg()}}; see its
+\emph{Acceleration Strategies} section.}
 
 \item{cluster}{Optional clustering variable, supplied as a one-sided formula
 or character string.}

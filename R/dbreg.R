@@ -429,36 +429,8 @@ process_dbreg_inputs = function(
 
   validate_weights(weights, data, conn, from_statement)
 
-  # Heuristic for continuous regressors (only if data passed)
-  is_continuous = function(v) {
-    if (is.null(data)) {
-      return(NA)
-    }
-    xv = data[[v]]
-    if (is.factor(xv) || is.character(xv) || is.logical(xv)) {
-      return(FALSE)
-    }
-    if (is.integer(xv)) {
-      return(FALSE)
-    }
-    if (is.numeric(xv)) {
-      return(length(unique(xv)) > min(50, 0.2 * length(xv)))
-    }
-    FALSE
-  }
-  any_continuous = if (!is.null(data)) {
-    any(vapply(xvars, is_continuous, logical(1)))
-  } else {
-    FALSE
-  }
-
-  # compression ratio sanity check
-  if (is.null(compress_ratio)) {
-    # Stricter compress_ratio logic for 1 and 2 FE cases
-    compress_ratio = if (length(fe) %in% 1:2) 0.6 else 0.01
-  } else if (!(is.numeric(compress_ratio) && compress_ratio >= 0 && compress_ratio <= 1)) {
-    stop("Argument `compress_ratio` ratio must be a numeric in the range [0, 1]\n.")
-  }
+  any_continuous = any_continuous_vars(data, xvars)
+  compress_ratio = resolve_compress_ratio(compress_ratio, fe)
 
   from_statement = filter_estimation_sample(
     from_statement,
@@ -491,6 +463,41 @@ process_dbreg_inputs = function(
     is_balanced = NULL,
     own_conn = own_conn
   ), parent = emptyenv())
+}
+
+#' Heuristic: does any regressor look continuous?
+#'
+#' Only checkable for in-memory `data`; returns `FALSE` otherwise. Used by
+#' the `"auto"` strategy to steer away from `"compress"`.
+#' @keywords internal
+any_continuous_vars = function(data, vars) {
+  if (is.null(data)) {
+    return(FALSE)
+  }
+  is_continuous = function(v) {
+    xv = data[[v]]
+    if (is.factor(xv) || is.character(xv) || is.logical(xv) || is.integer(xv)) {
+      return(FALSE)
+    }
+    if (is.numeric(xv)) {
+      return(length(unique(xv)) > min(50, 0.2 * length(xv)))
+    }
+    FALSE
+  }
+  any(vapply(vars, is_continuous, logical(1)))
+}
+
+#' Validate or default the `compress_ratio` threshold
+#' @keywords internal
+resolve_compress_ratio = function(compress_ratio, fe) {
+  if (is.null(compress_ratio)) {
+    # Stricter compress_ratio logic for 1 and 2 FE cases
+    return(if (length(fe) %in% 1:2) 0.6 else 0.01)
+  }
+  if (!(is.numeric(compress_ratio) && compress_ratio >= 0 && compress_ratio <= 1)) {
+    stop("Argument `compress_ratio` ratio must be a numeric in the range [0, 1]\n.")
+  }
+  compress_ratio
 }
 
 #' Validate a weights argument
@@ -818,6 +825,9 @@ choose_strategy = function(inputs) {
   from_statement = inputs[["from_statement"]]
   xvars = inputs[["xvars"]]
   weights = inputs[["weights"]]
+  tag = if (is.null(inputs[["caller"]])) "dbreg" else inputs[["caller"]]
+  # Callers whose compress strategy does not (yet) support FE, e.g. dbivreg()
+  compress_fe = !isFALSE(inputs[["compress_fe"]])
 
   # Compression ratio estimator
   estimate_compression = function(inputs) {
@@ -894,7 +904,7 @@ choose_strategy = function(inputs) {
   # Auto logic
   if (strategy == "auto") {
     if (verbose) {
-      message("[dbreg] Auto strategy:")
+      message(sprintf("[%s] Auto strategy:", tag))
     }
     est_cr = tryCatch(estimate_compression(inputs), error = function(e) {
       NA_real_
@@ -935,8 +945,11 @@ choose_strategy = function(inputs) {
         chosen_strategy = "compress"
       }
     } else if (length(fe) >= 1) {
-      if (fail_compress_ratio || fail_compress_nmax) {
+      if (fail_compress_ratio || fail_compress_nmax || !compress_fe) {
         chosen_strategy = "demean"
+        if (verbose && !compress_fe && !(fail_compress_ratio || fail_compress_nmax)) {
+          message("        - compress does not support FE here")
+        }
         if (length(fe) == 2) {
           is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
           if (verbose) {
@@ -959,7 +972,7 @@ choose_strategy = function(inputs) {
     } else {
     chosen_strategy = strategy
     if (verbose) {
-      message("[dbreg] Using strategy: ", chosen_strategy)
+      message(sprintf("[%s] Using strategy: ", tag), chosen_strategy)
     }
   }
 
