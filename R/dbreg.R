@@ -427,33 +427,7 @@ process_dbreg_inputs = function(
   has_interactions = fml_parsed[["has_interactions"]]
   fe = fml_parsed[["fe"]]
 
-  # Validate weights
-  if (!is.null(weights)) {
-    if (!is.character(weights) || length(weights) != 1) {
-      stop("`weights` must be a single character string (column name) or NULL.")
-    }
-    if (!is.null(data)) {
-      if (!weights %in% names(data)) {
-        stop("Weight column '", weights, "' not found in data.")
-      }
-      wv = data[[weights]]
-      if (any(!is.finite(wv) & !is.na(wv))) {
-        stop("Weights must be finite.")
-      }
-      if (any(wv < 0, na.rm = TRUE)) {
-        stop("Weights must be non-negative.")
-      }
-    }
-  }
-  if (!is.null(weights) && is.null(data)) {
-    neg_sql = glue(
-      "SELECT 1 FROM (SELECT * {from_statement}) t WHERE {weights} < 0 LIMIT 1"
-    )
-    has_neg = tryCatch(nrow(dbGetQuery(conn, neg_sql)) > 0, error = function(e) FALSE)
-    if (isTRUE(has_neg)) {
-      stop("Weights must be non-negative.")
-    }
-  }
+  validate_weights(weights, data, conn, from_statement)
 
   # Heuristic for continuous regressors (only if data passed)
   is_continuous = function(v) {
@@ -486,31 +460,12 @@ process_dbreg_inputs = function(
     stop("Argument `compress_ratio` ratio must be a numeric in the range [0, 1]\n.")
   }
 
-  # Filter missing cases and drop zero-weight rows
-  if (isTRUE(drop_missings) || !is.null(weights)) {
-    # Wrap in subquery if from_statement contains clauses that must come after WHERE
-    if (grepl("WHERE|LIMIT|ORDER\\s+BY|GROUP\\s+BY|HAVING", from_statement, ignore.case = TRUE)) {
-      from_statement = glue("FROM (SELECT * {from_statement}) AS subq")
-    }
-    where_clauses = character(0)
-    if (isTRUE(drop_missings)) {
-      where_clauses = c(
-        where_clauses,
-        paste0(yvar, " IS NOT NULL"),
-        paste0(xvars, " IS NOT NULL")
-      )
-      if (!is.null(fe)) {
-        where_clauses = c(where_clauses, paste0(fe, " IS NOT NULL"))
-      }
-    }
-    if (!is.null(weights)) {
-      where_clauses = c(where_clauses, paste0(weights, " > 0"))
-    }
-    from_statement = glue("
-    {from_statement}
-    WHERE {paste(where_clauses, collapse = ' AND ')}
-    ")
-  }
+  from_statement = filter_estimation_sample(
+    from_statement,
+    vars = c(yvar, xvars, fe, cluster_var),
+    weights = weights,
+    drop_missings = drop_missings
+  )
 
   list2env(list(
     fml = fml,
@@ -536,6 +491,63 @@ process_dbreg_inputs = function(
     is_balanced = NULL,
     own_conn = own_conn
   ), parent = emptyenv())
+}
+
+#' Validate a weights argument
+#'
+#' Checks that `weights` names a single column and, where cheap, that its
+#' values are finite (in-memory data) and non-negative.
+#' @keywords internal
+validate_weights = function(weights, data, conn, from_statement) {
+  if (is.null(weights)) {
+    return(invisible(NULL))
+  }
+  if (!is.character(weights) || length(weights) != 1) {
+    stop("`weights` must be a single character string (column name) or NULL.")
+  }
+  if (!is.null(data)) {
+    if (!weights %in% names(data)) {
+      stop("Weight column '", weights, "' not found in data.")
+    }
+    wv = data[[weights]]
+    if (any(!is.finite(wv) & !is.na(wv))) {
+      stop("Weights must be finite.")
+    }
+    if (any(wv < 0, na.rm = TRUE)) {
+      stop("Weights must be non-negative.")
+    }
+  } else {
+    neg_sql = glue("SELECT 1 FROM (SELECT * {from_statement}) t WHERE {weights} < 0 LIMIT 1")
+    has_neg = tryCatch(nrow(dbGetQuery(conn, neg_sql)) > 0, error = function(e) FALSE)
+    if (isTRUE(has_neg)) {
+      stop("Weights must be non-negative.")
+    }
+  }
+  invisible(NULL)
+}
+
+#' Restrict the estimation sample
+#'
+#' Appends a WHERE clause dropping rows with missing `vars` (if
+#' `drop_missings`) and non-positive weights.
+#' @keywords internal
+filter_estimation_sample = function(from_statement, vars, weights = NULL, drop_missings = TRUE) {
+  vars = unique(vars[!is.na(vars) & nzchar(vars)])
+  where_clauses = c(
+    if (isTRUE(drop_missings)) paste0(vars, " IS NOT NULL"),
+    if (!is.null(weights)) paste0(weights, " > 0")
+  )
+  if (!length(where_clauses)) {
+    return(from_statement)
+  }
+  # Wrap in subquery if from_statement contains clauses that must come after WHERE
+  if (grepl("WHERE|LIMIT|ORDER\\s+BY|GROUP\\s+BY|HAVING", from_statement, ignore.case = TRUE)) {
+    from_statement = glue("FROM (SELECT * {from_statement}) AS subq")
+  }
+  glue("
+  {from_statement}
+  WHERE {paste(where_clauses, collapse = ' AND ')}
+  ")
 }
 
 # sql_weight_expr: returns a weight expression or NULL if no weights
@@ -973,7 +985,7 @@ choose_strategy = function(inputs) {
 
 #' Finalize dbreg result object
 #' @keywords internal
-finalize_dbreg_result = function(result, inputs, chosen_strategy) {
+finalize_dbreg_result = function(result, inputs, chosen_strategy, class = "dbreg") {
   if (inputs[["sql_only"]]) {
     cat(result)
     return(invisible(result))
@@ -982,6 +994,6 @@ finalize_dbreg_result = function(result, inputs, chosen_strategy) {
     return(result)
   }
   result[["strategy"]] = chosen_strategy
-  class(result) = c("dbreg", class(result))
+  class(result) = c(class, class(result))
   result
 }

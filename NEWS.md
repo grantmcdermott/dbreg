@@ -31,6 +31,11 @@ Bug fixes
   the default `ssc = "full"` (and are essentially unchanged under `"nested"`),
   which is negligible for large datasets. But it does mean that `dbreg` now
   matches `fixest` to numerical precision in small samples too. (#66)
+- With `drop_missings = TRUE` (the default), rows with a missing cluster
+  variable are now dropped, as in `fixest`. Previously they were kept and
+  treated as their own cluster. (#66)
+- Clustered SEs for the `"compress"` strategy no longer stall when there are
+  many grouping columns. (#66)
 
 Internal
 

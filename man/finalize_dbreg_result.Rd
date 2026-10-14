@@ -4,7 +4,7 @@
 \alias{finalize_dbreg_result}
 \title{Finalize dbreg result object}
 \usage{
-finalize_dbreg_result(result, inputs, chosen_strategy)
+finalize_dbreg_result(result, inputs, chosen_strategy, class = "dbreg")
 }
 \description{
 Finalize dbreg result object

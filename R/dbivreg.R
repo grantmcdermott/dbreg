@@ -130,17 +130,7 @@ dbivreg = function(
     stop("Unknown IV strategy: ", chosen_strategy)
   )
 
-  if (inputs[["sql_only"]]) {
-    cat(result)
-    return(invisible(result))
-  }
-  if (inputs[["data_only"]]) {
-    return(result)
-  }
-
-  result[["strategy"]] = chosen_strategy
-  class(result) = c("dbivreg", "dbreg")
-  result
+  finalize_dbreg_result(result, inputs, chosen_strategy, class = c("dbivreg", "dbreg"))
 }
 
 #' Process and validate dbivreg inputs
@@ -178,59 +168,20 @@ process_dbivreg_inputs = function(
   from_statement = db_setup[["from_statement"]]
   registered_table = db_setup[["registered_table"]]
 
-  if (!is.null(weights)) {
-    if (!is.character(weights) || length(weights) != 1) {
-      stop("`weights` must be a single character string (column name) or NULL.")
-    }
-    if (!is.null(data)) {
-      if (!weights %in% names(data)) {
-        stop("Weight column '", weights, "' not found in data.")
-      }
-      wv = data[[weights]]
-      if (any(!is.finite(wv) & !is.na(wv))) {
-        stop("Weights must be finite.")
-      }
-      if (any(wv < 0, na.rm = TRUE)) {
-        stop("Weights must be non-negative.")
-      }
-    } else {
-      neg_sql = glue(
-        "SELECT 1 FROM (SELECT * {from_statement}) t WHERE {weights} < 0 LIMIT 1"
-      )
-      has_neg = tryCatch(nrow(dbGetQuery(conn, neg_sql)) > 0, error = function(e) FALSE)
-      if (isTRUE(has_neg)) {
-        stop("Weights must be non-negative.")
-      }
-    }
-  }
-
-  if (isTRUE(drop_missings) || !is.null(weights)) {
-    if (grepl("WHERE|LIMIT|ORDER\\s+BY|GROUP\\s+BY|HAVING", from_statement, ignore.case = TRUE)) {
-      from_statement = glue("FROM (SELECT * {from_statement}) AS subq")
-    }
-    where_clauses = character(0)
-    if (isTRUE(drop_missings)) {
-      miss_vars = unique(c(
-        yvar,
-        parsed_fml[["exog_vars"]],
-        parsed_fml[["endog_vars"]],
-        parsed_fml[["instr_vars"]],
-        fe,
-        cluster_var
-      ))
-      miss_vars = miss_vars[!is.na(miss_vars) & nzchar(miss_vars)]
-      where_clauses = c(where_clauses, paste0(miss_vars, " IS NOT NULL"))
-    }
-    if (!is.null(weights)) {
-      where_clauses = c(where_clauses, paste0(weights, " > 0"))
-    }
-    if (length(where_clauses) > 0) {
-      from_statement = glue("
-      {from_statement}
-      WHERE {paste(where_clauses, collapse = ' AND ')}
-      ")
-    }
-  }
+  validate_weights(weights, data, conn, from_statement)
+  from_statement = filter_estimation_sample(
+    from_statement,
+    vars = c(
+      yvar,
+      parsed_fml[["exog_vars"]],
+      parsed_fml[["endog_vars"]],
+      parsed_fml[["instr_vars"]],
+      fe,
+      cluster_var
+    ),
+    weights = weights,
+    drop_missings = drop_missings
+  )
 
   design_source = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
   exog_design = dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe)
@@ -599,18 +550,20 @@ dbivreg_finalize_fit = function(inputs, S, n_total, n_fe_levels, meat_fn, query_
 
 #' @keywords internal
 dbivreg_structural_formula = function(yvar, exog_rhs, endog_rhs, fe_rhs = NULL, env = parent.frame()) {
-  rhs_parts = c(dbivreg_trim_ws(exog_rhs), dbivreg_trim_ws(endog_rhs))
-  rhs_parts = rhs_parts[nzchar(rhs_parts)]
-  rhs = paste(rhs_parts, collapse = " + ")
-  if (is.null(fe_rhs) || !nzchar(dbivreg_trim_ws(fe_rhs))) {
-    return(Formula(stats::as.formula(paste(yvar, "~", rhs), env = env)))
+  rhs = paste(exog_rhs, "+", endog_rhs)
+  if (!is.null(fe_rhs)) {
+    rhs = paste(rhs, "|", fe_rhs)
   }
-  Formula(stats::as.formula(
-    paste(yvar, "~", rhs, "|", dbivreg_trim_ws(fe_rhs)),
-    env = env
-  ))
+  Formula(stats::as.formula(paste(yvar, "~", rhs), env = env))
 }
 
+#' Parse a fixest-style IV formula
+#'
+#' Walks the call tree. Since `~` is left-associative, `y ~ x | fe | d ~ z`
+#' parses as `(y ~ x | fe | d) ~ z`: the outer right-hand side holds the
+#' instruments, and the inner right-hand side splits on top-level `|` into
+#' the exogenous, (optional) fixed-effects and endogenous blocks.
+#'
 #' @keywords internal
 dbivreg_parse_formula = function(fml) {
   if (inherits(fml, "Formula")) {
@@ -619,57 +572,40 @@ dbivreg_parse_formula = function(fml) {
   if (!inherits(fml, "formula")) {
     stop("`fml` must be a formula.")
   }
+  usage = "`y ~ x | d ~ z` or `y ~ x | fe1 + fe2 | d ~ z`"
+  is_op = function(e, op) is.call(e) && identical(e[[1]], as.name(op)) && length(e) == 3L
+  if (length(fml) != 3L || !is_op(fml[[2]], "~")) {
+    stop("dbivreg() requires a fixest-style IV formula: ", usage, ".")
+  }
 
   env = environment(fml)
-  fml_text = paste(deparse(fml, width.cutoff = 500L), collapse = " ")
-  main_tilde = dbivreg_find_top_level(fml_text, "~")
-  if (is.na(main_tilde)) {
-    stop(
-      "dbivreg() requires a fixest-style IV formula: ",
-      "`y ~ x | d ~ z` or `y ~ x | fe1 + fe2 | d ~ z`."
-    )
+  inner = fml[[2]]
+  instr_expr = fml[[3]]
+  if (is_op(instr_expr, "|")) {
+    stop("The IV block must be the final pipe-separated block: ", usage, ".")
+  }
+  split_pipes = function(e) {
+    if (is_op(e, "|")) c(split_pipes(e[[2]]), list(e[[3]])) else list(e)
+  }
+  blocks = split_pipes(inner[[3]])
+  if (!(length(blocks) %in% c(2L, 3L))) {
+    stop("dbivreg() requires a fixest-style IV formula with the IV block last: ", usage, ".")
   }
 
-  lhs_text = dbivreg_trim_ws(substr(fml_text, 1L, main_tilde - 1L))
-  rhs_text = dbivreg_trim_ws(substr(fml_text, main_tilde + 1L, nchar(fml_text)))
-  pipe_parts = dbivreg_split_top_level(rhs_text, "|")
-  if (!(length(pipe_parts) %in% c(2L, 3L))) {
-    stop(
-      "dbivreg() requires a fixest-style IV formula with the IV block last: ",
-      "`y ~ x | d ~ z` or `y ~ x | fe1 + fe2 | d ~ z`."
-    )
-  }
+  text = function(e) paste(deparse(e, width.cutoff = 500L), collapse = " ")
+  rhs = function(e) stats::as.formula(call("~", e), env = env)
 
-  exog_rhs_text = pipe_parts[1]
-  fe_rhs_text = if (length(pipe_parts) == 3L) pipe_parts[2] else NULL
-  iv_rhs_text = pipe_parts[length(pipe_parts)]
-
-  iv_tilde = dbivreg_find_top_level(iv_rhs_text, "~")
-  if (is.na(iv_tilde)) {
-    stop(
-      "The final pipe-separated block must be the IV specification, e.g. `d ~ z`."
-    )
-  }
-
-  endog_rhs_text = dbivreg_trim_ws(substr(iv_rhs_text, 1L, iv_tilde - 1L))
-  instr_rhs_text = dbivreg_trim_ws(substr(iv_rhs_text, iv_tilde + 1L, nchar(iv_rhs_text)))
-  if (!nzchar(endog_rhs_text) || !nzchar(instr_rhs_text)) {
-    stop("The IV block must contain both endogenous regressors and excluded instruments.")
-  }
-
-  y_formula = stats::as.formula(paste(lhs_text, "~ 1"), env = env)
-  yvar = all.vars(y_formula)
+  yvar = all.vars(inner[[2]])
   if (length(yvar) != 1L) {
     stop("Exactly one outcome variable required.")
   }
-
-  exog_rhs = stats::as.formula(paste("~", exog_rhs_text), env = env)
-  endog_rhs = stats::as.formula(paste("~", endog_rhs_text), env = env)
-  instr_rhs = stats::as.formula(paste("~", instr_rhs_text), env = env)
+  exog_expr = blocks[[1]]
+  endog_expr = blocks[[length(blocks)]]
 
   fe = NULL
-  if (!is.null(fe_rhs_text)) {
-    fe_rhs = stats::as.formula(paste("~", fe_rhs_text), env = env)
+  fe_rhs_text = NULL
+  if (length(blocks) == 3L) {
+    fe_rhs = rhs(blocks[[2]])
     fe_terms = attr(terms(fe_rhs), "term.labels")
     fe_vars = all.vars(fe_rhs)
     if (!length(fe_terms)) {
@@ -679,21 +615,22 @@ dbivreg_parse_formula = function(fml) {
       stop("Fixed effects must be specified as simple additive variable names.")
     }
     fe = unique(fe_terms)
+    fe_rhs_text = text(blocks[[2]])
   }
 
   list(
     fml = fml,
     env = env,
     yvar = yvar,
-    exog_rhs = exog_rhs,
-    exog_rhs_text = exog_rhs_text,
-    exog_vars = all.vars(exog_rhs),
-    endog_rhs = endog_rhs,
-    endog_rhs_text = endog_rhs_text,
-    endog_vars = all.vars(endog_rhs),
-    instr_rhs = instr_rhs,
-    instr_rhs_text = instr_rhs_text,
-    instr_vars = all.vars(instr_rhs),
+    exog_rhs = rhs(exog_expr),
+    exog_rhs_text = text(exog_expr),
+    exog_vars = all.vars(exog_expr),
+    endog_rhs = rhs(endog_expr),
+    endog_rhs_text = text(endog_expr),
+    endog_vars = all.vars(endog_expr),
+    instr_rhs = rhs(instr_expr),
+    instr_rhs_text = text(instr_expr),
+    instr_vars = all.vars(instr_expr),
     fe = fe,
     fe_rhs_text = fe_rhs_text
   )
@@ -725,116 +662,6 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character())
     vars = all.vars(rhs_formula),
     term_labels = attr(terms(rhs_formula), "term.labels")
   )
-}
-
-#' @keywords internal
-dbivreg_find_top_level = function(x, delim) {
-  chars = strsplit(x, "", fixed = TRUE)[[1]]
-  if (!length(chars)) {
-    return(NA_integer_)
-  }
-
-  depth_paren = 0L
-  depth_bracket = 0L
-  depth_brace = 0L
-  in_single = FALSE
-  in_double = FALSE
-  in_backtick = FALSE
-
-  for (i in seq_along(chars)) {
-    ch = chars[i]
-    prev = if (i > 1L) chars[i - 1L] else ""
-
-    if (in_single) {
-      if (ch == "'" && prev != "\\") in_single = FALSE
-      next
-    }
-    if (in_double) {
-      if (ch == "\"" && prev != "\\") in_double = FALSE
-      next
-    }
-    if (in_backtick) {
-      if (ch == "`") in_backtick = FALSE
-      next
-    }
-
-    if (ch == "'") {
-      in_single = TRUE
-      next
-    }
-    if (ch == "\"") {
-      in_double = TRUE
-      next
-    }
-    if (ch == "`") {
-      in_backtick = TRUE
-      next
-    }
-
-    if (ch == "(") {
-      depth_paren = depth_paren + 1L
-      next
-    }
-    if (ch == ")") {
-      depth_paren = max(depth_paren - 1L, 0L)
-      next
-    }
-    if (ch == "[") {
-      depth_bracket = depth_bracket + 1L
-      next
-    }
-    if (ch == "]") {
-      depth_bracket = max(depth_bracket - 1L, 0L)
-      next
-    }
-    if (ch == "{") {
-      depth_brace = depth_brace + 1L
-      next
-    }
-    if (ch == "}") {
-      depth_brace = max(depth_brace - 1L, 0L)
-      next
-    }
-
-    if (
-      ch == delim &&
-      depth_paren == 0L &&
-      depth_bracket == 0L &&
-      depth_brace == 0L
-    ) {
-      return(i)
-    }
-  }
-
-  NA_integer_
-}
-
-#' @keywords internal
-dbivreg_split_top_level = function(x, delim) {
-  chars = strsplit(x, "", fixed = TRUE)[[1]]
-  if (!length(chars)) {
-    return(character(0))
-  }
-
-  starts = 1L
-  parts = character(0)
-  repeat {
-    subx = paste(chars[starts:length(chars)], collapse = "")
-    pos = dbivreg_find_top_level(subx, delim)
-    if (is.na(pos)) {
-      parts = c(parts, dbivreg_trim_ws(subx))
-      break
-    }
-    end = starts + pos - 2L
-    parts = c(parts, dbivreg_trim_ws(paste(chars[starts:end], collapse = "")))
-    starts = starts + pos
-  }
-  parts
-}
-
-#' @keywords internal
-dbivreg_trim_ws = function(x) {
-  gsub("^\\s+|\\s+$", "", x)
 }
 
 #' @keywords internal
