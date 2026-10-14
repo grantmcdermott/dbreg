@@ -550,8 +550,9 @@ create_temp_table_as = function(conn, table_name, select_sql, backend) {
                select_sql, ignore.case = TRUE)
     sql = paste0(sql, ") AS __subq")
     dbExecute(conn, sql)
-  } else if (backend %in% c("spark", "duckdb")) {
-    # Spark/Databricks and DuckDB: CREATE OR REPLACE TEMPORARY TABLE ...
+  } else if (backend == "spark") {
+    # Spark/Databricks: CREATE OR REPLACE TEMPORARY TABLE ... (session temp
+    # tables can linger across scopes, so replace rather than fail)
     sql = glue("CREATE OR REPLACE TEMPORARY TABLE {table_name} AS {select_sql}")
     dbExecute(conn, sql)
   } else {
