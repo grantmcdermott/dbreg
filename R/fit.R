@@ -82,23 +82,21 @@ fit_ols = function(S, y, x, drop_collinear = FALSE, verbose = FALSE) {
   )
 }
 
-#' 2SLS on sufficient statistics
+#' Linear GMM on sufficient statistics
 #'
-#' `b = (X'P_Z X)^-1 X'P_Z y`, with `P = X'Z (Z'Z)^-1`. The sandwich
-#' `A^-1 [P Omega P'] A^-1` has the same form as OLS, with instrument scores
-#' projected into coefficient space by `project_meat`.
+#' `b = (X'Z W Z'X)^-1 X'Z W Z'y` for a weight matrix `W`. With
+#' `W = (Z'Z)^-1` this is 2SLS ([fit_2sls()]); with `W` the inverse of the
+#' moment covariance it is (two-step) efficient GMM. The sandwich
+#' `A^-1 [P Omega P'] A^-1`, with `P = X'Z W`, has the same form as OLS, with
+#' instrument scores projected into coefficient space by `project_meat`.
 #'
 #' @inheritParams fit_ols
 #' @param z Instrument names (included exogenous plus excluded instruments).
+#' @param W Weight matrix over `z`.
 #' @keywords internal
-fit_2sls = function(S, y, x, z) {
-  S_zz = S[z, z, drop = FALSE]
+fit_gmm = function(S, y, x, z, W) {
   S_zx = S[z, x, drop = FALSE]
-  if (qr(S_zz, tol = 1e-10)$rank < ncol(S_zz)) {
-    stop("Instrument matrix is rank deficient.")
-  }
-  z_inv = solve_with_fallback(S_zz, diag(ncol(S_zz)))[["XtX_inv"]]
-  P = t(S_zx) %*% z_inv
+  P = t(S_zx) %*% W
   A = P %*% S_zx
   if (qr(A, tol = 1e-10)$rank < ncol(A)) {
     stop("IV system is not identified or regressors are collinear after instrumentation.")
@@ -122,6 +120,20 @@ fit_2sls = function(S, y, x, z) {
       out
     }
   )
+}
+
+#' 2SLS on sufficient statistics
+#'
+#' Linear GMM ([fit_gmm()]) with weight matrix `(Z'Z)^-1`.
+#'
+#' @inheritParams fit_gmm
+#' @keywords internal
+fit_2sls = function(S, y, x, z) {
+  S_zz = S[z, z, drop = FALSE]
+  if (qr(S_zz, tol = 1e-10)$rank < ncol(S_zz)) {
+    stop("Instrument matrix is rank deficient.")
+  }
+  fit_gmm(S, y, x, z, W = solve_with_fallback(S_zz, diag(ncol(S_zz)))[["XtX_inv"]])
 }
 
 #' Score-space meat matrices for fitted models

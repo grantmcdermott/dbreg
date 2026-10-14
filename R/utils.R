@@ -251,15 +251,18 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
 parse_regression_formula = function(fml) {
   fml = Formula(fml)
   # Extract outcome variable (LHS)
-  yvar = all.vars(formula(fml, lhs = 1, rhs = 0))
+  lhs = formula(fml, lhs = 1, rhs = 0)
+  yvar = all.vars(lhs)
   if (length(yvar) != 1) {
     stop("Exactly one outcome variable required.")
   }
+  check_simple_terms(paste(deparse(lhs[[2]]), collapse = " "), "outcome", allow_interactions = FALSE)
   
   # Extract RHS part 1: variables and term structure
   rhs1 = formula(fml, lhs = 0, rhs = 1)
   tt = terms(rhs1)
   term_labels = attr(tt, "term.labels")
+  check_simple_terms(term_labels, "regressors")
   xvars = all.vars(rhs1)  # unique variable names
   has_interactions = any(grepl(":", term_labels))
   
@@ -269,7 +272,9 @@ parse_regression_formula = function(fml) {
   
   # Extract fixed effects (RHS part 2, after |)
   fe = if (length(fml)[2] > 1) {
-    all.vars(formula(fml, lhs = 0, rhs = 2))
+    fe_rhs = formula(fml, lhs = 0, rhs = 2)
+    check_simple_terms(attr(terms(fe_rhs), "term.labels"), "fixed effects", allow_interactions = FALSE)
+    all.vars(fe_rhs)
   } else {
     NULL
   }
@@ -284,6 +289,35 @@ parse_regression_formula = function(fml) {
   )
 }
 
+
+#' Reject formula terms that cannot be expressed in SQL (yet)
+#'
+#' Terms must be plain variables or interactions of them (`a:b`). Anything
+#' else, e.g. `log(x)`, `I(x^2)` or `factor(x)`, would otherwise be silently
+#' reduced to its underlying variable by `all.vars()`.
+#'
+#' @param term_labels Term labels, e.g. from `attr(terms(f), "term.labels")`.
+#' @param what Label for the error message.
+#' @param allow_interactions Logical. Allow `a:b` terms.
+#' @keywords internal
+check_simple_terms = function(term_labels, what = "regressors", allow_interactions = TRUE) {
+  is_simple = function(term) {
+    parts = if (allow_interactions) strsplit(term, ":", fixed = TRUE)[[1]] else term
+    all(vapply(parts, function(x) {
+      isTRUE(tryCatch(is.name(str2lang(x)), error = function(e) FALSE))
+    }, logical(1)))
+  }
+  bad = term_labels[!vapply(term_labels, is_simple, logical(1))]
+  if (length(bad)) {
+    stop(
+      "Transformed or function terms are not supported in the ", what, ": ",
+      paste(bad, collapse = ", "), ". ",
+      "Please create these variables in the data (or a database view) first.",
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
 
 #' Parse variance-covariance and clustering arguments
 #'

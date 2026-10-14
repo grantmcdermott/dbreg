@@ -16,8 +16,6 @@ fit_2sls(S, y, x, z)
 \item{z}{Instrument names (included exogenous plus excluded instruments).}
 }
 \description{
-`b = (X'P_Z X)^-1 X'P_Z y`, with `P = X'Z (Z'Z)^-1`. The sandwich
-`A^-1 [P Omega P'] A^-1` has the same form as OLS, with instrument scores
-projected into coefficient space by `project_meat`.
+Linear GMM ([fit_gmm()]) with weight matrix `(Z'Z)^-1`.
 }
 \keyword{internal}

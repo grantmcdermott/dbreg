@@ -42,6 +42,13 @@ Bug fixes
   treated as their own cluster. (#66)
 - Clustered SEs for the `"compress"` strategy no longer stall when there are
   many grouping columns. (#66)
+- Transformed formula terms, e.g. `log(y) ~ x` or `y ~ log(x) + I(x^2)`, now
+  throw an informative error. Previously these were silently reduced to their
+  underlying variables (e.g., regressing on `x` instead of `log(x)`). Please
+  create such variables in the data (or a database view) first. (#66)
+- `sql_model_matrix()` (and thus interaction/factor terms) now generates
+  backend-portable schema and factor-level queries, fixing failures on SQL
+  Server and other non-DuckDB backends. (#66)
 
 Internal
 

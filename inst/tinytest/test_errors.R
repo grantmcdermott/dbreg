@@ -24,3 +24,9 @@ expect_error(
   dbreg(Temp ~ Wind, conn = fake_conn, data = airquality),
   "In-memory data frames are only supported with DuckDB connections"
 )
+
+# Test 5: Transformed terms are rejected rather than silently dropped
+expect_error(dbreg(log(Temp) ~ Wind, data = airquality), "Transformed or function terms .* outcome")
+expect_error(dbreg(Temp ~ log(Wind), data = airquality), "Transformed or function terms .* regressors")
+expect_error(dbreg(Temp ~ Wind + I(Wind^2), data = airquality), "regressors: I\\(Wind\\^2\\)")
+expect_error(dbreg(Temp ~ Wind | factor(Month), data = airquality), "fixed effects")

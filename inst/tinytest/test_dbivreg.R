@@ -31,24 +31,19 @@ expect_iv_match = function(db_fit, fx_fit, tol_coef = 1e-6, tol_se = 1e-6, label
   )
 }
 
-manual_hansen_j = function(Z, u, cluster = NULL, weights = NULL) {
-  if (is.null(weights)) {
-    weights = rep(1, length(u))
+# Hansen J from raw data: two-step efficient GMM, with the moment covariance
+# estimated from 2SLS residuals, and J the minimised GMM criterion
+manual_hansen_j = function(Z, X, y, cluster = NULL, weights = NULL) {
+  w = if (is.null(weights)) rep(1, length(y)) else weights
+  omega_from = function(u) {
+    scores = Z * as.numeric(u * w)
+    if (is.null(cluster)) crossprod(scores) else crossprod(rowsum(scores, cluster))
   }
-  scores = Z * as.numeric(u * weights)
-  g = colSums(scores)
-
-  if (is.null(cluster)) {
-    omega = crossprod(scores)
-  } else {
-    omega = matrix(0, ncol(scores), ncol(scores))
-    for (cl in unique(cluster)) {
-      s_g = colSums(scores[cluster == cl, , drop = FALSE])
-      omega = omega + tcrossprod(s_g)
-    }
-  }
-
-  as.numeric(t(g) %*% qr.solve(omega, g))
+  gmm = function(W) solve(t(X) %*% (w * Z) %*% W %*% t(Z) %*% (w * X), t(X) %*% (w * Z) %*% W %*% t(Z) %*% (w * y))
+  b_2sls = gmm(solve(t(Z) %*% (w * Z)))
+  W = solve(omega_from(y - X %*% b_2sls))
+  m = t(Z) %*% (w * (y - X %*% gmm(W)))
+  as.numeric(t(m) %*% W %*% m)
 }
 
 set.seed(2026)
@@ -477,10 +472,9 @@ db_over_hc1 = dbivreg(
 )
 Z_over = cbind("(Intercept)" = 1, x = dat_over$x, z1 = dat_over$z1, z2 = dat_over$z2)
 X_over = cbind("(Intercept)" = 1, x = dat_over$x, d = dat_over$d)
-u_over_hc1 = as.numeric(dat_over$y - X_over %*% coef(db_over_hc1)[colnames(X_over)])
 expect_equal(
   db_over_hc1$diagnostics$overid$stat,
-  manual_hansen_j(Z_over, u_over_hc1),
+  manual_hansen_j(Z_over, X_over, dat_over$y),
   tolerance = tol,
   info = "HC1 Hansen J matches manual calculation"
 )
@@ -495,10 +489,9 @@ db_over_cl = dbivreg(
   vcov = ~cluster,
   strategy = "moments"
 )
-u_over_cl = as.numeric(dat_over$y - X_over %*% coef(db_over_cl)[colnames(X_over)])
 expect_equal(
   db_over_cl$diagnostics$overid$stat,
-  manual_hansen_j(Z_over, u_over_cl, cluster = dat_over$cluster),
+  manual_hansen_j(Z_over, X_over, dat_over$y, cluster = dat_over$cluster),
   tolerance = tol_cluster,
   info = "Cluster-robust Hansen J matches manual calculation"
 )
@@ -618,3 +611,42 @@ expect_equal(dbivreg(y ~ x | d ~ z1 + z2, data = dat_auto)$strategy, "compress",
 expect_equal(dbivreg(y ~ x | d ~ z1 + z2, data = transform(dat_auto, z1 = rnorm(nrow(dat_auto))))$strategy, "moments", info = "auto avoids compress with continuous instruments")
 expect_equal(dbivreg(y ~ x | d ~ z1 + z2, data = dat_auto, compress_nmax = 10)$strategy, "moments", info = "auto respects compress_nmax")
 expect_equal(dbivreg(y ~ x | fe | d ~ z1 + z2, data = dat_auto)$strategy, "demean", info = "auto uses demean with FE (no FE compress for IV)")
+
+# Unsupported specifications are rejected rather than silently changed
+expect_error(dbivreg(log(y) ~ x | d ~ z, data = dat), "outcome", info = "transformed outcome rejected")
+expect_error(dbivreg(y ~ log(abs(x)) | d ~ z, data = dat), "exogenous regressors", info = "transformed regressor rejected")
+expect_error(dbivreg(y ~ x | d ~ I(z^2), data = dat), "instruments", info = "transformed instrument rejected")
+expect_error(dbivreg(y ~ x - 1 | d ~ z, data = dat), "No-intercept", info = "no-intercept IV rejected without FE")
+expect_error(dbivreg(y ~ 0 + x | d ~ z, data = dat), "No-intercept", info = "0 + IV rejected without FE")
+
+# Singular diagnostics are reported as unavailable instead of aborting the fit
+dat_sing = dat
+dat_sing$d = dat_sing$z
+expect_warning(
+  db_sing <- dbivreg(y ~ x | d ~ z, data = dat_sing),
+  "First-stage Wald test unavailable",
+  info = "singular first-stage covariance warns"
+)
+expect_true(is.na(db_sing$diagnostics$first_stage_wald$d$stat), info = "singular first-stage Wald is NA")
+expect_true(all(is.finite(db_sing$coeftable[, "estimate"])), info = "fit survives singular diagnostics")
+
+# predict() stopgap for factor-expanded structural terms
+dat_pred = dat
+dat_pred$g = sample(c("a", "b", "c"), nrow(dat_pred), replace = TRUE)
+expect_error(
+  predict(dbivreg(y ~ x + g | d ~ z, data = dat_pred), newdata = dat_pred),
+  "not yet supported",
+  info = "predict errors clearly for factor terms"
+)
+expect_equal(
+  length(predict(dbivreg(y ~ x | d ~ z, data = dat), newdata = dat)),
+  nrow(dat),
+  info = "predict still works for numeric terms"
+)
+
+# Failed validation releases the registered in-memory table
+con_val = DBI::dbConnect(duckdb::duckdb())
+tables_before = DBI::dbListTables(con_val)
+expect_error(dbivreg(y ~ x | d ~ z, conn = con_val, data = dat, weights = "not_a_column"))
+expect_equal(DBI::dbListTables(con_val), tables_before, info = "no registered table left behind after a validation error")
+DBI::dbDisconnect(con_val, shutdown = TRUE)

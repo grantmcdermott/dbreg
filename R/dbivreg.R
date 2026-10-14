@@ -118,19 +118,7 @@ dbivreg = function(
     verbose = verbose
   )
 
-  cleanup_conn = function() {
-    if (isTRUE(inputs[["own_conn"]]) && dbIsValid(inputs[["conn"]])) {
-      dbDisconnect(inputs[["conn"]], shutdown = TRUE)
-    }
-  }
-  on.exit(cleanup_conn(), add = TRUE)
-
-  cleanup_registered = function() {
-    if (!is.null(inputs[["registered_table"]]) && dbIsValid(inputs[["conn"]])) {
-      try(duckdb_unregister(inputs[["conn"]], inputs[["registered_table"]]), silent = TRUE)
-    }
-  }
-  on.exit(cleanup_registered(), add = TRUE)
+  on.exit(release_db_setup(inputs[["conn"]], inputs[["own_conn"]], inputs[["registered_table"]]), add = TRUE)
 
   chosen_strategy = choose_dbivreg_strategy(inputs)
 
@@ -143,6 +131,24 @@ dbivreg = function(
   )
 
   finalize_dbreg_result(result, inputs, chosen_strategy, class = c("dbivreg", "dbreg"))
+}
+
+#' Release a connection set up by setup_db_connection()
+#'
+#' Unregisters any registered in-memory table and disconnects connections
+#' that we created.
+#' @keywords internal
+release_db_setup = function(conn, own_conn, registered_table) {
+  if (is.null(conn) || !dbIsValid(conn)) {
+    return(invisible(NULL))
+  }
+  if (!is.null(registered_table)) {
+    try(duckdb_unregister(conn, registered_table), silent = TRUE)
+  }
+  if (isTRUE(own_conn)) {
+    dbDisconnect(conn, shutdown = TRUE)
+  }
+  invisible(NULL)
 }
 
 #' Process and validate dbivreg inputs
@@ -181,6 +187,10 @@ process_dbivreg_inputs = function(
   own_conn = db_setup[["own_conn"]]
   from_statement = db_setup[["from_statement"]]
   registered_table = db_setup[["registered_table"]]
+  # Release the connection/registration if validation below fails; on success
+  # the caller (dbivreg()) takes over cleanup
+  setup_ok = FALSE
+  on.exit(if (!setup_ok) release_db_setup(conn, own_conn, registered_table), add = TRUE)
 
   validate_weights(weights, data, conn, from_statement)
   # Raw variables behind X and Z: their distinct tuples define the compress
@@ -255,6 +265,7 @@ process_dbivreg_inputs = function(
   union_names = names(union_map)
   union_sql = unname(union_map)
 
+  setup_ok = TRUE
   list2env(list(
     fml = fml,
     structural_fml = dbivreg_structural_formula(
@@ -634,8 +645,12 @@ dbivreg_parse_formula = function(fml) {
   if (length(yvar) != 1L) {
     stop("Exactly one outcome variable required.")
   }
+  check_simple_terms(text(inner[[2]]), "outcome", allow_interactions = FALSE)
   exog_expr = blocks[[1]]
   endog_expr = blocks[[length(blocks)]]
+  check_simple_terms(attr(terms(rhs(exog_expr)), "term.labels"), "exogenous regressors")
+  check_simple_terms(attr(terms(rhs(endog_expr)), "term.labels"), "endogenous regressors")
+  check_simple_terms(attr(terms(rhs(instr_expr)), "term.labels"), "instruments")
 
   fe = NULL
   fe_rhs_text = NULL
@@ -651,6 +666,11 @@ dbivreg_parse_formula = function(fml) {
     }
     fe = unique(fe_terms)
     fe_rhs_text = text(blocks[[2]])
+  }
+  # With FE the intercept is absorbed anyway; without FE, honouring `- 1` /
+  # `0 +` is not supported yet, so refuse rather than silently add one
+  if (is.null(fe) && attr(terms(rhs(exog_expr)), "intercept") == 0L) {
+    stop("No-intercept IV models (`- 1` or `0 +`) are not supported yet.", call. = FALSE)
   }
 
   list(
@@ -785,9 +805,13 @@ compute_dbivreg_first_stage_wald = function(
       meat = meat_u
     )
     beta_q = fit_u[["coef"]][excluded, , drop = FALSE]
-    vcov_q = vcov_u[excluded, excluded, drop = FALSE]
-    stat = as.numeric(Matrix::t(beta_q) %*% solve_with_fallback(vcov_q, beta_q)$betahat) / q
-    stat = max(stat, 0)
+    vcov_q = as.matrix(vcov_u[excluded, excluded, drop = FALSE])
+    stat = tryCatch({
+      if (qr(vcov_q, tol = 1e-10)$rank < q) {
+        stop("first-stage covariance of the excluded instruments is singular")
+      }
+      max(as.numeric(Matrix::t(beta_q) %*% solve_with_fallback(vcov_q, beta_q)$betahat) / q, 0)
+    }, error = function(e) dbivreg_diag_unavailable("First-stage Wald test", e))
     list(
       stat = stat,
       p = stats::pf(stat, q, df2, lower.tail = FALSE),
@@ -803,33 +827,64 @@ compute_dbivreg_first_stage_wald = function(
 #' @keywords internal
 compute_dbivreg_overid = function(inputs, S, fit, z, n_total, meat = NULL) {
   df = length(inputs[["instr_names"]]) - length(inputs[["endog_names"]])
-  if (df <= 0) {
-    test_name = if (identical(inputs[["vcov_type_req"]], "iid")) "Sargan" else "Hansen J"
-    return(list(stat = NA_real_, p = NA_real_, df = max(df, 0L), test = test_name))
+  iid = identical(inputs[["vcov_type_req"]], "iid")
+  test_name = if (iid) "Sargan" else "Hansen J"
+  na_out = list(stat = NA_real_, p = NA_real_, df = max(df, 0L), test = test_name)
+  if (df <= 0 || (!iid && is.null(meat))) {
+    return(na_out)
   }
+  y = inputs[["yvar"]]
+  x = fit[["x"]]
+  # Sample moment conditions Z'e at coefficients b
+  moments = function(b) S[z, y, drop = FALSE] - S[z, x, drop = FALSE] %*% b
 
-  # Sample moment conditions Z'e
-  moments = S[z, inputs[["yvar"]], drop = FALSE] - S[z, fit[["x"]], drop = FALSE] %*% fit[["coef"]]
-  if (identical(inputs[["vcov_type_req"]], "iid")) {
-    z_inv = solve_with_fallback(S[z, z, drop = FALSE], moments)$betahat
-    stat = as.numeric(Matrix::t(moments) %*% z_inv) / (fit[["rss"]] / n_total)
-    test_name = "Sargan"
-  } else {
-    if (is.null(meat)) {
-      return(list(stat = NA_real_, p = NA_real_, df = df, test = "Hansen J"))
+  stat = tryCatch({
+    if (iid) {
+      # Sargan: Z'e (Z'Z)^-1 Z'e / sigma^2 at the 2SLS estimate
+      m = moments(fit[["coef"]])
+      as.numeric(Matrix::t(m) %*% solve_with_fallback(S[z, z, drop = FALSE], m)$betahat) / (fit[["rss"]] / n_total)
+    } else {
+      # Hansen J: minimised efficient-GMM criterion. Two-step GMM with the
+      # moment covariance (meat) estimated from the 2SLS residuals.
+      if (qr(meat, tol = 1e-10)$rank < ncol(meat)) {
+        stop("moment covariance is singular (e.g. fewer clusters than instruments)")
+      }
+      W = solve_with_fallback(meat, diag(ncol(meat)))[["XtX_inv"]]
+      m = moments(fit_gmm(S, y, x, z, W)[["coef"]])
+      as.numeric(Matrix::t(m) %*% W %*% m)
     }
-    omega_inv_m = solve_with_fallback(meat, moments)$betahat
-    stat = as.numeric(Matrix::t(moments) %*% omega_inv_m)
-    test_name = "Hansen J"
+  }, error = function(e) dbivreg_diag_unavailable(paste(test_name, "test"), e))
+  if (is.na(stat)) {
+    return(na_out)
   }
   stat = max(stat, 0)
-
   list(
     stat = stat,
     p = stats::pchisq(stat, df = df, lower.tail = FALSE),
     df = df,
     test = test_name
   )
+}
+
+# Diagnostics are reported as unavailable (with a warning) rather than
+# aborting an otherwise valid fit
+dbivreg_diag_unavailable = function(what, e) {
+  warning("[dbivreg] ", what, " unavailable: ", conditionMessage(e), call. = FALSE)
+  NA_real_
+}
+
+#' @rdname predict.dbreg
+#' @export
+predict.dbivreg = function(object, ...) {
+  # Coefficient names from factor/interaction expansion are not input columns,
+  # which the inherited method assumes
+  if (!all(object[["xvars"]] %in% all.vars(object[["fml"]]))) {
+    stop(
+      "predict() is not yet supported for dbivreg models with factor or interaction terms.",
+      call. = FALSE
+    )
+  }
+  NextMethod()
 }
 
 #' Print method for `dbivreg` objects
