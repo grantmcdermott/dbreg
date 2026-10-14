@@ -201,6 +201,12 @@ expect_equal(
   info = "compress no-intercept keeps all levels of the first factor"
 )
 expect_equal(
+  unname(coef(dbreg(y ~ 0 + g * x, data = dat68, strategy = "moments"), fe = TRUE)[names(coef(lm(y ~ 0 + g * x, data = dat68)))]),
+  unname(coef(lm(y ~ 0 + g * x, data = dat68))),
+  tolerance = 1e-10,
+  info = "moments no-intercept with a factor interaction keeps all levels of the first factor"
+)
+expect_equal(
   as.numeric(predict(db68, newdata = dat68)),
   as.numeric(predict(lm(y ~ 0 + x, data = dat68))),
   tolerance = 1e-10,

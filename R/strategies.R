@@ -22,6 +22,7 @@ execute_moments_strategy = function(inputs) {
       table_ref,
       expand = "all",
       fe_vars = fe,
+      intercept = intercept
     )
     xvars_sql = sql_design[["select_exprs"]]
     xvar_names = sql_design[["col_names"]]
