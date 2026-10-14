@@ -366,6 +366,8 @@ dbreg = function(
     verbose = verbose
   )
 
+  on.exit(release_db_setup(inputs[["conn"]], inputs[["own_conn"]], inputs[["registered_table"]]), add = TRUE)
+
   # Choose strategy (mutates inputs[["is_balanced"]], inputs[["compression_ratio_est"]])
   chosen_strategy = choose_strategy(inputs)
 
@@ -416,6 +418,11 @@ process_dbreg_inputs = function(
   db_setup = setup_db_connection(conn, table, data, path, caller = "dbreg")
   conn = db_setup[["conn"]]
   own_conn = db_setup[["own_conn"]]
+  registered_table = db_setup[["registered_table"]]
+  # Release the connection/registration if validation below fails; on success
+  # the caller (dbreg()) takes over cleanup
+  setup_ok = FALSE
+  on.exit(if (!setup_ok) release_db_setup(conn, own_conn, registered_table), add = TRUE)
   from_statement = db_setup[["from_statement"]]
 
   # Parse formula using shared helper
@@ -439,7 +446,7 @@ process_dbreg_inputs = function(
     drop_missings = drop_missings
   )
 
-  list2env(list(
+  out = list2env(list(
     fml = fml,
     yvar = yvar,
     xvars = xvars,
@@ -461,8 +468,11 @@ process_dbreg_inputs = function(
     verbose = verbose,
     any_continuous = any_continuous,
     is_balanced = NULL,
-    own_conn = own_conn
+    own_conn = own_conn,
+    registered_table = registered_table
   ), parent = emptyenv())
+  setup_ok = TRUE
+  out
 }
 
 #' Heuristic: does any regressor look continuous?
@@ -524,8 +534,14 @@ validate_weights = function(weights, data, conn, from_statement) {
       stop("Weights must be non-negative.")
     }
   } else {
-    neg_sql = glue("SELECT 1 FROM (SELECT * {from_statement}) t WHERE {weights} < 0 LIMIT 1")
-    has_neg = tryCatch(nrow(dbGetQuery(conn, neg_sql)) > 0, error = function(e) FALSE)
+    neg_sql = sql_limit(
+      glue("SELECT 1 AS neg FROM (SELECT * {from_statement}) t WHERE {weights} < 0"),
+      1,
+      detect_backend(conn)[["name"]]
+    )
+    has_neg = tryCatch(nrow(dbGetQuery(conn, neg_sql)) > 0, error = function(e) {
+      stop("Could not validate weight column '", weights, "': ", conditionMessage(e), call. = FALSE)
+    })
     if (isTRUE(has_neg)) {
       stop("Weights must be non-negative.")
     }

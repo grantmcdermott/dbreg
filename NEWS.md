@@ -46,6 +46,11 @@ Bug fixes
   throw an informative error. Previously these were silently reduced to their
   underlying variables (e.g., regressing on `x` instead of `log(x)`). Please
   create such variables in the data (or a database view) first. (#66)
+- `dbreg()` now closes the DuckDB connection it creates internally and
+  unregisters in-memory `data` from user-supplied connections, including when
+  input validation fails. Previously these were left open/registered.
+- A misspelled `weights` column on a database table now gives an informative
+  error up front.
 - `predict()` now errors for `"demean"` models with more than two fixed
   effects. Previously it silently ignored the third and later fixed effects,
   returning incorrect predictions. (#66)
@@ -60,6 +65,10 @@ Internal
   as a `Makefile` for automating dev workflows. (#64)
 - Refactored and modularized the codebase to make it more efficient and safer.
   (#65)
+- Much faster cluster-robust SEs for the `"compress"` strategy with many
+  clusters: the meat matrix is now aggregated in one sparse matrix product
+  rather than a loop over clusters (e.g., 338s -> 1s for 20,000 clusters on
+  1M rows).
 - Estimation internals now share a common set of building blocks (estimation
   frames, a cross-moment matrix, estimator fits, and a SQL score pass for
   robust/clustered meat matrices), which `dbreg()` and `dbivreg()` both use.

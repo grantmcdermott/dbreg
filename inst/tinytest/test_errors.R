@@ -38,3 +38,18 @@ expect_error(
   predict(dbreg(Temp ~ Wind | Month + Day + wk, data = aq, strategy = "demean"), newdata = aq),
   "more than two fixed effects"
 )
+
+# Test 7: Misspelled weight column on a database table gives an informative error
+con_w = DBI::dbConnect(duckdb::duckdb())
+DBI::dbWriteTable(con_w, "aq", na.omit(airquality))
+expect_error(
+  dbreg(Temp ~ Wind, conn = con_w, table = "aq", weights = "Wnd"),
+  "Could not validate weight column 'Wnd'"
+)
+
+# Test 8: In-memory data registered on a user connection is released afterwards
+invisible(dbreg(Temp ~ Wind, conn = con_w, data = na.omit(airquality)))
+expect_equal(DBI::dbListTables(con_w), "aq", info = "registered data released after dbreg()")
+expect_error(dbreg(Temp ~ Wind, conn = con_w, data = na.omit(airquality), compress_ratio = 2))
+expect_equal(DBI::dbListTables(con_w), "aq", info = "registered data released after a validation error")
+DBI::dbDisconnect(con_w, shutdown = TRUE)
