@@ -2,7 +2,7 @@
 % Please edit documentation in R/dbivreg.R
 \name{print.dbivreg}
 \alias{print.dbivreg}
-\title{Print method for dbivreg objects}
+\title{Print method for \code{dbivreg} objects}
 \usage{
 \method{print}{dbivreg}(x, ...)
 }
@@ -12,5 +12,5 @@
 \item{...}{Additional unused arguments.}
 }
 \description{
-Print method for \code{dbivreg} objects.
+Print method for \code{dbivreg} objects
 }

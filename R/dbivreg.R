@@ -797,8 +797,9 @@ compute_dbivreg_overid = function(inputs, S, fit, z, n_total, meat = NULL) {
   )
 }
 
-#' Print method for dbivreg objects
+#' Print method for `dbivreg` objects
 #'
+#' @md
 #' @param x A `dbivreg` object.
 #' @param ... Additional unused arguments.
 #' @export

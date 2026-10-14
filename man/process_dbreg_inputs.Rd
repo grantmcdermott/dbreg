@@ -24,6 +24,7 @@ process_dbreg_inputs(
 )
 }
 \description{
-Process and validate dbreg inputs
+Returns an environment (not a list) so that downstream functions can mutate
+shared state in place via reference semantics.
 }
 \keyword{internal}

@@ -18,39 +18,51 @@ export(glance)
 export(gof)
 export(sql_model_matrix)
 export(tidy)
-importFrom(DBI,dbConnect)
-importFrom(DBI,dbDisconnect)
-importFrom(DBI,dbExecute)
-importFrom(DBI,dbGetInfo)
-importFrom(DBI,dbGetQuery)
-importFrom(DBI,dbIsValid)
-importFrom(DBI,dbRemoveTable)
-importFrom(DBI,dbWriteTable)
+importFrom(DBI,
+  dbConnect,
+  dbDisconnect,
+  dbExecute,
+  dbGetInfo,
+  dbGetQuery,
+  dbIsValid,
+  dbRemoveTable,
+  dbWriteTable
+)
 importFrom(Formula,Formula)
-importFrom(Matrix,Diagonal)
-importFrom(Matrix,chol2inv)
-importFrom(Matrix,crossprod)
-importFrom(Matrix,sparse.model.matrix)
-importFrom(duckdb,duckdb)
-importFrom(duckdb,duckdb_register)
-importFrom(duckdb,duckdb_unregister)
-importFrom(generics,glance)
-importFrom(generics,tidy)
-importFrom(glue,glue)
-importFrom(glue,glue_sql)
-importFrom(stats,aggregate)
-importFrom(stats,as.formula)
-importFrom(stats,ave)
-importFrom(stats,coef)
-importFrom(stats,confint)
-importFrom(stats,formula)
-importFrom(stats,model.matrix)
-importFrom(stats,pt)
-importFrom(stats,qt)
-importFrom(stats,quantile)
-importFrom(stats,reformulate)
-importFrom(stats,setNames)
-importFrom(stats,terms)
-importFrom(stats,update)
-importFrom(stats,vcov)
+importFrom(Matrix,
+  Diagonal,
+  chol2inv,
+  crossprod,
+  sparse.model.matrix
+)
+importFrom(duckdb,
+  duckdb,
+  duckdb_register,
+  duckdb_unregister
+)
+importFrom(generics,
+  glance,
+  tidy
+)
+importFrom(glue,
+  glue,
+  glue_sql
+)
+importFrom(stats,
+  aggregate,
+  as.formula,
+  ave,
+  coef,
+  confint,
+  formula,
+  model.matrix,
+  pt,
+  qt,
+  quantile,
+  reformulate,
+  setNames,
+  terms,
+  update,
+  vcov
+)
 importFrom(tinyplot,tinyplot)
