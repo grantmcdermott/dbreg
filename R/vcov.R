@@ -204,8 +204,10 @@ compute_meat_cluster_compress = function(conn, from_statement, group_cols,
   cluster_cell_df = dbGetQuery(conn, cluster_cell_sql)
 
   # Create cell key for matching (same grouping as compress strategy)
-  compressed_dat[["cell_key"]] = interaction(compressed_dat[, group_cols, drop = FALSE])
-  cluster_cell_df[["cell_key"]] = interaction(cluster_cell_df[, group_cols, drop = FALSE])
+  # (pasted rather than interaction(), which enumerates every level combination)
+  cell_key = function(df) do.call(paste, c(unname(as.list(df[, group_cols, drop = FALSE])), sep = "\r"))
+  compressed_dat[["cell_key"]] = cell_key(compressed_dat)
+  cluster_cell_df[["cell_key"]] = cell_key(cluster_cell_df)
 
   # Add yhat to compressed_dat and create lookup
   compressed_dat[["yhat"]] = yhat

@@ -9,6 +9,7 @@
 #   cast               whether moments CAST columns before aggregating
 #   prefix_terms       count aggregates (n_total, n_fe1, ...)
 #   cleanup            function dropping any temp tables the frame created
+# build_base_frame() also returns base_sql, the bare SELECT behind the CTE.
 
 # SELECT list: id columns, the outcome, aliased regressors, then any extra
 # (weights, cluster) columns not already selected
@@ -32,9 +33,11 @@ frame_select = function(y, x_sql, x_names, id_cols = NULL, extra = NULL) {
 build_base_frame = function(inputs, x_sql, x_names) {
   y = inputs[["yvar"]]
   sel = frame_select(y, x_sql, x_names, extra = c(inputs[["weights"]], inputs[["cluster_var"]]))
+  base_sql = paste0("SELECT ", paste(sel, collapse = ", "), " ", inputs[["from_statement"]])
   list(
-    cte_sql = paste0("WITH base AS (\n  SELECT ", paste(sel, collapse = ", "), " ", inputs[["from_statement"]], "\n)"),
+    cte_sql = paste0("WITH base AS (\n  ", base_sql, "\n)"),
     cte_name = "base",
+    base_sql = base_sql,
     cols = setNames(c(y, x_names), c(y, x_names)),
     weights_expr = sql_weight_expr(inputs[["weights"]]),
     intercept = TRUE,
