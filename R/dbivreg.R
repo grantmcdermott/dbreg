@@ -359,7 +359,7 @@ dbivreg_run_frame = function(inputs, frame, label) {
       vapply(seq_along(fe), function(k) as.numeric(moments_df[[sprintf("n_fe%d", k)]]), numeric(1)),
       fe
     ),
-    meat_fn = function(fit, y) fit_meat(fit, frame, y, inputs),
+    meats_fn = function(fits, ys) fit_meats(fits, frame, ys, inputs),
     query_string = moments_sql
   )
 }
@@ -422,38 +422,45 @@ execute_iv_compress_strategy = function(inputs) {
   dimnames(S) = list(c(colnames(U), yvar), c(colnames(U), yvar))
 
   # Meat from the cells: HC1 from within-cell residual sums of squares;
-  # clustered from cluster-by-cell residual sums
-  meat_fn = function(fit, y) {
+  # clustered from cluster-by-cell residual sums (one query, shared by the
+  # 2SLS fit and its first stages, whose outcomes are cell columns)
+  cells = NULL
+  meats_fn = function(fits, ys) {
     vcov_type = inputs[["vcov_type_req"]]
     if (!vcov_type %in% c("hc1", "cluster")) {
-      return(NULL)
+      return(vector("list", length(fits)))
     }
-    Z = U[, fit[["scores"]], drop = FALSE]
-    yhat = as.numeric(U[, fit[["x"]], drop = FALSE] %*% fit[["coef"]])
-    if (vcov_type == "cluster") {
-      return(compute_meat_cluster_compress(
+    if (vcov_type == "cluster" && is.null(cells)) {
+      cells <<- query_cluster_cells(
         conn = conn,
         from_statement = paste0("FROM (", frame[["base_sql"]], ") AS base"),
         group_cols = union_names,
-        yvar = y,
+        yvar = yvar,
         cluster_var = inputs[["cluster_var"]],
-        compressed_dat = dat,
-        X = Z,
-        yhat = yhat,
         weights = weights
-      ))
+      )
     }
-    # Sum of (squared) weights times y and y^2 per cell; a first-stage
-    # outcome is itself a cell column
-    w = if (is.null(weights)) dat[["sum_w"]] else dat[["sum_w2"]]
-    if (y == yvar) {
-      wy = if (is.null(weights)) dat[["sum_wy"]] else dat[["sum_w2y"]]
-      wy_sq = if (is.null(weights)) dat[["sum_wy_sq"]] else dat[["sum_w2y_sq"]]
-    } else {
-      wy = w * dat[[y]]
-      wy_sq = w * dat[[y]]^2
-    }
-    crossprod(Z, (wy_sq - 2 * yhat * wy + w * yhat^2) * Z)
+    Map(function(fit, y) {
+      Z = U[, fit[["scores"]], drop = FALSE]
+      yhat = as.numeric(U[, fit[["x"]], drop = FALSE] %*% fit[["coef"]])
+      if (vcov_type == "cluster") {
+        return(cluster_meat_from_cells(
+          cells, dat, union_names, inputs[["cluster_var"]], Z, yhat,
+          y_cell = if (y != yvar) dat[[y]]
+        ))
+      }
+      # Sum of (squared) weights times y and y^2 per cell; a first-stage
+      # outcome is itself a cell column
+      w = if (is.null(weights)) dat[["sum_w"]] else dat[["sum_w2"]]
+      if (y == yvar) {
+        wy = if (is.null(weights)) dat[["sum_wy"]] else dat[["sum_w2y"]]
+        wy_sq = if (is.null(weights)) dat[["sum_wy_sq"]] else dat[["sum_w2y_sq"]]
+      } else {
+        wy = w * dat[[y]]
+        wy_sq = w * dat[[y]]^2
+      }
+      crossprod(Z, (wy_sq - 2 * yhat * wy + w * yhat^2) * Z)
+    }, fits, ys)
   }
 
   result = dbivreg_finalize_fit(
@@ -461,7 +468,7 @@ execute_iv_compress_strategy = function(inputs) {
     S = S,
     n_total = n_total,
     n_fe_levels = numeric(0),
-    meat_fn = meat_fn,
+    meats_fn = meats_fn,
     query_string = compress_sql
   )
   result[["nobs"]] = nrow(dat)
@@ -470,7 +477,7 @@ execute_iv_compress_strategy = function(inputs) {
 }
 
 #' @keywords internal
-dbivreg_finalize_fit = function(inputs, S, n_total, n_fe_levels, meat_fn, query_string) {
+dbivreg_finalize_fit = function(inputs, S, n_total, n_fe_levels, meats_fn, query_string) {
   yvar = inputs[["yvar"]]
   has_intercept = "(Intercept)" %in% rownames(S)
   x_names_full = c(if (has_intercept) "(Intercept)", inputs[["x_all_names"]])
@@ -493,9 +500,15 @@ dbivreg_finalize_fit = function(inputs, S, n_total, n_fe_levels, meat_fn, query_
 
   tss = moment_tss(S, yvar)
 
-  # Score pass: residuals from the structural regressors, scores from the
-  # instruments; fit_2sls() projects the meat into coefficient space
-  meat = meat_fn(fit, yvar)
+  # First stages: each endogenous regressor on the instruments
+  endog = if (length(inputs[["instr_names"]])) inputs[["endog_names"]] else character(0)
+  fs_fits = lapply(endog, function(y) fit_ols(S, y, z_names_full))
+
+  # Score pass: residuals from the structural regressors (and the first
+  # stages), all scored on the instruments in one pass; fit_2sls() projects
+  # the structural meat into coefficient space
+  meats = meats_fn(c(list(fit), fs_fits), c(yvar, endog))
+  meat = meats[[1]]
   vcov_mat = compute_vcov(
     vcov_type = inputs[["vcov_type_req"]],
     strategy = if (has_intercept) "moments" else "demean",
@@ -513,7 +526,8 @@ dbivreg_finalize_fit = function(inputs, S, n_total, n_fe_levels, meat_fn, query_
   iv_diagnostics = compute_dbivreg_diagnostics(
     inputs = inputs,
     S = S,
-    meat_fn = meat_fn,
+    fs_fits = fs_fits,
+    fs_meats = meats[-1],
     fit = fit,
     z = z_names_full,
     has_intercept = has_intercept,
@@ -668,7 +682,8 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character())
 compute_dbivreg_diagnostics = function(
   inputs,
   S,
-  meat_fn,
+  fs_fits,
+  fs_meats,
   fit,
   z,
   has_intercept,
@@ -682,8 +697,8 @@ compute_dbivreg_diagnostics = function(
     first_stage_f = compute_dbivreg_first_stage_f(inputs, S, n_total, df_fe, has_intercept),
     first_stage_wald = compute_dbivreg_first_stage_wald(
       inputs = inputs,
-      S = S,
-      meat_fn = meat_fn,
+      fs_fits = fs_fits,
+      fs_meats = fs_meats,
       has_intercept = has_intercept,
       n_total = n_total,
       df_fe = df_fe,
@@ -720,8 +735,8 @@ compute_dbivreg_first_stage_f = function(inputs, S, n_total, df_fe, has_intercep
 #' @keywords internal
 compute_dbivreg_first_stage_wald = function(
   inputs,
-  S,
-  meat_fn,
+  fs_fits,
+  fs_meats,
   has_intercept,
   n_total,
   df_fe,
@@ -737,8 +752,7 @@ compute_dbivreg_first_stage_wald = function(
   q = length(excluded)
   df2 = max(n_total - length(unrestricted) - df_fe, 1)
   vcov_type = inputs[["vcov_type_req"]]
-  out = lapply(endogenous, function(y_name) {
-    fit_u = fit_ols(S, y_name, unrestricted)
+  out = Map(function(fit_u, meat_u) {
     vcov_u = compute_vcov(
       vcov_type = vcov_type,
       strategy = if (has_intercept) "moments" else "demean",
@@ -747,7 +761,7 @@ compute_dbivreg_first_stage_wald = function(
       df_res = df2,
       nobs_orig = n_total,
       n_params = length(unrestricted) + df_fe - if (vcov_type == "cluster") nested_levels else 0L,
-      meat = meat_fn(fit_u, y_name)
+      meat = meat_u
     )
     beta_q = fit_u[["coef"]][excluded, , drop = FALSE]
     vcov_q = vcov_u[excluded, excluded, drop = FALSE]
@@ -760,7 +774,7 @@ compute_dbivreg_first_stage_wald = function(
       df2 = df2,
       vcov = format_vcov_label(vcov_type, attr(vcov_u, "n_clusters"))
     )
-  })
+  }, fs_fits, fs_meats)
   names(out) = standardize_coef_names(endogenous)
   out
 }

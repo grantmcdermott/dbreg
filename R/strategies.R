@@ -616,29 +616,33 @@ nested_fe_df = function(conn, from_statement, fe, cluster_var) {
   if (is.null(fe) || length(fe) == 0 || is.null(cluster_var)) {
     return(0L)
   }
-  
+  backend = detect_backend(conn)[["name"]]
   nested_df = 0L
   for (f in fe) {
-    # Check if FE is nested: each FE value should map to exactly one cluster
-    # If any FE value spans multiple clusters, it's not nested
-    nested_sql = glue(
-      "SELECT 1 FROM (SELECT * {from_statement}) t ",
-      "GROUP BY {f} ",
-      "HAVING COUNT(DISTINCT {cluster_var}) > 1 ",
-      "LIMIT 1"
+    # Nested iff no FE value spans more than one cluster
+    nested_sql = sql_limit(
+      glue(
+        "SELECT {f} FROM (SELECT * {from_statement}) t ",
+        "GROUP BY {f} HAVING COUNT(DISTINCT {cluster_var}) > 1"
+      ),
+      1,
+      backend
     )
-    result = tryCatch(dbGetQuery(conn, nested_sql), error = function(e) NULL)
-    
-    # Query errors are treated as not nested (conservative: keeps K larger)
-    if (!is.null(result) && nrow(result) == 0) {
-      # FE is nested; count its levels
-      count_sql = glue(
-        "SELECT COUNT(DISTINCT {f}) AS n FROM (SELECT * {from_statement}) t"
-      )
-      n_levels = tryCatch(dbGetQuery(conn, count_sql)[["n"]], error = function(e) 0L)
-      nested_df = nested_df + max(n_levels - 1L, 0L)
-    }
+    count_sql = glue("SELECT COUNT(DISTINCT {f}) AS n FROM (SELECT * {from_statement}) t")
+    n_levels = tryCatch(
+      if (nrow(dbGetQuery(conn, nested_sql)) == 0) dbGetQuery(conn, count_sql)[["n"]] else 0L,
+      error = function(e) {
+        # Fall back to keeping the FE in K (larger, conservative SEs), but say so
+        warning(
+          "[dbreg] Could not check whether fixed effect '", f, "' is nested in '",
+          cluster_var, "' (", conditionMessage(e), "). Treating it as not nested ",
+          "for the ssc = \"nested\" correction.",
+          call. = FALSE
+        )
+        0L
+      }
+    )
+    nested_df = nested_df + max(as.integer(n_levels) - 1L, 0L)
   }
-  
   nested_df
 }

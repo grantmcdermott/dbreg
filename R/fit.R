@@ -124,36 +124,55 @@ fit_2sls = function(S, y, x, z) {
   )
 }
 
-#' Score-space meat matrix for a fitted model
+#' Score-space meat matrices for fitted models
 #'
-#' Thin wrapper around [compute_score_meat()] that reads coefficients, the
-#' residual regressors and the score columns off a `fit_*()` result.
+#' Thin wrapper around [compute_score_meat()] that builds each fit's residual
+#' from its coefficients and regressors, and scores all fits in one pass.
+#' The fits must share the same score columns (e.g. a 2SLS fit and its first
+#' stages, which all use the instruments).
 #'
-#' @param fit Result of [fit_ols()] or [fit_2sls()].
+#' @param fits List of [fit_ols()] / [fit_2sls()] results.
 #' @param frame List with `cte_sql`, `cte_name`, `cols` (named character
 #'   vector mapping variable names to SQL columns in `cte_name`) and
 #'   `weights_expr`.
-#' @param y Outcome name (a name in `frame$cols`).
+#' @param ys Outcome names (in `frame$cols`), one per fit.
 #' @param inputs Inputs environment (for `conn`, `vcov_type_req`,
 #'   `cluster_var`).
+#' @return List of meat matrices (or `NULL`s for iid), one per fit.
 #' @keywords internal
-fit_meat = function(fit, frame, y, inputs) {
+fit_meats = function(fits, frame, ys, inputs) {
+  scores = fits[[1]][["scores"]]
+  if (!all(vapply(fits, function(f) identical(f[["scores"]], scores), logical(1)))) {
+    stop("fit_meats() requires fits that share the same score columns.")
+  }
   cols = frame[["cols"]]
-  b = fit[["coef"]][, 1]
-  slopes = setdiff(fit[["x"]], "(Intercept)")
-  scores = setdiff(fit[["scores"]], "(Intercept)")
-  compute_score_meat(
+  resid_sql = vapply(seq_along(fits), function(k) {
+    b = fits[[k]][["coef"]][, 1]
+    slopes = setdiff(fits[[k]][["x"]], "(Intercept)")
+    sprintf(
+      "(%s - %s)",
+      cols[[ys[k]]],
+      sql_linear_predictor(unname(cols[slopes]), b[slopes], if ("(Intercept)" %in% fits[[k]][["x"]]) b[["(Intercept)"]])
+    )
+  }, character(1))
+  score_cols = setdiff(scores, "(Intercept)")
+  meats = compute_score_meat(
     conn = inputs[["conn"]],
     cte_sql = frame[["cte_sql"]],
     cte_name = frame[["cte_name"]],
     vcov_type = inputs[["vcov_type_req"]],
-    y_sql = cols[[y]],
-    x_sql = unname(cols[slopes]),
-    beta = b[slopes],
-    intercept = if ("(Intercept)" %in% fit[["x"]]) b[["(Intercept)"]],
-    score_sql = unname(cols[scores]),
-    score_names = scores,
+    resid_sql = resid_sql,
+    score_sql = unname(cols[score_cols]),
+    score_names = score_cols,
+    score_intercept = "(Intercept)" %in% scores,
     weights_expr = frame[["weights_expr"]],
     cluster_var = inputs[["cluster_var"]]
   )
+  if (is.null(meats)) vector("list", length(fits)) else unname(meats)
+}
+
+#' @rdname fit_meats
+#' @param fit,y A single fit and its outcome name.
+fit_meat = function(fit, frame, y, inputs) {
+  fit_meats(list(fit), frame, y, inputs)[[1]]
 }

@@ -2,19 +2,17 @@
 % Please edit documentation in R/vcov.R
 \name{compute_score_meat}
 \alias{compute_score_meat}
-\title{Compute HC1 or cluster-robust meat matrix via a SQL score pass}
+\title{Compute HC1 or cluster-robust meat matrices via a SQL score pass}
 \usage{
 compute_score_meat(
   conn,
   cte_sql,
   cte_name,
   vcov_type,
-  y_sql,
-  x_sql,
-  beta,
-  intercept = NULL,
-  score_sql = x_sql,
+  resid_sql,
+  score_sql,
   score_names = score_sql,
+  score_intercept = FALSE,
   weights_expr = NULL,
   cluster_var = NULL
 )
@@ -23,30 +21,30 @@ compute_score_meat(
 \item{vcov_type}{One of `"iid"`, `"hc1"`, `"cluster"`. Returns `NULL` for
 `"iid"`, since no meat matrix is needed.}
 
-\item{y_sql}{SQL expression for the outcome.}
-
-\item{x_sql, beta, intercept}{Regressor columns and coefficients used to form
-the residual. See [sql_linear_predictor()].}
+\item{resid_sql}{Named character vector of SQL residual expressions.}
 
 \item{score_sql, score_names}{SQL expressions and names for the score columns.}
+
+\item{score_intercept}{Logical. Include a constant score column (first).}
 
 \item{weights_expr}{Optional SQL weight expression.}
 
 \item{cluster_var}{Cluster variable (required for `"cluster"`).}
 }
 \value{
-Meat matrix with dimnames `c("(Intercept)"?, score_names)`. For
-  clustered meat, the number of clusters is attached as `n_clusters`.
+Named list of meat matrices (one per residual) with dimnames
+  `c("(Intercept)"?, score_names)`. Clustered meats carry `n_clusters`.
 }
 \description{
-Forms residuals `e = y - x'b` in SQL (via [sql_linear_predictor()]) and
-aggregates the score vectors `w * e * s`, where `s` are the score columns:
+Aggregates the score vectors `w * e * s` for one or more residuals `e`
+(SQL expressions, typically `y - x'b` built with [sql_linear_predictor()])
+that share the same score columns `s`:
 - `vcov_type = "hc1"`: `sum_i w_i^2 e_i^2 s_i s_i'`
 - `vcov_type = "cluster"`: `sum_g (sum_{i in g} w_i e_i s_i)(...)'`
 }
 \details{
-For OLS the score columns are the regressors themselves; for IV they are
-the instruments, while the residual is still formed from the regressors.
-When `intercept` is supplied, a constant score column is included first.
+All residuals are scored in a single query. For OLS the score columns are
+the regressors; for IV they are the instruments (shared by the 2SLS fit and
+its first stages), while each residual is formed from its own regressors.
 }
 \keyword{internal}
