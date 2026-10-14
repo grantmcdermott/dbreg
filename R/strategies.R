@@ -464,7 +464,7 @@ execute_compress_strategy = function(inputs) {
         "[dbreg] compression ineffective (%.1f%% of original rows). ",
         100 * compression_ratio
       ),
-      "Consider strategy = 'mundlak'."
+      sprintf("Consider strategy = '%s'.", if (length(inputs[["fe"]])) "demean" else "moments")
     ))
   }
 
