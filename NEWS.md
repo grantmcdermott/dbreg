@@ -69,6 +69,8 @@ Internal
   (#65)
 - Much faster cluster-robust SEs for the `"compress"` strategy with many
   clusters. (#72)
+- Internal arguments now flow through a single `inputs` environment (filled in
+  place via `env2env()`), simplifying function signatures. (#74)
 - Estimation internals now share a common set of building blocks (estimation
   frames, a cross-moment matrix, estimator fits, and a SQL score pass for
   robust/clustered meat matrices), which `dbreg()` and `dbivreg()` both use.
