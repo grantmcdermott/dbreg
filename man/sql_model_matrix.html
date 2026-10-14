@@ -353,7 +353,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   table,
   expand = c("all", "interactions"),
   sep = "_x_",
-  fe_vars = character()
+  fe_vars = character(),
+  intercept = TRUE
 )
 </code></pre>
 </section>
@@ -406,6 +407,14 @@ Character separator for interaction term names. Default is ‘"<em>x</em>"’. U
 </td>
 <td>
 Character vector of fixed effect variable names. These are treated as "in the model" for determining whether to drop reference levels in interactions.
+</td>
+</tr>
+<tr>
+<td style="white-space: collapse; font-family: monospace; vertical-align: top">
+<code id="intercept">intercept</code>
+</td>
+<td>
+Logical. Whether the model has an intercept. As in [stats::model.matrix()], without an intercept the first factor main effect keeps all of its levels (no reference level is dropped).
 </td>
 </tr>
 </tbody></table>
