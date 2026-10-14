@@ -227,14 +227,14 @@ cluster_meat_from_cells = function(cells, compressed_dat, group_cols, cluster_va
   sum_wy_gc = if (is.null(y_cell)) cells[["sum_wy_gc"]] else cells[["sum_w_gc"]] * y_cell[row]
   u_sum_gc = sum_wy_gc - cells[["sum_w_gc"]] * yhat[row]
 
-  # For each cluster, compute score vector and add outer product to meat
-  clusters = unique(cells[[cluster_var]])
-  meat_mat = matrix(0, ncol(X), ncol(X), dimnames = list(colnames(X), colnames(X)))
-  for (g in clusters) {
-    in_g = cells[[cluster_var]] %in% g
-    s_g = as.numeric(crossprod(X[row[in_g], , drop = FALSE], u_sum_gc[in_g]))
-    meat_mat = meat_mat + tcrossprod(s_g)
-  }
-  attr(meat_mat, "n_clusters") = length(clusters)
+  # Cluster scores s_g = sum over the cluster's cells of X_cell * u_sum_gc,
+  # for all clusters at once via a sparse cluster-indicator matrix (works for
+  # dense and sparse X), then meat = sum_g s_g s_g'
+  cluster_id = as.integer(factor(cells[[cluster_var]], exclude = NULL))
+  indicator = Matrix::sparseMatrix(i = seq_along(cluster_id), j = cluster_id, x = 1)
+  scores = crossprod(indicator, Diagonal(x = u_sum_gc) %*% X[row, , drop = FALSE])
+  meat_mat = as.matrix(crossprod(scores))
+  dimnames(meat_mat) = list(colnames(X), colnames(X))
+  attr(meat_mat, "n_clusters") = ncol(indicator)
   meat_mat
 }

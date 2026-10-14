@@ -60,6 +60,8 @@ Internal
   as a `Makefile` for automating dev workflows. (#64)
 - Refactored and modularized the codebase to make it more efficient and safer.
   (#65)
+- Much faster cluster-robust SEs for the `"compress"` strategy with many
+  clusters. (#72)
 - Estimation internals now share a common set of building blocks (estimation
   frames, a cross-moment matrix, estimator fits, and a SQL score pass for
   robust/clustered meat matrices), which `dbreg()` and `dbivreg()` both use.

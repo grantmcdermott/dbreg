@@ -290,6 +290,24 @@ parse_regression_formula = function(fml) {
 }
 
 
+#' Release a connection set up by setup_db_connection()
+#'
+#' Unregisters any registered in-memory table and disconnects connections
+#' that we created.
+#' @keywords internal
+release_db_setup = function(conn, own_conn, registered_table) {
+  if (is.null(conn) || !dbIsValid(conn)) {
+    return(invisible(NULL))
+  }
+  if (!is.null(registered_table)) {
+    try(duckdb_unregister(conn, registered_table), silent = TRUE)
+  }
+  if (isTRUE(own_conn)) {
+    dbDisconnect(conn, shutdown = TRUE)
+  }
+  invisible(NULL)
+}
+
 #' Reject formula terms that cannot be expressed in SQL (yet)
 #'
 #' Terms must be plain variables or interactions of them (`a:b`). Anything
