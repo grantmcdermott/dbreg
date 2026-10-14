@@ -99,26 +99,27 @@ dbivreg = function(
   }
 
   vcov_parsed = parse_vcov_args(vcov, cluster, valid_types = c("iid", "hc1"))
-  inputs = process_dbivreg_inputs(
-    fml = fml,
-    conn = conn,
-    table = table,
-    data = data,
-    path = path,
-    weights = weights,
-    vcov = vcov_parsed[["vcov_type"]],
-    cluster = vcov_parsed[["cluster_var"]],
-    ssc = ssc,
-    strategy = strategy,
-    compress_ratio = compress_ratio,
-    compress_nmax = compress_nmax,
-    sql_only = sql_only,
-    data_only = data_only,
-    drop_missings = drop_missings,
-    verbose = verbose
-  )
+  vcov_type_req = vcov_parsed[["vcov_type"]]
+  cluster_var = vcov_parsed[["cluster_var"]]
 
+  # Collect the (normalised) arguments into the `inputs` environment, which
+  # the rest of the pipeline reads from and writes to (reference semantics)
+  inputs = new.env(parent = emptyenv())
+  env2env(
+    environment(),
+    inputs,
+    c(
+      "fml", "conn", "table", "data", "path", "weights", "vcov_type_req",
+      "cluster_var", "ssc", "strategy", "compress_ratio", "compress_nmax",
+      "sql_only", "data_only", "drop_missings", "verbose"
+    )
+  )
+  # Release any connection/registration we create, including on errors during
+  # input processing (process_dbivreg_inputs() records them in `inputs` first)
   on.exit(release_db_setup(inputs[["conn"]], inputs[["own_conn"]], inputs[["registered_table"]]), add = TRUE)
+
+  # Process and validate inputs (writes parsed/derived fields into `inputs`)
+  process_dbivreg_inputs(inputs)
 
   chosen_strategy = choose_dbivreg_strategy(inputs)
 
@@ -135,30 +136,17 @@ dbivreg = function(
 
 #' Process and validate dbivreg inputs
 #'
-#' Returns an environment so downstream strategy helpers follow the post-#65
-#' dbreg convention of reading shared state with `inputs[["..."]]`.
+#' Reads the user arguments from the `inputs` environment (see [dbivreg()]) and
+#' writes the parsed and derived fields back into it: the database connection,
+#' the IV design blocks, the filtered `from_statement`, etc.
 #'
+#' @param inputs Environment created by [dbivreg()].
 #' @keywords internal
-process_dbivreg_inputs = function(
-  fml,
-  conn,
-  table,
-  data,
-  path,
-  weights,
-  vcov,
-  cluster,
-  ssc,
-  strategy,
-  compress_ratio,
-  compress_nmax,
-  sql_only,
-  data_only,
-  drop_missings,
-  verbose
-) {
-  vcov_type_req = vcov
-  cluster_var = cluster
+process_dbivreg_inputs = function(inputs) {
+  env2env(inputs, environment(), c(
+    "fml", "conn", "table", "data", "path", "weights", "cluster_var",
+    "compress_ratio", "drop_missings"
+  ))
 
   parsed_fml = dbivreg_parse_formula(fml)
   yvar = parsed_fml[["yvar"]]
@@ -169,10 +157,9 @@ process_dbivreg_inputs = function(
   own_conn = db_setup[["own_conn"]]
   from_statement = db_setup[["from_statement"]]
   registered_table = db_setup[["registered_table"]]
-  # Release the connection/registration if validation below fails; on success
-  # the caller (dbivreg()) takes over cleanup
-  setup_ok = FALSE
-  on.exit(if (!setup_ok) release_db_setup(conn, own_conn, registered_table), add = TRUE)
+  # Record the connection straight away so the caller can release it, even if
+  # validation below fails
+  env2env(environment(), inputs, c("conn", "own_conn", "registered_table"))
 
   validate_weights(weights, data, conn, from_statement)
   # Raw variables behind X and Z: their distinct tuples define the compress
@@ -256,51 +243,35 @@ process_dbivreg_inputs = function(
   union_names = names(union_map)
   union_sql = unname(union_map)
 
-  out = list2env(list(
-    fml = fml,
-    structural_fml = dbivreg_structural_formula(
-      yvar = yvar,
-      exog_rhs = parsed_fml[["exog_rhs_text"]],
-      endog_rhs = parsed_fml[["endog_rhs_text"]],
-      fe_rhs = parsed_fml[["fe_rhs_text"]],
-      env = parsed_fml[["env"]]
-    ),
+  structural_fml = dbivreg_structural_formula(
     yvar = yvar,
-    fe = fe,
-    exog_names = exog_design[["names"]],
-    exog_sql = exog_design[["sql"]],
-    endog_names = endog_design[["names"]],
-    endog_sql = endog_design[["sql"]],
-    instr_names = instr_design[["names"]],
-    instr_sql = instr_design[["sql"]],
-    endog_vars = standardize_coef_names(endog_design[["names"]]),
-    instr_vars = standardize_coef_names(instr_design[["names"]]),
-    x_all_names = x_all_names,
-    z_all_names = z_all_names,
-    union_names = union_names,
-    union_sql = union_sql,
-    conn = conn,
-    from_statement = from_statement,
-    weights = weights,
-    vcov_type_req = vcov_type_req,
-    cluster_var = cluster_var,
-    ssc = ssc,
-    strategy = strategy,
-    xvars = raw_vars,
-    any_continuous = any_continuous_vars(data, raw_vars),
-    compress_ratio = resolve_compress_ratio(compress_ratio, fe),
-    compress_nmax = compress_nmax,
-    is_balanced = NULL,
-    caller = "dbivreg",
-    intercept = intercept,
-    sql_only = sql_only,
-    data_only = data_only,
-    verbose = verbose,
-    own_conn = own_conn,
-    registered_table = registered_table
-  ), parent = emptyenv())
-  setup_ok = TRUE
-  out
+    exog_rhs = parsed_fml[["exog_rhs_text"]],
+    endog_rhs = parsed_fml[["endog_rhs_text"]],
+    fe_rhs = parsed_fml[["fe_rhs_text"]],
+    env = parsed_fml[["env"]]
+  )
+  exog_names = exog_design[["names"]]
+  exog_sql = exog_design[["sql"]]
+  endog_names = endog_design[["names"]]
+  endog_sql = endog_design[["sql"]]
+  instr_names = instr_design[["names"]]
+  instr_sql = instr_design[["sql"]]
+  endog_vars = standardize_coef_names(endog_names)
+  instr_vars = standardize_coef_names(instr_names)
+  xvars = raw_vars
+  any_continuous = any_continuous_vars(data, raw_vars)
+  compress_ratio = resolve_compress_ratio(compress_ratio, fe)
+  is_balanced = NULL
+  caller = "dbivreg"
+
+  env2env(environment(), inputs, c(
+    "structural_fml", "yvar", "fe", "exog_names", "exog_sql", "endog_names",
+    "endog_sql", "instr_names", "instr_sql", "endog_vars", "instr_vars",
+    "x_all_names", "z_all_names", "union_names", "union_sql", "from_statement",
+    "xvars", "any_continuous", "compress_ratio", "is_balanced", "caller",
+    "intercept"
+  ))
+  invisible(inputs)
 }
 
 #' @keywords internal
