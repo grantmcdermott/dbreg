@@ -131,87 +131,69 @@ predict.dbreg = function(
   betas = coef(object, fe = TRUE)
   fml = object[["fml"]]
   fe = object[["fe"]]
-  xvars = object[["xvars"]]
   yvar = object[["yvar"]]
+  intercept = "(Intercept)" %in% names(betas)
 
   # Ensure FE columns are factors
   for (f in fe) {
     newdata[[f]] = factor(newdata[[f]])
   }
 
+  # Rebuild the design from the model's own terms (so factors, interactions and
+  # no-intercept models expand exactly as in estimation), then align its
+  # columns to the coefficients by name
+  terms_rhs = attr(terms(formula(fml, lhs = 0, rhs = 1)), "term.labels")
+  if (strategy == "mundlak") {
+    # Group means of the (numeric) regressors, one set per FE
+    for (v in object[["mundlak_vars"]]) {
+      for (f in fe) {
+        newdata[[paste0(v, "_bar_", f)]] = ave(newdata[[v]], newdata[[f]], FUN = function(y) mean(y, na.rm = TRUE))
+        terms_rhs = c(terms_rhs, paste0(v, "_bar_", f))
+      }
+    }
+  } else if (strategy %in% c("compress", "moments")) {
+    # FE enter as dummies (compress)
+    terms_rhs = c(terms_rhs, fe)
+  }
+  if (!length(terms_rhs)) {
+    terms_rhs = "1"
+  }
+  mm = sparse.model.matrix(reformulate(terms_rhs, intercept = intercept), data = newdata)
+  missing_cols = setdiff(names(betas), colnames(mm))
+  if (length(missing_cols)) {
+    stop(
+      "predict() could not rebuild the design for coefficient(s): ",
+      paste(missing_cols, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  mm = mm[, names(betas), drop = FALSE]
+
   if (strategy == "demean") {
-    # demean: compute group means from newdata to demean predictors
+    # demean: sweep the FE out of the regressors (and recover the outcome's
+    # group means, if available, to return level predictions)
     has_y = yvar %in% names(newdata)
     mean_fn = function(y) mean(y, na.rm = TRUE)
-    
-    if (length(fe) == 1) {
-      fe1 = fe[1]
-      # Demean X using group means from newdata
-      mm = sapply(xvars, function(v) {
-        x_mean = ave(newdata[[v]], newdata[[fe1]], FUN = mean_fn)
-        newdata[[v]] - x_mean
-      })
-      
-      if (has_y) {
-        y_group_mean = ave(newdata[[yvar]], newdata[[fe1]], FUN = mean_fn)
+    sweep_fe = function(v) {
+      if (length(fe) == 1) {
+        v - ave(v, newdata[[fe[1]]], FUN = mean_fn)
       } else {
-        y_group_mean = 0
-        message(sprintf(
-          "Outcome '%s' not found in newdata. Returning within-group predictions (demean strategy only).",
-          yvar
-        ))
+        v - ave(v, newdata[[fe[1]]], FUN = mean_fn) - ave(v, newdata[[fe[2]]], FUN = mean_fn) + mean_fn(v)
       }
-      
+    }
+    mm = apply(as.matrix(mm), 2, sweep_fe)
+    if (is.null(dim(mm))) {
+      mm = matrix(mm, nrow = 1)
+    }
+    if (has_y) {
+      y_group_mean = newdata[[yvar]] - sweep_fe(newdata[[yvar]])
     } else {
-      # 2-FE: double demeaning
-      fe1 = fe[1]
-      fe2 = fe[2]
-      
-      # Demean X using double-demeaning from newdata
-      mm = sapply(xvars, function(v) {
-        x_u = ave(newdata[[v]], newdata[[fe1]], FUN = mean_fn)
-        x_t = ave(newdata[[v]], newdata[[fe2]], FUN = mean_fn)
-        x_o = mean_fn(newdata[[v]])
-        newdata[[v]] - x_u - x_t + x_o
-      })
-      
-      if (has_y) {
-        y_u = ave(newdata[[yvar]], newdata[[fe1]], FUN = mean_fn)
-        y_t = ave(newdata[[yvar]], newdata[[fe2]], FUN = mean_fn)
-        y_o = mean_fn(newdata[[yvar]])
-        y_group_mean = y_u + y_t - y_o
-      } else {
-        y_group_mean = 0
-        message(sprintf(
-          "Outcome '%s' not found in newdata. Returning within-group predictions (demean strategy only).",
-          yvar
-        ))
-      }
+      y_group_mean = 0
+      message(sprintf(
+        "Outcome '%s' not found in newdata. Returning within-group predictions (demean strategy only).",
+        yvar
+      ))
     }
-    
-  } else if (strategy == "mundlak") {
-    # Create group means for Mundlak prediction
-    gmeans = c()
-    for (x in xvars) {
-      for (f in fe) {
-        demean_x = paste0(x, "_bar_", f)
-        gmeans = c(gmeans, demean_x)
-        newdata[[demean_x]] = ave(
-          newdata[[x]],
-          newdata[[f]],
-          FUN = function(y) mean(y, na.rm = TRUE)
-        )
-      }
-    }
-
-    # recast as Mundlak formula
-    fml_xvars = formula(fml, lhs = 0, rhs = 1)
-    fml = update(fml_xvars, as.formula(paste("~ . +", paste(gmeans, collapse = " + "))))
-
-    mm = sparse.model.matrix(fml, data = newdata)
-  } else {
-    # compress/moments: use sparse model matrix with FE dummies
-    mm = sparse.model.matrix(reformulate(c(xvars, fe)), data = newdata)
   }
 
   # Generate predictions

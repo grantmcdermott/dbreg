@@ -46,6 +46,13 @@ Bug fixes
   throw an informative error. Previously these were silently reduced to their
   underlying variables (e.g., regressing on `x` instead of `log(x)`). Please
   create such variables in the data (or a database view) first. (#66)
+- Requests to omit the intercept (`y ~ 0 + x` or `y ~ x - 1`) are now honoured
+  for models without fixed effects, in both `dbreg()` and `dbivreg()`.
+  Previously an intercept was always added. As in `lm()`, the first factor
+  keeps all of its levels and R2 is uncentred. (#68, #73)
+- `predict()` now rebuilds the design matrix from the model formula, fixing
+  predictions for models with interactions (e.g., `"mundlak"`), factors, or no
+  intercept. (#67, #73)
 - `predict()` now errors for `"demean"` models with more than two fixed
   effects. Previously it silently ignored the third and later fixed effects,
   returning incorrect predictions. (#66)

@@ -13,7 +13,8 @@ execute_moments_strategy = function(inputs) {
       inputs[["conn"]],
       table_ref,
       expand = "all",
-      fe_vars = inputs[["fe"]]
+      fe_vars = inputs[["fe"]],
+      intercept = inputs[["intercept"]]
     )
     xvars_sql = sql_design[["select_exprs"]]
     xvar_names = sql_design[["col_names"]]
@@ -38,8 +39,8 @@ execute_moments_strategy = function(inputs) {
   }
   n_total = moments_df[["n_total"]]
 
-  S = cross_moments(moments_df, xvar_names, yvar)
-  vars_all = c("(Intercept)", xvar_names)
+  S = cross_moments(moments_df, xvar_names, yvar, intercept = frame[["intercept"]])
+  vars_all = c(if (frame[["intercept"]]) "(Intercept)", xvar_names)
   p = length(vars_all)
   fit = fit_ols(S, yvar, vars_all)
   betahat = fit[["coef"]]
@@ -383,6 +384,7 @@ execute_mundlak_strategy = function(inputs) {
     strategy = "mundlak",
     compression_ratio_est = inputs[["compression_ratio_est"]],
     df_residual = df_res,
+    mundlak_vars = numeric_xvars,
     n_fe1 = n_fe1,
     n_fe2 = n_fe2
   )
@@ -481,7 +483,7 @@ execute_compress_strategy = function(inputs) {
   # Use expanded column names if interactions were present
   design_vars = if (isTRUE(inputs[["has_interactions"]])) xvar_names else inputs[["xvars"]]
   X = sparse.model.matrix(
-    reformulate(c(design_vars, inputs[["fe"]])),
+    reformulate(c(design_vars, inputs[["fe"]]), intercept = inputs[["intercept"]]),
     compressed_dat
   )
   if (ncol(X) == 0) {
