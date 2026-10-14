@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.9.37">
+<meta name="generator" content="quarto-1.10.19">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
@@ -12,10 +12,13 @@
 /* Default styles provided by pandoc.
 ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
 */
-code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: min(4vw, 1.5em);}
-div.column{flex: auto; overflow-x: auto;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
 div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
@@ -74,10 +77,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <script src="site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="site_libs/quarto-html/anchor.min.js"></script>
 <link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="site_libs/quarto-html/quarto-syntax-highlighting-7f8f88aac4f3542376d5c11b86a4c14d.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-bf27225e3a48a9273f3daa8f8e829971.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="site_libs/bootstrap/bootstrap-3e7735b7b22659e5fa437aca0bb49075.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="site_libs/bootstrap/bootstrap-55617497126496852ff9f5a59253c640.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -209,6 +212,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="development">Development</h2>
 <p>New features</p>
 <ul>
+<li>Added <code>dbivreg()</code> for instrumental-variables (2SLS) regression on database backends. Uses <code>fixest</code>-style IV formulas, e.g.&nbsp;<code>y ~ x | d ~ z</code> or <code>y ~ x | fe1 + fe2 | d ~ z</code>, and supports multiple endogenous regressors, factors/interactions, weights, and iid, HC1, or clustered SEs (incl. <code>ssc</code>). Estimation is exact via the <code>"moments"</code>, <code>"demean"</code> (any number of FE), and <code>"compress"</code> (no FE) strategies. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
 <li>Added support for weighted regression via the new <code>weights</code> argument. Accepts a column name string and is compatible with all strategies and SE types (iid, HC1, clustered). (<a href="https://github.com/grantmcdermott/dbreg/issues/12">#12</a>)</li>
 <li>The <code>"demean"</code> strategy now supports three or more fixed effects via alternating projections (AP). Previously this was limited to at most two FE. The <code>"auto"</code> heuristic will select <code>"demean"</code> (AP) for 3+ FE when compression is not viable. (<a href="https://github.com/grantmcdermott/dbreg/issues/12">#12</a>)</li>
 <li>For unbalanced two-way panels, <code>strategy = "auto"</code> now routes to <code>"demean"</code> via alternating projections instead of erroring. Users no longer need to explicitly choose between <code>"compress"</code> and <code>"mundlak"</code> for these cases.</li>
@@ -217,12 +221,19 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <ul>
 <li>Fixed a typo in <code>&lt;dbreg.object&gt;$coeftable</code> column names that was obscuring some downstream functions, e.g.&nbsp;stars in <code>modelsummary::modelsummary</code>. (<a href="https://github.com/grantmcdermott/dbreg/issues/62">#62</a>)</li>
 <li>Fixed <code>dbreg_is_balanced_panel()</code> to correctly detect unbalanced panels with missing cells (previously only checked for unequal cell counts).</li>
+<li>The CR1 small-sample correction for clustered SEs now uses <code>(G/(G-1)) * ((N-1)/(N-K))</code>, matching <code>fixest</code>, instead of <code>(G/(G-1)) * (N/(N-K))</code>. Similarly, <code>ssc = "nested"</code> now excludes <code>G-1</code> (not <code>G</code>) parameters for each fixed effect nested within the cluster variable. In practice, clustered SEs shift by a relative factor of roughly <code>1/(2N)</code> under the default <code>ssc = "full"</code> (and are essentially unchanged under <code>"nested"</code>), which is negligible for large datasets. But it does mean that <code>dbreg</code> now matches <code>fixest</code> to numerical precision in small samples too. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
+<li>With <code>drop_missings = TRUE</code> (the default), rows with a missing cluster variable are now dropped, as in <code>fixest</code>. Previously they were kept and treated as their own cluster. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
+<li>Clustered SEs for the <code>"compress"</code> strategy no longer stall when there are many grouping columns. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
+<li>Transformed formula terms, e.g.&nbsp;<code>log(y) ~ x</code> or <code>y ~ log(x) + I(x^2)</code>, now throw an informative error. Previously these were silently reduced to their underlying variables (e.g., regressing on <code>x</code> instead of <code>log(x)</code>). Please create such variables in the data (or a database view) first. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
+<li><code>predict()</code> now errors for <code>"demean"</code> models with more than two fixed effects. Previously it silently ignored the third and later fixed effects, returning incorrect predictions. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
+<li><code>sql_model_matrix()</code> (and thus interaction/factor terms) now generates backend-portable schema and factor-level queries, fixing failures on SQL Server and other non-DuckDB backends. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
 </ul>
 <p>Internal</p>
 <ul>
 <li>Update maintainer email.</li>
 <li>Added a <code>CLAUDE.md</code> context file for sharper AI-assisted development, as well as a <code>Makefile</code> for automating dev workflows. (<a href="https://github.com/grantmcdermott/dbreg/issues/64">#64</a>)</li>
 <li>Refactored and modularized the codebase to make it more efficient and safer. (<a href="https://github.com/grantmcdermott/dbreg/issues/65">#65</a>)</li>
+<li>Estimation internals now share a common set of building blocks (estimation frames, a cross-moment matrix, estimator fits, and a SQL score pass for robust/clustered meat matrices), which <code>dbreg()</code> and <code>dbivreg()</code> both use. This removes a lot of duplicated code and should make it easier to add new estimators. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
 </ul>
 </section>
 <section id="dbreg-0.0.3" class="level2">
