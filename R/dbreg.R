@@ -427,90 +427,17 @@ process_dbreg_inputs = function(
   has_interactions = fml_parsed[["has_interactions"]]
   fe = fml_parsed[["fe"]]
 
-  # Validate weights
-  if (!is.null(weights)) {
-    if (!is.character(weights) || length(weights) != 1) {
-      stop("`weights` must be a single character string (column name) or NULL.")
-    }
-    if (!is.null(data)) {
-      if (!weights %in% names(data)) {
-        stop("Weight column '", weights, "' not found in data.")
-      }
-      wv = data[[weights]]
-      if (any(!is.finite(wv) & !is.na(wv))) {
-        stop("Weights must be finite.")
-      }
-      if (any(wv < 0, na.rm = TRUE)) {
-        stop("Weights must be non-negative.")
-      }
-    }
-  }
-  if (!is.null(weights) && is.null(data)) {
-    neg_sql = glue(
-      "SELECT 1 FROM (SELECT * {from_statement}) t WHERE {weights} < 0 LIMIT 1"
-    )
-    has_neg = tryCatch(nrow(dbGetQuery(conn, neg_sql)) > 0, error = function(e) FALSE)
-    if (isTRUE(has_neg)) {
-      stop("Weights must be non-negative.")
-    }
-  }
+  validate_weights(weights, data, conn, from_statement)
 
-  # Heuristic for continuous regressors (only if data passed)
-  is_continuous = function(v) {
-    if (is.null(data)) {
-      return(NA)
-    }
-    xv = data[[v]]
-    if (is.factor(xv) || is.character(xv) || is.logical(xv)) {
-      return(FALSE)
-    }
-    if (is.integer(xv)) {
-      return(FALSE)
-    }
-    if (is.numeric(xv)) {
-      return(length(unique(xv)) > min(50, 0.2 * length(xv)))
-    }
-    FALSE
-  }
-  any_continuous = if (!is.null(data)) {
-    any(vapply(xvars, is_continuous, logical(1)))
-  } else {
-    FALSE
-  }
+  any_continuous = any_continuous_vars(data, xvars)
+  compress_ratio = resolve_compress_ratio(compress_ratio, fe)
 
-  # compression ratio sanity check
-  if (is.null(compress_ratio)) {
-    # Stricter compress_ratio logic for 1 and 2 FE cases
-    compress_ratio = if (length(fe) %in% 1:2) 0.6 else 0.01
-  } else if (!(is.numeric(compress_ratio) && compress_ratio >= 0 && compress_ratio <= 1)) {
-    stop("Argument `compress_ratio` ratio must be a numeric in the range [0, 1]\n.")
-  }
-
-  # Filter missing cases and drop zero-weight rows
-  if (isTRUE(drop_missings) || !is.null(weights)) {
-    # Wrap in subquery if from_statement contains clauses that must come after WHERE
-    if (grepl("WHERE|LIMIT|ORDER\\s+BY|GROUP\\s+BY|HAVING", from_statement, ignore.case = TRUE)) {
-      from_statement = glue("FROM (SELECT * {from_statement}) AS subq")
-    }
-    where_clauses = character(0)
-    if (isTRUE(drop_missings)) {
-      where_clauses = c(
-        where_clauses,
-        paste0(yvar, " IS NOT NULL"),
-        paste0(xvars, " IS NOT NULL")
-      )
-      if (!is.null(fe)) {
-        where_clauses = c(where_clauses, paste0(fe, " IS NOT NULL"))
-      }
-    }
-    if (!is.null(weights)) {
-      where_clauses = c(where_clauses, paste0(weights, " > 0"))
-    }
-    from_statement = glue("
-    {from_statement}
-    WHERE {paste(where_clauses, collapse = ' AND ')}
-    ")
-  }
+  from_statement = filter_estimation_sample(
+    from_statement,
+    vars = c(yvar, xvars, fe, cluster_var),
+    weights = weights,
+    drop_missings = drop_missings
+  )
 
   list2env(list(
     fml = fml,
@@ -538,6 +465,98 @@ process_dbreg_inputs = function(
   ), parent = emptyenv())
 }
 
+#' Heuristic: does any regressor look continuous?
+#'
+#' Only checkable for in-memory `data`; returns `FALSE` otherwise. Used by
+#' the `"auto"` strategy to steer away from `"compress"`.
+#' @keywords internal
+any_continuous_vars = function(data, vars) {
+  if (is.null(data)) {
+    return(FALSE)
+  }
+  is_continuous = function(v) {
+    xv = data[[v]]
+    if (is.factor(xv) || is.character(xv) || is.logical(xv) || is.integer(xv)) {
+      return(FALSE)
+    }
+    if (is.numeric(xv)) {
+      return(length(unique(xv)) > min(50, 0.2 * length(xv)))
+    }
+    FALSE
+  }
+  any(vapply(vars, is_continuous, logical(1)))
+}
+
+#' Validate or default the `compress_ratio` threshold
+#' @keywords internal
+resolve_compress_ratio = function(compress_ratio, fe) {
+  if (is.null(compress_ratio)) {
+    # Stricter compress_ratio logic for 1 and 2 FE cases
+    return(if (length(fe) %in% 1:2) 0.6 else 0.01)
+  }
+  if (!(is.numeric(compress_ratio) && compress_ratio >= 0 && compress_ratio <= 1)) {
+    stop("Argument `compress_ratio` ratio must be a numeric in the range [0, 1]\n.")
+  }
+  compress_ratio
+}
+
+#' Validate a weights argument
+#'
+#' Checks that `weights` names a single column and, where cheap, that its
+#' values are finite (in-memory data) and non-negative.
+#' @keywords internal
+validate_weights = function(weights, data, conn, from_statement) {
+  if (is.null(weights)) {
+    return(invisible(NULL))
+  }
+  if (!is.character(weights) || length(weights) != 1) {
+    stop("`weights` must be a single character string (column name) or NULL.")
+  }
+  if (!is.null(data)) {
+    if (!weights %in% names(data)) {
+      stop("Weight column '", weights, "' not found in data.")
+    }
+    wv = data[[weights]]
+    if (any(!is.finite(wv) & !is.na(wv))) {
+      stop("Weights must be finite.")
+    }
+    if (any(wv < 0, na.rm = TRUE)) {
+      stop("Weights must be non-negative.")
+    }
+  } else {
+    neg_sql = glue("SELECT 1 FROM (SELECT * {from_statement}) t WHERE {weights} < 0 LIMIT 1")
+    has_neg = tryCatch(nrow(dbGetQuery(conn, neg_sql)) > 0, error = function(e) FALSE)
+    if (isTRUE(has_neg)) {
+      stop("Weights must be non-negative.")
+    }
+  }
+  invisible(NULL)
+}
+
+#' Restrict the estimation sample
+#'
+#' Appends a WHERE clause dropping rows with missing `vars` (if
+#' `drop_missings`) and non-positive weights.
+#' @keywords internal
+filter_estimation_sample = function(from_statement, vars, weights = NULL, drop_missings = TRUE) {
+  vars = unique(vars[!is.na(vars) & nzchar(vars)])
+  where_clauses = c(
+    if (isTRUE(drop_missings)) paste0(vars, " IS NOT NULL"),
+    if (!is.null(weights)) paste0(weights, " > 0")
+  )
+  if (!length(where_clauses)) {
+    return(from_statement)
+  }
+  # Wrap in subquery if from_statement contains clauses that must come after WHERE
+  if (grepl("WHERE|LIMIT|ORDER\\s+BY|GROUP\\s+BY|HAVING", from_statement, ignore.case = TRUE)) {
+    from_statement = glue("FROM (SELECT * {from_statement}) AS subq")
+  }
+  glue("
+  {from_statement}
+  WHERE {paste(where_clauses, collapse = ' AND ')}
+  ")
+}
+
 # sql_weight_expr: returns a weight expression or NULL if no weights
 sql_weight_expr = function(weights) {
   if (is.null(weights)) {
@@ -562,25 +581,19 @@ sql_weighted_mean = function(expr, weights_expr, alias) {
   glue("SUM(({weights_expr}) * ({expr})) / SUM({weights_expr}) AS {alias}")
 }
 
-# build_weighted_moment_terms: aggregate terms for weighted sufficient stats
+# build_weighted_moment_terms: aggregate terms for weighted sufficient stats.
+# Aliases use variable indices (sum_w{i}, sum_w{i}_y, sum_w{i}_{j} for i <= j)
+# and are read back into a matrix by cross_moments(). Set intercept = FALSE to
+# skip the linear sums (e.g., for demeaned data).
 build_weighted_moment_terms = function(
   y_sql,
   x_sql = character(0),
-  x_aliases = NULL,
   weights_expr = NULL,
-  alias_mode = c("names", "indices"),
+  intercept = TRUE,
   prefix_terms = NULL,
   include_w_sq = FALSE,
   w_sq_alias_base = "sum_w2"
 ) {
-  alias_mode = match.arg(alias_mode)
-  if (is.null(x_aliases)) {
-    x_aliases = x_sql
-  }
-  if (length(x_sql) != length(x_aliases)) {
-    stop("`x_sql` and `x_aliases` must have the same length.")
-  }
-
   weights_sq_expr = if (is.null(weights_expr)) NULL else glue("({weights_expr}) * ({weights_expr})")
   moment_terms = c(
     prefix_terms,
@@ -602,60 +615,17 @@ build_weighted_moment_terms = function(
     )
   }
 
-  if (!length(x_sql)) {
-    return(moment_terms)
-  }
-
-  if (alias_mode == "names") {
-    for (i in seq_along(x_sql)) {
-      x_expr = x_sql[i]
-      x_alias = x_aliases[i]
+  for (i in seq_along(x_sql)) {
+    moment_terms = c(
+      moment_terms,
+      if (intercept) sql_weighted_sum(x_sql[i], weights_expr, sprintf("sum_w%d", i)),
+      sql_weighted_sum(glue("({x_sql[i]}) * ({y_sql})"), weights_expr, sprintf("sum_w%d_y", i))
+    )
+    for (j in seq_len(i)) {
       moment_terms = c(
         moment_terms,
-        sql_weighted_sum(x_expr, weights_expr, paste0("sum_w", x_alias)),
-        sql_weighted_sum(glue("({x_expr}) * ({y_sql})"), weights_expr, paste0("sum_w", x_alias, "_y")),
-        sql_weighted_sum(glue("({x_expr}) * ({x_expr})"), weights_expr, paste0("sum_w", x_alias, "_", x_alias))
+        sql_weighted_sum(glue("({x_sql[j]}) * ({x_sql[i]})"), weights_expr, sprintf("sum_w%d_%d", j, i))
       )
-    }
-
-    xpairs = gen_xvar_pairs(x_aliases)
-    for (pair in xpairs) {
-      i = match(pair[1], x_aliases)
-      j = match(pair[2], x_aliases)
-      moment_terms = c(
-        moment_terms,
-        sql_weighted_sum(
-          glue("({x_sql[i]}) * ({x_sql[j]})"),
-          weights_expr,
-          paste0("sum_w", pair[1], "_", pair[2])
-        )
-      )
-    }
-  } else {
-    for (i in seq_along(x_sql)) {
-      x_expr = x_sql[i]
-      moment_terms = c(
-        moment_terms,
-        sql_weighted_sum(x_expr, weights_expr, sprintf("sum_w%d", i)),
-        sql_weighted_sum(glue("({x_expr}) * ({y_sql})"), weights_expr, sprintf("sum_w%d_y", i)),
-        sql_weighted_sum(glue("({x_expr}) * ({x_expr})"), weights_expr, sprintf("sum_w%d_%d", i, i))
-      )
-    }
-
-    for (i in seq_along(x_sql)) {
-      if (i == length(x_sql)) {
-        next
-      }
-      for (j in (i + 1):length(x_sql)) {
-        moment_terms = c(
-          moment_terms,
-          sql_weighted_sum(
-            glue("({x_sql[i]}) * ({x_sql[j]})"),
-            weights_expr,
-            sprintf("sum_w%d_%d", i, j)
-          )
-        )
-      }
     }
   }
 
@@ -855,6 +825,7 @@ choose_strategy = function(inputs) {
   from_statement = inputs[["from_statement"]]
   xvars = inputs[["xvars"]]
   weights = inputs[["weights"]]
+  tag = if (is.null(inputs[["caller"]])) "dbreg" else inputs[["caller"]]
 
   # Compression ratio estimator
   estimate_compression = function(inputs) {
@@ -931,7 +902,7 @@ choose_strategy = function(inputs) {
   # Auto logic
   if (strategy == "auto") {
     if (verbose) {
-      message("[dbreg] Auto strategy:")
+      message(sprintf("[%s] Auto strategy:", tag))
     }
     est_cr = tryCatch(estimate_compression(inputs), error = function(e) {
       NA_real_
@@ -996,7 +967,7 @@ choose_strategy = function(inputs) {
     } else {
     chosen_strategy = strategy
     if (verbose) {
-      message("[dbreg] Using strategy: ", chosen_strategy)
+      message(sprintf("[%s] Using strategy: ", tag), chosen_strategy)
     }
   }
 
@@ -1022,7 +993,7 @@ choose_strategy = function(inputs) {
 
 #' Finalize dbreg result object
 #' @keywords internal
-finalize_dbreg_result = function(result, inputs, chosen_strategy) {
+finalize_dbreg_result = function(result, inputs, chosen_strategy, class = "dbreg") {
   if (inputs[["sql_only"]]) {
     cat(result)
     return(invisible(result))
@@ -1031,6 +1002,6 @@ finalize_dbreg_result = function(result, inputs, chosen_strategy) {
     return(result)
   }
   result[["strategy"]] = chosen_strategy
-  class(result) = c("dbreg", class(result))
+  class(result) = c(class, class(result))
   result
 }

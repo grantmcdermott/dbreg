@@ -6,6 +6,12 @@ _This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg
 
 New features
 
+- Added `dbivreg()` for instrumental-variables (2SLS) regression on database
+  backends. Uses `fixest`-style IV formulas, e.g. `y ~ x | d ~ z` or
+  `y ~ x | fe1 + fe2 | d ~ z`, and supports multiple endogenous regressors,
+  factors/interactions, weights, and iid, HC1, or clustered SEs (incl.
+  `ssc`). Estimation is exact via the `"moments"`, `"demean"` (any number of
+  FE), and `"compress"` (no FE) strategies. (#66)
 - Added support for weighted regression via the new `weights` argument. Accepts
   a column name string and is compatible with all strategies and SE types (iid,
   HC1, clustered). (#12)
@@ -23,6 +29,29 @@ Bug fixes
   some downstream functions, e.g. stars in `modelsummary::modelsummary`. (#62) 
 - Fixed `dbreg_is_balanced_panel()` to correctly detect unbalanced panels with
   missing cells (previously only checked for unequal cell counts).
+- The CR1 small-sample correction for clustered SEs now uses
+  `(G/(G-1)) * ((N-1)/(N-K))`, matching `fixest`, instead of
+  `(G/(G-1)) * (N/(N-K))`. Similarly, `ssc = "nested"` now excludes `G-1` (not
+  `G`) parameters for each fixed effect nested within the cluster variable. In
+  practice, clustered SEs shift by a relative factor of roughly `1/(2N)` under
+  the default `ssc = "full"` (and are essentially unchanged under `"nested"`),
+  which is negligible for large datasets. But it does mean that `dbreg` now
+  matches `fixest` to numerical precision in small samples too. (#66)
+- With `drop_missings = TRUE` (the default), rows with a missing cluster
+  variable are now dropped, as in `fixest`. Previously they were kept and
+  treated as their own cluster. (#66)
+- Clustered SEs for the `"compress"` strategy no longer stall when there are
+  many grouping columns. (#66)
+- Transformed formula terms, e.g. `log(y) ~ x` or `y ~ log(x) + I(x^2)`, now
+  throw an informative error. Previously these were silently reduced to their
+  underlying variables (e.g., regressing on `x` instead of `log(x)`). Please
+  create such variables in the data (or a database view) first. (#66)
+- `predict()` now errors for `"demean"` models with more than two fixed
+  effects. Previously it silently ignored the third and later fixed effects,
+  returning incorrect predictions. (#66)
+- `sql_model_matrix()` (and thus interaction/factor terms) now generates
+  backend-portable schema and factor-level queries, fixing failures on SQL
+  Server and other non-DuckDB backends. (#66)
 
 Internal
 
@@ -31,6 +60,11 @@ Internal
   as a `Makefile` for automating dev workflows. (#64)
 - Refactored and modularized the codebase to make it more efficient and safer.
   (#65)
+- Estimation internals now share a common set of building blocks (estimation
+  frames, a cross-moment matrix, estimator fits, and a SQL score pass for
+  robust/clustered meat matrices), which `dbreg()` and `dbivreg()` both use.
+  This removes a lot of duplicated code and should make it easier to add new
+  estimators. (#66)
 
 ## dbreg 0.0.3
 

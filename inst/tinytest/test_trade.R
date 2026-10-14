@@ -127,8 +127,8 @@ for (i in seq_along(dict_db)) {
 #
 ## Test clustered standard errors ----
 
-# Note: we use feols(..., ssc = ssc(K.fixef = "full")) since we don't do the
-# small sample correction by default for dbreg; since it's very unlikely to 
+# Note: we use feols(..., ssc = ssc(K.fixef = "full")) since dbreg does not
+# exclude nested FEs from K by default (ssc = "full"); this is very unlikely to
 # matter/bind for the large datasets that dbreg is intended for
 
 # Test with compress strategy (default for this data)
@@ -157,7 +157,7 @@ expect_equal(
 expect_equal(
   trade_cluster_compress$coeftable[trade_coefs, "std.error"],
   trade_cluster_feols$coeftable[trade_coefs, "Std. Error"],
-  tolerance = 2e-5
+  tolerance = 1e-6
 )
 
 # Test cluster argument syntax (alternative to vcov formula)
@@ -191,7 +191,7 @@ trade_cluster_feols_nested = feols(
 expect_equal(
   trade_cluster_nested$coeftable[trade_coefs, "std.error"],
   trade_cluster_feols_nested$coeftable[trade_coefs, "Std. Error"],
-  tolerance = 2e-5
+  tolerance = 1e-6
 )
 
 # Test with demean strategy (1 FE)
@@ -219,7 +219,7 @@ expect_equal(
 expect_equal(
   trade_cluster_demean$coeftable[trade_coefs, "std.error"],
   trade_cluster_demean_feols$coeftable[trade_coefs, "Std. Error"],
-  tolerance = 2e-5
+  tolerance = 1e-6
 )
 
 # Test with mundlak strategy
@@ -247,7 +247,7 @@ expect_equal(
 expect_equal(
   trade_cluster_mundlak$coeftable[trade_coefs, "std.error"],
   trade_cluster_mundlak_manual$coeftable[trade_coefs, "Std. Error"],
-  tolerance = 2e-5
+  tolerance = 1e-6
 )
 
 # Test with moments strategy (no FE)
@@ -340,6 +340,6 @@ expect_equal(
 expect_equal(
   trade_cluster_moments$coeftable["dist_km", "std.error"],
   trade_cluster_moments_feols$coeftable["dist_km", "Std. Error"],
-  tolerance = 2e-5
+  tolerance = 1e-6
 )
 

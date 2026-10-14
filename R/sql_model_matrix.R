@@ -77,8 +77,10 @@ get_column_info = function(conn, table, term_labels) {
   from_sql = if (grepl("^FROM", table, ignore.case = TRUE)) table else paste("FROM", table)
   
   # Query to get types and sample values
-  # Use LIMIT 0 to get schema, then separate queries for factor levels
-  schema_query = glue("SELECT {paste(vars, collapse = ', ')} {from_sql} LIMIT 0")
+  # Fetch zero rows to get the schema, then separate queries for factor levels
+  # (sql_limit() handles dialects without LIMIT, e.g. SQL Server's TOP)
+  backend = detect_backend(conn)[["name"]]
+  schema_query = sql_limit(glue("SELECT {paste(vars, collapse = ', ')} {from_sql}"), 0, backend)
   schema = dbGetQuery(conn, schema_query)
   
   types = list()
@@ -90,7 +92,8 @@ get_column_info = function(conn, table, term_labels) {
     if (col_class %in% c("character", "factor", "logical")) {
       types[[v]] = "factor"
       # Get distinct levels
-      lvl_query = glue("SELECT DISTINCT {v} FROM ({from_sql} LIMIT 100000) WHERE {v} IS NOT NULL ORDER BY {v}")
+      lvl_sample = sql_limit(glue("SELECT {v} {from_sql}"), 100000, backend)
+      lvl_query = glue("SELECT DISTINCT {v} FROM ({lvl_sample}) lvl WHERE {v} IS NOT NULL ORDER BY {v}")
       levels[[v]] = dbGetQuery(conn, lvl_query)[[1]]
     } else {
       types[[v]] = "numeric"

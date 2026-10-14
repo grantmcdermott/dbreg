@@ -5,6 +5,7 @@
 **dbreg** is an R package for fast regressions on database backends, designed for datasets too large for R's memory. Uses DuckDB as the default backend with support for other DBI-compatible databases. Zero non-essential dependencies in Imports.
 
 - Main function: `dbreg()` — regression with automatic strategy selection
+- IV regression: `dbivreg()` — 2SLS via the same strategies (`moments`, `demean`, `compress` without FE)
 - Binscatter: `dbbinsreg()` — binned scatter plots on database backends
 - SQL design matrix: `sql_model_matrix()` — factor/interaction expansion to SQL
 
@@ -25,9 +26,12 @@ dbreg(weight ~ Time | Diet + Chick, data = ChickWeight, strategy = "mundlak")
 
 - `R/` — Package source:
   - `dbreg.R` — public API, input processing, strategy selection, alternating projections, finalization
+  - `dbivreg.R` — IV public API, IV formula parsing, IV strategies, first-stage/overid diagnostics
   - `strategies.R` — strategy execution functions (called from `dbreg.R`)
+  - `frames.R` — estimation frames: base, demeaned (incl. AP) CTEs and the moments query over them
+  - `fit.R` — estimators on sufficient statistics (`cross_moments()`, `fit_ols()`, `fit_2sls()`, `fit_meat()`)
   - `vcov.R` — variance-covariance and meat matrix computation (shared across strategies)
-  - `utils.R` — shared helpers: SQL dialect, formula parsing, connection setup, `env2env`, `gen_xvar_pairs`
+  - `utils.R` — shared helpers: SQL dialect, formula parsing, connection setup, `env2env`
   - `dbbinsreg.R` — binscatter on database backends
   - `sql_model_matrix.R` — factor/interaction expansion to SQL
   - `stats-methods.R`, `tidiers.R`, `print.R`, `gof.R`, `plot.r` — S3 methods and output
@@ -76,7 +80,18 @@ No strict limit, but keep lines readable. Break long SQL strings with `paste0()`
 
 Strategy functions access fields via `inputs[["field"]]` and typically extract frequently-used values into local variables at the top of the function for readability.
 
-Both `dbreg()` and `dbbinsreg()` follow this pattern.
+`dbreg()`, `dbivreg()` and `dbbinsreg()` all follow this pattern.
+
+### Estimation Layers
+Moments-based strategies (and `dbivreg()`) compose five shared layers. Reuse them rather than writing strategy-specific SQL or linear algebra:
+
+1. **Frame** (`frames.R`) — `build_base_frame()` / `build_demean_frame()` return the CTE both passes read from, plus a name→column map (`cols`), `weights_expr`, `intercept`, `cast`, count `prefix_terms`, and `cleanup()` for AP temp tables.
+2. **Moments** — `frame_moments_sql()` aggregates via `build_weighted_moment_terms()`; `cross_moments()` reads the result into one symmetric matrix `S` over `(Intercept)`, regressors and `y`. Any sub-regression is indexing: `S[x, x]`, `S[x, y]`.
+3. **Estimator** (`fit.R`) — `fit_ols()` / `fit_2sls()` work only on `S` and return a common shape: `coef`, `bread`, `rss`, `x`, `scores`, `project_meat()`. A new estimator (e.g. GMM) is another `fit_*()`.
+4. **Score pass** — `fit_meat()` → `compute_score_meat()` pushes coefficients back to SQL (`sql_linear_predictor()`) to form residuals and aggregate scores for HC1/cluster. Residual regressors and score columns can differ (IV: X vs Z).
+5. **Vcov** — `compute_vcov(XtX_inv = fit$bread, meat = fit$project_meat(meat))`.
+
+The compress strategies build `S` and the meat in R from the compressed cells instead (exact, since regressors are constant within cells).
 
 ### Acceleration Strategies
 1. **compress** — GROUP BY compression → frequency-weighted least squares (Wong et al. 2021). Best when regressors are discrete.
@@ -94,8 +109,7 @@ Both `dbreg()` and `dbbinsreg()` follow this pattern.
 
 ### Variance-Covariance Computation
 - `compute_vcov()` — dispatches on vcov_type (iid/hc1/cluster) × strategy
-- `compute_meat_sql()` — HC1 meat via SQL (residuals computed in-database)
-- `compute_meat_cluster_sql()` — cluster-robust meat via SQL (score aggregation by cluster)
+- `compute_score_meat()` — HC1/cluster meat via a SQL score pass (residuals from `sql_linear_predictor()`; score columns can differ from regressors, e.g. instruments for IV)
 - `compute_meat_cluster_compress()` — special cluster meat for compress strategy
 
 ### Alternating Projections (AP)
