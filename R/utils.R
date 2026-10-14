@@ -596,6 +596,11 @@ create_temp_table_as = function(conn, table_name, select_sql, backend) {
                select_sql, ignore.case = TRUE)
     sql = paste0(sql, ") AS __subq")
     dbExecute(conn, sql)
+  } else if (backend == "spark") {
+    # Spark/Databricks: CREATE OR REPLACE TEMPORARY TABLE ... (session temp
+    # tables can linger across scopes, so replace rather than fail)
+    sql = glue("CREATE OR REPLACE TEMPORARY TABLE {table_name} AS {select_sql}")
+    dbExecute(conn, sql)
   } else {
     # Standard SQL: CREATE TEMPORARY TABLE name AS SELECT ...
     sql = glue("CREATE TEMPORARY TABLE {table_name} AS {select_sql}")
@@ -614,6 +619,8 @@ create_temp_table_as = function(conn, table_name, select_sql, backend) {
 drop_table_if_exists = function(conn, table_name, backend) {
   if (backend == "sqlserver") {
     sql = glue("IF OBJECT_ID('tempdb..{table_name}') IS NOT NULL DROP TABLE {table_name}")
+  } else if (backend == "spark") {
+    sql = glue("DROP TEMPORARY TABLE IF EXISTS {table_name}")
   } else {
     sql = glue("DROP TABLE IF EXISTS {table_name}")
   }
