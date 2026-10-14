@@ -5,15 +5,12 @@
 \title{Compute cluster-robust meat matrix for compress strategy}
 \usage{
 compute_meat_cluster_compress(
-  conn,
+  inputs,
   from_statement,
   group_cols,
-  yvar,
-  cluster_var,
   compressed_dat,
   X,
-  yhat,
-  weights = NULL
+  yhat
 )
 }
 \description{

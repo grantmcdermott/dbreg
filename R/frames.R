@@ -31,18 +31,23 @@ frame_select = function(y, x_sql, x_names, id_cols = NULL, extra = NULL) {
 #' @param x_sql,x_names SQL expressions and column names for the regressors.
 #' @keywords internal
 build_base_frame = function(inputs, x_sql, x_names) {
-  y = inputs[["yvar"]]
-  sel = frame_select(y, x_sql, x_names, extra = c(inputs[["weights"]], inputs[["cluster_var"]]))
-  base_sql = paste0("SELECT ", paste(sel, collapse = ", "), " ", inputs[["from_statement"]])
+  env2env(
+    inputs,
+    environment(),
+    c("yvar", "weights", "cluster_var", "from_statement", "conn", "intercept")
+  )
+  y = yvar
+  sel = frame_select(y, x_sql, x_names, extra = c(weights, cluster_var))
+  base_sql = paste0("SELECT ", paste(sel, collapse = ", "), " ", from_statement)
   list(
     cte_sql = paste0("WITH base AS (\n  ", base_sql, "\n)"),
     cte_name = "base",
     base_sql = base_sql,
     cols = setNames(c(y, x_names), c(y, x_names)),
-    weights_expr = sql_weight_expr(inputs[["weights"]]),
-    intercept = !isFALSE(inputs[["intercept"]]),
+    weights_expr = sql_weight_expr(weights),
+    intercept = !isFALSE(intercept),
     cast = FALSE,
-    prefix_terms = sql_count(inputs[["conn"]], "n_total"),
+    prefix_terms = sql_count(conn, "n_total"),
     cleanup = function() invisible(NULL)
   )
 }
@@ -59,11 +64,15 @@ build_base_frame = function(inputs, x_sql, x_names) {
 #' @param tag Prefix for messages, e.g. `"dbreg"`.
 #' @keywords internal
 build_demean_frame = function(inputs, x_sql, x_names, tag = "dbreg") {
-  conn = inputs[["conn"]]
-  fe = inputs[["fe"]]
-  y = inputs[["yvar"]]
-  weights = inputs[["weights"]]
-  cluster_var = inputs[["cluster_var"]]
+  env2env(
+    inputs,
+    environment(),
+    c(
+      "conn", "fe", "yvar", "weights", "cluster_var", "verbose", "sql_only",
+      "from_statement"
+    )
+  )
+  y = yvar
   vars = c(y, x_names)
   w_base = sql_weight_expr(weights)
 
@@ -71,30 +80,20 @@ build_demean_frame = function(inputs, x_sql, x_names, tag = "dbreg") {
   if (length(fe) == 2) {
     is_balanced = inputs[["is_balanced"]]
     if (is.null(is_balanced)) {
-      is_balanced = dbreg_is_balanced_panel(conn, inputs[["from_statement"]], fe)
+      is_balanced = dbreg_is_balanced_panel(inputs)
     }
     use_ap = !is.null(weights) || !isTRUE(is_balanced)
   }
-  if (use_ap && inputs[["verbose"]]) {
+  if (use_ap && verbose) {
     message(sprintf("[%s] Using alternating projections for FE demeaning", tag))
   }
-  if (use_ap && inputs[["sql_only"]]) {
+  if (use_ap && sql_only) {
     stop(sprintf("[%s] sql_only is not supported for alternating projections.", tag), call. = FALSE)
   }
 
   cleanup = function() invisible(NULL)
   if (use_ap) {
-    ap_res = dbreg_alternating_projections(
-      conn = conn,
-      from_statement = inputs[["from_statement"]],
-      fe = fe,
-      yvar = y,
-      xvars_sql = x_sql,
-      xvar_names = x_names,
-      weights = weights,
-      cluster_var = cluster_var,
-      verbose = inputs[["verbose"]]
-    )
+    ap_res = dbreg_alternating_projections(inputs, x_sql, x_names)
     ap_tables = c(ap_res[["table"]], ap_res[["base_table"]])
     cleanup = function() {
       backend = detect_backend(conn)[["name"]]
@@ -139,7 +138,7 @@ build_demean_frame = function(inputs, x_sql, x_names, tag = "dbreg") {
     )
     sel = frame_select(y, x_sql, x_names, id_cols = fe, extra = c(weights, cluster_var))
     cte_sql = paste0(
-      "WITH base AS (\n  SELECT ", paste(sel, collapse = ", "), " ", inputs[["from_statement"]], "\n),\n",
+      "WITH base AS (\n  SELECT ", paste(sel, collapse = ", "), " ", from_statement, "\n),\n",
       paste(mean_ctes, collapse = ",\n"), ",\n",
       "demeaned AS (\n  SELECT ", paste(c(paste0("b.", fe), tilde, passthrough), collapse = ",\n    "),
       "\n  FROM base b\n  ", paste(joins, collapse = "\n  "), "\n)"

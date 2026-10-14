@@ -653,7 +653,8 @@ build_weighted_moment_terms = function(
 
 #' Check if a two-way panel is balanced
 #' @keywords internal
-dbreg_is_balanced_panel = function(conn, from_statement, fe) {
+dbreg_is_balanced_panel = function(inputs) {
+  env2env(inputs, environment(), c("conn", "from_statement", "fe"))
   if (length(fe) != 2) {
     return(NA)
   }
@@ -673,18 +674,16 @@ dbreg_is_balanced_panel = function(conn, from_statement, fe) {
 #' Alternating projections (AP) for exact multi-way FE demeaning
 #' @keywords internal
 dbreg_alternating_projections = function(
-  conn,
-  from_statement,
-  fe,
-  yvar,
+  inputs,
   xvars_sql,
   xvar_names,
-  weights,
-  cluster_var = NULL,
-  verbose = FALSE,
   max_iter = getOption("dbreg.ap_max_iter", 100L),
   tol = getOption("dbreg.ap_tol", 1e-10)
 ) {
+  env2env(inputs, environment(), c(
+    "conn", "from_statement", "fe", "yvar", "weights", "cluster_var",
+    "verbose"
+  ))
   backend = detect_backend(conn)[["name"]]
   weights_expr = sql_weight_expr(weights)
   if (is.null(weights_expr)) {
@@ -833,27 +832,14 @@ dbreg_alternating_projections = function(
 #' Choose regression strategy based on inputs and auto logic
 #' @keywords internal
 choose_strategy = function(inputs) {
-  # Extract values
-  strategy = inputs[["strategy"]]
-  fe = inputs[["fe"]]
-  verbose = inputs[["verbose"]]
-  any_continuous = inputs[["any_continuous"]]
-  compress_ratio = inputs[["compress_ratio"]]
-  compress_nmax = inputs[["compress_nmax"]]
-  conn = inputs[["conn"]]
-  from_statement = inputs[["from_statement"]]
-  xvars = inputs[["xvars"]]
-  weights = inputs[["weights"]]
-  tag = if (is.null(inputs[["caller"]])) "dbreg" else inputs[["caller"]]
+  env2env(inputs, environment(), c(
+    "strategy", "fe", "verbose", "any_continuous", "compress_ratio",
+    "compress_nmax", "conn", "from_statement", "xvars", "weights", "caller"
+  ))
+  tag = if (is.null(caller)) "dbreg" else caller
 
   # Compression ratio estimator
-  estimate_compression = function(inputs) {
-    conn = inputs[["conn"]]
-    verbose = inputs[["verbose"]]
-    xvars = inputs[["xvars"]]
-    fe = inputs[["fe"]]
-    from_statement = inputs[["from_statement"]]
-
+  estimate_compression = function() {
     key_cols = c(xvars, fe)
     if (!length(key_cols)) {
       return(1)
@@ -923,7 +909,7 @@ choose_strategy = function(inputs) {
     if (verbose) {
       message(sprintf("[%s] Auto strategy:", tag))
     }
-    est_cr = tryCatch(estimate_compression(inputs), error = function(e) {
+    est_cr = tryCatch(estimate_compression(), error = function(e) {
       NA_real_
     })
     comp_size = attr(est_cr, "comp_size")
@@ -965,7 +951,7 @@ choose_strategy = function(inputs) {
       if (fail_compress_ratio || fail_compress_nmax) {
         chosen_strategy = "demean"
         if (length(fe) == 2) {
-          is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
+          is_balanced = dbreg_is_balanced_panel(inputs)
           if (verbose) {
             if (isTRUE(is_balanced)) {
               message("        - panel is balanced")

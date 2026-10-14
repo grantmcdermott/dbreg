@@ -78,7 +78,16 @@ No strict limit, but keep lines readable. Break long SQL strings with `paste0()`
 ### The `inputs` Environment
 `inputs` is an environment (created via `list2env()`) that flows through the pipeline. Using an environment rather than a list gives reference semantics — functions like `choose_strategy()` can store computed metadata (e.g., `is_balanced`, `compression_ratio_est`) that downstream functions read without needing return-value plumbing.
 
-Strategy functions access fields via `inputs[["field"]]` and typically extract frequently-used values into local variables at the top of the function for readability.
+Functions that read several fields pull them into local scope once with `env2env()` (as in tinyplot's `settings`), then use bare names:
+
+```r
+execute_moments_strategy = function(inputs) {
+  env2env(inputs, environment(), c("conn", "yvar", "weights", "sql_only"))
+  ...
+}
+```
+
+Lower-level helpers take `inputs` too (e.g. `dbreg_alternating_projections(inputs, x_sql, x_names)`, `nested_fe_df(inputs)`), keeping explicit arguments only for values that vary per call (residuals, score columns, a non-default `from_statement`). Keep `inputs[["field"]]` for one-off reads, fields a function reassigns locally, and writes back to `inputs` (e.g. `is_balanced`). Never use `<<-`.
 
 `dbreg()`, `dbivreg()` and `dbbinsreg()` all follow this pattern.
 

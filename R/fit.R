@@ -169,16 +169,12 @@ fit_meats = function(fits, frame, ys, inputs) {
   }, character(1))
   score_cols = setdiff(scores, "(Intercept)")
   meats = compute_score_meat(
-    conn = inputs[["conn"]],
-    cte_sql = frame[["cte_sql"]],
-    cte_name = frame[["cte_name"]],
-    vcov_type = inputs[["vcov_type_req"]],
+    inputs = inputs,
+    frame = frame,
     resid_sql = resid_sql,
     score_sql = unname(cols[score_cols]),
     score_names = score_cols,
-    score_intercept = "(Intercept)" %in% scores,
-    weights_expr = frame[["weights_expr"]],
-    cluster_var = inputs[["cluster_var"]]
+    score_intercept = "(Intercept)" %in% scores
   )
   if (is.null(meats)) vector("list", length(fits)) else unname(meats)
 }

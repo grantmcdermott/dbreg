@@ -86,28 +86,30 @@ sql_linear_predictor = function(x_sql, beta, intercept = NULL) {
 #' the regressors; for IV they are the instruments (shared by the 2SLS fit and
 #' its first stages), while each residual is formed from its own regressors.
 #'
-#' @param vcov_type One of `"iid"`, `"hc1"`, `"cluster"`. Returns `NULL` for
-#'   `"iid"`, since no meat matrix is needed.
+#' @param inputs Inputs environment (for `conn`, `vcov_type_req` and
+#'   `cluster_var`). Returns `NULL` when `vcov_type_req` is `"iid"`, since no
+#'   meat matrix is needed.
+#' @param frame Estimation frame (for `cte_sql`, `cte_name` and
+#'   `weights_expr`); see [build_base_frame()].
 #' @param resid_sql Named character vector of SQL residual expressions.
 #' @param score_sql,score_names SQL expressions and names for the score columns.
 #' @param score_intercept Logical. Include a constant score column (first).
-#' @param weights_expr Optional SQL weight expression.
-#' @param cluster_var Cluster variable (required for `"cluster"`).
 #' @return Named list of meat matrices (one per residual) with dimnames
 #'   `c("(Intercept)"?, score_names)`. Clustered meats carry `n_clusters`.
 #' @keywords internal
 compute_score_meat = function(
-  conn,
-  cte_sql,
-  cte_name,
-  vcov_type,
+  inputs,
+  frame,
   resid_sql,
   score_sql,
   score_names = score_sql,
-  score_intercept = FALSE,
-  weights_expr = NULL,
-  cluster_var = NULL
+  score_intercept = FALSE
 ) {
+  env2env(inputs, environment(), c("conn", "cluster_var"))
+  cte_sql = frame[["cte_sql"]]
+  cte_name = frame[["cte_name"]]
+  weights_expr = frame[["weights_expr"]]
+  vcov_type = inputs[["vcov_type_req"]]
   if (!vcov_type %in% c("hc1", "cluster")) {
     return(NULL)
   }
@@ -182,11 +184,9 @@ compute_score_meat = function(
 #' original data, then compute cluster scores using the cell-level fitted values.
 #'
 #' @keywords internal
-compute_meat_cluster_compress = function(conn, from_statement, group_cols,
-                                         yvar, cluster_var, compressed_dat,
-                                         X, yhat, weights = NULL) {
-  cells = query_cluster_cells(conn, from_statement, group_cols, yvar, cluster_var, weights)
-  cluster_meat_from_cells(cells, compressed_dat, group_cols, cluster_var, X, yhat)
+compute_meat_cluster_compress = function(inputs, from_statement, group_cols, compressed_dat, X, yhat) {
+  cells = query_cluster_cells(inputs, from_statement, group_cols)
+  cluster_meat_from_cells(cells, compressed_dat, group_cols, inputs[["cluster_var"]], X, yhat)
 }
 
 #' Cluster-by-cell sufficient statistics for compressed cluster meats
@@ -194,7 +194,8 @@ compute_meat_cluster_compress = function(conn, from_statement, group_cols,
 #' Returns one row per (cluster, cell) with the summed weights `sum_w_gc` (the
 #' count if unweighted) and the weighted outcome sum `sum_wy_gc`.
 #' @keywords internal
-query_cluster_cells = function(conn, from_statement, group_cols, yvar, cluster_var, weights = NULL) {
+query_cluster_cells = function(inputs, from_statement, group_cols) {
+  env2env(inputs, environment(), c("conn", "yvar", "cluster_var", "weights"))
   group_cols_sql = paste(group_cols, collapse = ", ")
   weights_expr = sql_weight_expr(weights)
   sql = paste0(
