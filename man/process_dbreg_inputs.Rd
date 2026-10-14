@@ -4,27 +4,14 @@
 \alias{process_dbreg_inputs}
 \title{Process and validate dbreg inputs}
 \usage{
-process_dbreg_inputs(
-  fml,
-  conn,
-  table,
-  data,
-  path,
-  weights,
-  vcov,
-  cluster,
-  ssc,
-  strategy,
-  sql_only,
-  data_only,
-  compress_ratio,
-  compress_nmax,
-  drop_missings,
-  verbose
-)
+process_dbreg_inputs(inputs)
+}
+\arguments{
+\item{inputs}{Environment created by [dbreg()].}
 }
 \description{
-Returns an environment (not a list) so that downstream functions can mutate
-shared state in place via reference semantics.
+Reads the user arguments from the `inputs` environment (see [dbreg()]) and
+writes the parsed and derived fields back into it: the database connection,
+the formula components, the filtered `from_statement`, etc.
 }
 \keyword{internal}

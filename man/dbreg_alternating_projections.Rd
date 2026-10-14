@@ -5,15 +5,9 @@
 \title{Alternating projections (AP) for exact multi-way FE demeaning}
 \usage{
 dbreg_alternating_projections(
-  conn,
-  from_statement,
-  fe,
-  yvar,
+  inputs,
   xvars_sql,
   xvar_names,
-  weights,
-  cluster_var = NULL,
-  verbose = FALSE,
   max_iter = getOption("dbreg.ap_max_iter", 100L),
   tol = getOption("dbreg.ap_tol", 1e-10)
 )

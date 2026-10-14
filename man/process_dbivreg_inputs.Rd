@@ -4,27 +4,14 @@
 \alias{process_dbivreg_inputs}
 \title{Process and validate dbivreg inputs}
 \usage{
-process_dbivreg_inputs(
-  fml,
-  conn,
-  table,
-  data,
-  path,
-  weights,
-  vcov,
-  cluster,
-  ssc,
-  strategy,
-  compress_ratio,
-  compress_nmax,
-  sql_only,
-  data_only,
-  drop_missings,
-  verbose
-)
+process_dbivreg_inputs(inputs)
+}
+\arguments{
+\item{inputs}{Environment created by [dbivreg()].}
 }
 \description{
-Returns an environment so downstream strategy helpers follow the post-#65
-dbreg convention of reading shared state with `inputs[["..."]]`.
+Reads the user arguments from the `inputs` environment (see [dbivreg()]) and
+writes the parsed and derived fields back into it: the database connection,
+the IV design blocks, the filtered `from_statement`, etc.
 }
 \keyword{internal}

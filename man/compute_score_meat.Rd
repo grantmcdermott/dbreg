@@ -5,31 +5,27 @@
 \title{Compute HC1 or cluster-robust meat matrices via a SQL score pass}
 \usage{
 compute_score_meat(
-  conn,
-  cte_sql,
-  cte_name,
-  vcov_type,
+  inputs,
+  frame,
   resid_sql,
   score_sql,
   score_names = score_sql,
-  score_intercept = FALSE,
-  weights_expr = NULL,
-  cluster_var = NULL
+  score_intercept = FALSE
 )
 }
 \arguments{
-\item{vcov_type}{One of `"iid"`, `"hc1"`, `"cluster"`. Returns `NULL` for
-`"iid"`, since no meat matrix is needed.}
+\item{inputs}{Inputs environment (for `conn`, `vcov_type_req` and
+`cluster_var`). Returns `NULL` when `vcov_type_req` is `"iid"`, since no
+meat matrix is needed.}
+
+\item{frame}{Estimation frame (for `cte_sql`, `cte_name` and
+`weights_expr`); see [build_base_frame()].}
 
 \item{resid_sql}{Named character vector of SQL residual expressions.}
 
 \item{score_sql, score_names}{SQL expressions and names for the score columns.}
 
 \item{score_intercept}{Logical. Include a constant score column (first).}
-
-\item{weights_expr}{Optional SQL weight expression.}
-
-\item{cluster_var}{Cluster variable (required for `"cluster"`).}
 }
 \value{
 Named list of meat matrices (one per residual) with dimnames
@@ -40,7 +36,8 @@ Aggregates the score vectors `w * e * s` for one or more residuals `e`
 (SQL expressions, typically `y - x'b` built with [sql_linear_predictor()])
 that share the same score columns `s`:
 - `vcov_type = "hc1"`: `sum_i w_i^2 e_i^2 s_i s_i'`
-- `vcov_type = "cluster"`: `sum_g (sum_{i in g} w_i e_i s_i)(...)'`
+- `vcov_type = "cluster"`: sum over clusters g of `s_g s_g'`, where `s_g`
+  is the sum of `w_i e_i s_i` over observations i in cluster g
 }
 \details{
 All residuals are scored in a single query. For OLS the score columns are

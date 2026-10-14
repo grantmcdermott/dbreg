@@ -332,8 +332,8 @@ dbreg = function(
   verbose = isTRUE(verbose)
   ssc = match.arg(ssc)
   vcov_parsed = parse_vcov_args(vcov, cluster)
-  vcov = vcov_parsed[["vcov_type"]]
-  cluster = vcov_parsed[["cluster_var"]]
+  vcov_type_req = vcov_parsed[["vcov_type"]]
+  cluster_var = vcov_parsed[["cluster_var"]]
   strategy = match.arg(strategy)
   if (strategy == "within") strategy = "demean"  # alias
 
@@ -346,27 +346,24 @@ dbreg = function(
     }
   }
 
-  # Process and validate inputs
-  inputs = process_dbreg_inputs(
-    fml = fml,
-    conn = conn,
-    table = table,
-    data = data,
-    path = path,
-    weights = weights,
-    vcov = vcov,
-    cluster = cluster,
-    ssc = ssc,
-    strategy = strategy,
-    sql_only = sql_only,
-    data_only = data_only,
-    compress_ratio = compress_ratio,
-    compress_nmax = compress_nmax,
-    drop_missings = drop_missings,
-    verbose = verbose
+  # Collect the (normalised) arguments into the `inputs` environment, which
+  # the rest of the pipeline reads from and writes to (reference semantics)
+  inputs = new.env(parent = emptyenv())
+  env2env(
+    environment(),
+    inputs,
+    c(
+      "fml", "conn", "table", "data", "path", "weights", "vcov_type_req",
+      "cluster_var", "ssc", "strategy", "sql_only", "data_only", "compress_ratio",
+      "compress_nmax", "drop_missings", "verbose"
+    )
   )
-
+  # Release any connection/registration we create, including on errors during
+  # input processing (process_dbreg_inputs() records them in `inputs` first)
   on.exit(release_db_setup(inputs[["conn"]], inputs[["own_conn"]], inputs[["registered_table"]]), add = TRUE)
+
+  # Process and validate inputs (writes parsed/derived fields into `inputs`)
+  process_dbreg_inputs(inputs)
 
   # Choose strategy (mutates inputs[["is_balanced"]], inputs[["compression_ratio_est"]])
   chosen_strategy = choose_strategy(inputs)
@@ -390,39 +387,29 @@ dbreg = function(
 
 #' Process and validate dbreg inputs
 #'
-#' Returns an environment (not a list) so that downstream functions can mutate
-#' shared state in place via reference semantics.
+#' Reads the user arguments from the `inputs` environment (see [dbreg()]) and
+#' writes the parsed and derived fields back into it: the database connection,
+#' the formula components, the filtered `from_statement`, etc.
 #'
+#' @param inputs Environment created by [dbreg()].
 #' @keywords internal
-process_dbreg_inputs = function(
-  fml,
-  conn,
-  table,
-  data,
-  path,
-  weights,
-  vcov,
-  cluster,
-  ssc,
-  strategy,
-  sql_only,
-  data_only,
-  compress_ratio,
-  compress_nmax,
-  drop_missings,
-  verbose
-) {
-  vcov_type_req = vcov
-  cluster_var = cluster
+process_dbreg_inputs = function(inputs) {
+  env2env(
+    inputs,
+    environment(),
+    c(
+      "fml", "conn", "table", "data", "path", "weights", "cluster_var",
+      "compress_ratio", "drop_missings"
+    )
+  )
 
   db_setup = setup_db_connection(conn, table, data, path, caller = "dbreg")
   conn = db_setup[["conn"]]
   own_conn = db_setup[["own_conn"]]
   registered_table = db_setup[["registered_table"]]
-  # Release the connection/registration if validation below fails; on success
-  # the caller (dbreg()) takes over cleanup
-  setup_ok = FALSE
-  on.exit(if (!setup_ok) release_db_setup(conn, own_conn, registered_table), add = TRUE)
+  # Record the connection straight away so the caller can release it, even if
+  # validation below fails
+  env2env(environment(), inputs, c("conn", "own_conn", "registered_table"))
   from_statement = db_setup[["from_statement"]]
 
   # Parse formula using shared helper
@@ -447,35 +434,17 @@ process_dbreg_inputs = function(
     weights = weights,
     drop_missings = drop_missings
   )
+  is_balanced = NULL
 
-  out = list2env(list(
-    fml = fml,
-    yvar = yvar,
-    xvars = xvars,
-    term_labels = term_labels,
-    has_interactions = has_interactions,
-    intercept = intercept,
-    fe = fe,
-    weights = weights,
-    conn = conn,
-    from_statement = from_statement,
-    data = data,
-    vcov_type_req = vcov_type_req,
-    cluster_var = cluster_var,
-    ssc = ssc,
-    strategy = strategy,
-    sql_only = sql_only,
-    data_only = data_only,
-    compress_ratio = compress_ratio,
-    compress_nmax = compress_nmax,
-    verbose = verbose,
-    any_continuous = any_continuous,
-    is_balanced = NULL,
-    own_conn = own_conn,
-    registered_table = registered_table
-  ), parent = emptyenv())
-  setup_ok = TRUE
-  out
+  env2env(
+    environment(),
+    inputs,
+    c(
+      "fml", "yvar", "xvars", "term_labels", "has_interactions", "intercept", "fe",
+      "from_statement", "compress_ratio", "any_continuous", "is_balanced"
+    )
+  )
+  invisible(inputs)
 }
 
 #' Heuristic: does any regressor look continuous?
@@ -653,7 +622,8 @@ build_weighted_moment_terms = function(
 
 #' Check if a two-way panel is balanced
 #' @keywords internal
-dbreg_is_balanced_panel = function(conn, from_statement, fe) {
+dbreg_is_balanced_panel = function(inputs) {
+  env2env(inputs, environment(), c("conn", "from_statement", "fe"))
   if (length(fe) != 2) {
     return(NA)
   }
@@ -673,18 +643,16 @@ dbreg_is_balanced_panel = function(conn, from_statement, fe) {
 #' Alternating projections (AP) for exact multi-way FE demeaning
 #' @keywords internal
 dbreg_alternating_projections = function(
-  conn,
-  from_statement,
-  fe,
-  yvar,
+  inputs,
   xvars_sql,
   xvar_names,
-  weights,
-  cluster_var = NULL,
-  verbose = FALSE,
   max_iter = getOption("dbreg.ap_max_iter", 100L),
   tol = getOption("dbreg.ap_tol", 1e-10)
 ) {
+  env2env(inputs, environment(), c(
+    "conn", "from_statement", "fe", "yvar", "weights", "cluster_var",
+    "verbose"
+  ))
   backend = detect_backend(conn)[["name"]]
   weights_expr = sql_weight_expr(weights)
   if (is.null(weights_expr)) {
@@ -833,27 +801,14 @@ dbreg_alternating_projections = function(
 #' Choose regression strategy based on inputs and auto logic
 #' @keywords internal
 choose_strategy = function(inputs) {
-  # Extract values
-  strategy = inputs[["strategy"]]
-  fe = inputs[["fe"]]
-  verbose = inputs[["verbose"]]
-  any_continuous = inputs[["any_continuous"]]
-  compress_ratio = inputs[["compress_ratio"]]
-  compress_nmax = inputs[["compress_nmax"]]
-  conn = inputs[["conn"]]
-  from_statement = inputs[["from_statement"]]
-  xvars = inputs[["xvars"]]
-  weights = inputs[["weights"]]
-  tag = if (is.null(inputs[["caller"]])) "dbreg" else inputs[["caller"]]
+  env2env(inputs, environment(), c(
+    "strategy", "fe", "verbose", "any_continuous", "compress_ratio",
+    "compress_nmax", "conn", "from_statement", "xvars", "weights", "caller"
+  ))
+  tag = if (is.null(caller)) "dbreg" else caller
 
   # Compression ratio estimator
-  estimate_compression = function(inputs) {
-    conn = inputs[["conn"]]
-    verbose = inputs[["verbose"]]
-    xvars = inputs[["xvars"]]
-    fe = inputs[["fe"]]
-    from_statement = inputs[["from_statement"]]
-
+  estimate_compression = function() {
     key_cols = c(xvars, fe)
     if (!length(key_cols)) {
       return(1)
@@ -923,7 +878,7 @@ choose_strategy = function(inputs) {
     if (verbose) {
       message(sprintf("[%s] Auto strategy:", tag))
     }
-    est_cr = tryCatch(estimate_compression(inputs), error = function(e) {
+    est_cr = tryCatch(estimate_compression(), error = function(e) {
       NA_real_
     })
     comp_size = attr(est_cr, "comp_size")
@@ -965,7 +920,7 @@ choose_strategy = function(inputs) {
       if (fail_compress_ratio || fail_compress_nmax) {
         chosen_strategy = "demean"
         if (length(fe) == 2) {
-          is_balanced = dbreg_is_balanced_panel(conn, from_statement, fe)
+          is_balanced = dbreg_is_balanced_panel(inputs)
           if (verbose) {
             if (isTRUE(is_balanced)) {
               message("        - panel is balanced")

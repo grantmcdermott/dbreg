@@ -298,7 +298,12 @@ parse_regression_formula = function(fml) {
 #' that we created.
 #' @keywords internal
 release_db_setup = function(conn, own_conn, registered_table) {
-  if (is.null(conn) || !dbIsValid(conn)) {
+  # Nothing of ours to release (e.g. a user connection, or setup never got
+  # that far). Never throw: this runs in on.exit() and must not mask errors.
+  if (!isTRUE(own_conn) && is.null(registered_table)) {
+    return(invisible(NULL))
+  }
+  if (is.null(conn) || !isTRUE(tryCatch(dbIsValid(conn), error = function(e) FALSE))) {
     return(invisible(NULL))
   }
   if (!is.null(registered_table)) {

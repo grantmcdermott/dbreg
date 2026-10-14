@@ -70,15 +70,24 @@ No strict limit, but keep lines readable. Break long SQL strings with `paste0()`
 ## Architecture
 
 ### Execution Flow (`dbreg()`)
-1. `process_dbreg_inputs()` — validate args, set up DB connection, parse formula, filter missings, validate weights. Returns an **environment** (not a list).
+1. `dbreg()` normalises its arguments and copies them into a new `inputs` **environment** (`new.env()` + `env2env()`), then `process_dbreg_inputs(inputs)` validates args, sets up the DB connection, parses the formula, filters missings and validates weights, writing derived fields back into `inputs` in place.
 2. `choose_strategy(inputs)` — auto-selection logic. Mutates `inputs[["is_balanced"]]` and `inputs[["compression_ratio_est"]]` in place (reference semantics).
 3. `execute_*_strategy(inputs)` — one of: `moments`, `demean`, `mundlak`, `compress`
 4. `finalize_dbreg_result(result, inputs, chosen_strategy)` — set class, attach metadata
 
 ### The `inputs` Environment
-`inputs` is an environment (created via `list2env()`) that flows through the pipeline. Using an environment rather than a list gives reference semantics — functions like `choose_strategy()` can store computed metadata (e.g., `is_balanced`, `compression_ratio_est`) that downstream functions read without needing return-value plumbing.
+`inputs` is an environment (created up front in `dbreg()`/`dbivreg()`) that flows through the pipeline. Setup functions record the connection in `inputs` as soon as it exists, so the caller's `on.exit(release_db_setup(...))` also cleans up when validation fails. Using an environment rather than a list gives reference semantics — functions like `choose_strategy()` can store computed metadata (e.g., `is_balanced`, `compression_ratio_est`) that downstream functions read without needing return-value plumbing.
 
-Strategy functions access fields via `inputs[["field"]]` and typically extract frequently-used values into local variables at the top of the function for readability.
+Functions that read several fields pull them into local scope once with `env2env()` (as in tinyplot's `settings`), then use bare names:
+
+```r
+execute_moments_strategy = function(inputs) {
+  env2env(inputs, environment(), c("conn", "yvar", "weights", "sql_only"))
+  ...
+}
+```
+
+Lower-level helpers take `inputs` too (e.g. `dbreg_alternating_projections(inputs, x_sql, x_names)`, `nested_fe_df(inputs)`), keeping explicit arguments only for values that vary per call (residuals, score columns, a non-default `from_statement`). Keep `inputs[["field"]]` for one-off reads, fields a function reassigns locally, and writes back to `inputs` (e.g. `is_balanced`). Never use `<<-`. Variables pulled in via `env2env()` are invisible to R CMD check, so add any new key to the `globalVariables()` list in `R/dbreg-package.R`.
 
 `dbreg()`, `dbivreg()` and `dbbinsreg()` all follow this pattern.
 

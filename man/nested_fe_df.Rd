@@ -4,7 +4,7 @@
 \alias{nested_fe_df}
 \title{Degrees of freedom of FE variables nested within cluster variable}
 \usage{
-nested_fe_df(conn, from_statement, fe, cluster_var)
+nested_fe_df(inputs, from_statement = inputs[["from_statement"]])
 }
 \description{
 For ssc = "nested", we exclude an FE's parameters from K if the FE is nested

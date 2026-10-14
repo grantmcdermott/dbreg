@@ -99,26 +99,27 @@ dbivreg = function(
   }
 
   vcov_parsed = parse_vcov_args(vcov, cluster, valid_types = c("iid", "hc1"))
-  inputs = process_dbivreg_inputs(
-    fml = fml,
-    conn = conn,
-    table = table,
-    data = data,
-    path = path,
-    weights = weights,
-    vcov = vcov_parsed[["vcov_type"]],
-    cluster = vcov_parsed[["cluster_var"]],
-    ssc = ssc,
-    strategy = strategy,
-    compress_ratio = compress_ratio,
-    compress_nmax = compress_nmax,
-    sql_only = sql_only,
-    data_only = data_only,
-    drop_missings = drop_missings,
-    verbose = verbose
-  )
+  vcov_type_req = vcov_parsed[["vcov_type"]]
+  cluster_var = vcov_parsed[["cluster_var"]]
 
+  # Collect the (normalised) arguments into the `inputs` environment, which
+  # the rest of the pipeline reads from and writes to (reference semantics)
+  inputs = new.env(parent = emptyenv())
+  env2env(
+    environment(),
+    inputs,
+    c(
+      "fml", "conn", "table", "data", "path", "weights", "vcov_type_req",
+      "cluster_var", "ssc", "strategy", "compress_ratio", "compress_nmax",
+      "sql_only", "data_only", "drop_missings", "verbose"
+    )
+  )
+  # Release any connection/registration we create, including on errors during
+  # input processing (process_dbivreg_inputs() records them in `inputs` first)
   on.exit(release_db_setup(inputs[["conn"]], inputs[["own_conn"]], inputs[["registered_table"]]), add = TRUE)
+
+  # Process and validate inputs (writes parsed/derived fields into `inputs`)
+  process_dbivreg_inputs(inputs)
 
   chosen_strategy = choose_dbivreg_strategy(inputs)
 
@@ -135,30 +136,17 @@ dbivreg = function(
 
 #' Process and validate dbivreg inputs
 #'
-#' Returns an environment so downstream strategy helpers follow the post-#65
-#' dbreg convention of reading shared state with `inputs[["..."]]`.
+#' Reads the user arguments from the `inputs` environment (see [dbivreg()]) and
+#' writes the parsed and derived fields back into it: the database connection,
+#' the IV design blocks, the filtered `from_statement`, etc.
 #'
+#' @param inputs Environment created by [dbivreg()].
 #' @keywords internal
-process_dbivreg_inputs = function(
-  fml,
-  conn,
-  table,
-  data,
-  path,
-  weights,
-  vcov,
-  cluster,
-  ssc,
-  strategy,
-  compress_ratio,
-  compress_nmax,
-  sql_only,
-  data_only,
-  drop_missings,
-  verbose
-) {
-  vcov_type_req = vcov
-  cluster_var = cluster
+process_dbivreg_inputs = function(inputs) {
+  env2env(inputs, environment(), c(
+    "fml", "conn", "table", "data", "path", "weights", "cluster_var",
+    "compress_ratio", "drop_missings"
+  ))
 
   parsed_fml = dbivreg_parse_formula(fml)
   yvar = parsed_fml[["yvar"]]
@@ -169,10 +157,9 @@ process_dbivreg_inputs = function(
   own_conn = db_setup[["own_conn"]]
   from_statement = db_setup[["from_statement"]]
   registered_table = db_setup[["registered_table"]]
-  # Release the connection/registration if validation below fails; on success
-  # the caller (dbivreg()) takes over cleanup
-  setup_ok = FALSE
-  on.exit(if (!setup_ok) release_db_setup(conn, own_conn, registered_table), add = TRUE)
+  # Record the connection straight away so the caller can release it, even if
+  # validation below fails
+  env2env(environment(), inputs, c("conn", "own_conn", "registered_table"))
 
   validate_weights(weights, data, conn, from_statement)
   # Raw variables behind X and Z: their distinct tuples define the compress
@@ -256,58 +243,40 @@ process_dbivreg_inputs = function(
   union_names = names(union_map)
   union_sql = unname(union_map)
 
-  out = list2env(list(
-    fml = fml,
-    structural_fml = dbivreg_structural_formula(
-      yvar = yvar,
-      exog_rhs = parsed_fml[["exog_rhs_text"]],
-      endog_rhs = parsed_fml[["endog_rhs_text"]],
-      fe_rhs = parsed_fml[["fe_rhs_text"]],
-      env = parsed_fml[["env"]]
-    ),
+  structural_fml = dbivreg_structural_formula(
     yvar = yvar,
-    fe = fe,
-    exog_names = exog_design[["names"]],
-    exog_sql = exog_design[["sql"]],
-    endog_names = endog_design[["names"]],
-    endog_sql = endog_design[["sql"]],
-    instr_names = instr_design[["names"]],
-    instr_sql = instr_design[["sql"]],
-    endog_vars = standardize_coef_names(endog_design[["names"]]),
-    instr_vars = standardize_coef_names(instr_design[["names"]]),
-    x_all_names = x_all_names,
-    z_all_names = z_all_names,
-    union_names = union_names,
-    union_sql = union_sql,
-    conn = conn,
-    from_statement = from_statement,
-    weights = weights,
-    vcov_type_req = vcov_type_req,
-    cluster_var = cluster_var,
-    ssc = ssc,
-    strategy = strategy,
-    xvars = raw_vars,
-    any_continuous = any_continuous_vars(data, raw_vars),
-    compress_ratio = resolve_compress_ratio(compress_ratio, fe),
-    compress_nmax = compress_nmax,
-    is_balanced = NULL,
-    caller = "dbivreg",
-    intercept = intercept,
-    sql_only = sql_only,
-    data_only = data_only,
-    verbose = verbose,
-    own_conn = own_conn,
-    registered_table = registered_table
-  ), parent = emptyenv())
-  setup_ok = TRUE
-  out
+    exog_rhs = parsed_fml[["exog_rhs_text"]],
+    endog_rhs = parsed_fml[["endog_rhs_text"]],
+    fe_rhs = parsed_fml[["fe_rhs_text"]],
+    env = parsed_fml[["env"]]
+  )
+  exog_names = exog_design[["names"]]
+  exog_sql = exog_design[["sql"]]
+  endog_names = endog_design[["names"]]
+  endog_sql = endog_design[["sql"]]
+  instr_names = instr_design[["names"]]
+  instr_sql = instr_design[["sql"]]
+  endog_vars = standardize_coef_names(endog_names)
+  instr_vars = standardize_coef_names(instr_names)
+  xvars = raw_vars
+  any_continuous = any_continuous_vars(data, raw_vars)
+  compress_ratio = resolve_compress_ratio(compress_ratio, fe)
+  is_balanced = NULL
+  caller = "dbivreg"
+
+  env2env(environment(), inputs, c(
+    "structural_fml", "yvar", "fe", "exog_names", "exog_sql", "endog_names",
+    "endog_sql", "instr_names", "instr_sql", "endog_vars", "instr_vars",
+    "x_all_names", "z_all_names", "union_names", "union_sql", "from_statement",
+    "xvars", "any_continuous", "compress_ratio", "is_balanced", "caller",
+    "intercept"
+  ))
+  invisible(inputs)
 }
 
 #' @keywords internal
 choose_dbivreg_strategy = function(inputs) {
-  strategy = inputs[["strategy"]]
-  fe = inputs[["fe"]]
-  verbose = inputs[["verbose"]]
+  env2env(inputs, environment(), c("strategy", "fe", "verbose"))
 
   if (strategy == "auto" && length(fe) > 0) {
     # IV compress does not (yet) support FE, so auto can only pick demean;
@@ -371,21 +340,24 @@ execute_iv_demean_strategy = function(inputs) {
 # Moments pass over a frame, then the 2SLS fit with SQL score-pass meat
 #' @keywords internal
 dbivreg_run_frame = function(inputs, frame, label) {
-  moments_sql = frame_moments_sql(frame, inputs[["yvar"]], inputs[["union_names"]], inputs[["conn"]])
-  if (inputs[["sql_only"]]) {
+  env2env(inputs, environment(), c(
+    "yvar", "union_names", "conn", "sql_only", "verbose", "weights",
+    "data_only", "fe"
+  ))
+  moments_sql = frame_moments_sql(frame, yvar, union_names, conn)
+  if (sql_only) {
     return(moments_sql)
   }
-  if (inputs[["verbose"]]) {
-    message(sprintf("[dbivreg] Executing %s%s SQL\n", if (!is.null(inputs[["weights"]])) "weighted " else "", label))
+  if (verbose) {
+    message(sprintf("[dbivreg] Executing %s%s SQL\n", if (!is.null(weights)) "weighted " else "", label))
   }
-  moments_df = dbGetQuery(inputs[["conn"]], moments_sql)
-  if (inputs[["data_only"]]) {
+  moments_df = dbGetQuery(conn, moments_sql)
+  if (data_only) {
     return(moments_df)
   }
-  fe = inputs[["fe"]]
   dbivreg_finalize_fit(
     inputs = inputs,
-    S = cross_moments(moments_df, inputs[["union_names"]], inputs[["yvar"]], intercept = frame[["intercept"]]),
+    S = cross_moments(moments_df, union_names, yvar, intercept = frame[["intercept"]]),
     n_total = moments_df[["n_total"]],
     n_fe_levels = setNames(
       vapply(seq_along(fe), function(k) as.numeric(moments_df[[sprintf("n_fe%d", k)]]), numeric(1)),
@@ -398,18 +370,18 @@ dbivreg_run_frame = function(inputs, frame, label) {
 
 #' @keywords internal
 execute_iv_compress_strategy = function(inputs) {
-  if (length(inputs[["fe"]]) > 0) {
+  env2env(inputs, environment(), c(
+    "fe", "conn", "yvar", "union_names", "weights", "union_sql", "sql_only",
+    "verbose", "data_only", "intercept", "vcov_type_req", "cluster_var"
+  ))
+  if (length(fe) > 0) {
     stop(
       "strategy = 'compress' is only available without fixed effects in dbivreg(). ",
       "Use strategy = 'demean' or strategy = 'auto' when fixed effects are present."
     )
   }
 
-  conn = inputs[["conn"]]
-  yvar = inputs[["yvar"]]
-  union_names = inputs[["union_names"]]
-  weights = inputs[["weights"]]
-  frame = build_base_frame(inputs, inputs[["union_sql"]], union_names)
+  frame = build_base_frame(inputs, union_sql, union_names)
 
   # Compress on all of X and Z: each cell is constant in both
   group_cols_sql = paste(union_names, collapse = ", ")
@@ -424,20 +396,20 @@ execute_iv_compress_strategy = function(inputs) {
     "\nSELECT ", group_cols_sql, ",\n  ", paste(moment_terms, collapse = ",\n  "),
     "\nFROM base\nGROUP BY ", group_cols_sql
   )
-  if (inputs[["sql_only"]]) {
+  if (sql_only) {
     return(compress_sql)
   }
-  if (inputs[["verbose"]]) {
+  if (verbose) {
     message(if (!is.null(weights)) "[dbivreg] Executing weighted compressed IV SQL\n" else "[dbivreg] Executing compressed IV SQL\n")
   }
   dat = dbGetQuery(conn, compress_sql)
-  if (inputs[["data_only"]]) {
+  if (data_only) {
     return(dat)
   }
 
   n_total = sum(dat[["n"]])
   compression_ratio = nrow(dat) / max(n_total, 1)
-  if (inputs[["verbose"]] && compression_ratio > 0.8) {
+  if (verbose && compression_ratio > 0.8) {
     warning(paste0(
       sprintf("[dbivreg] compression ineffective (%.1f%% of original rows). ", 100 * compression_ratio),
       "Consider strategy = 'moments'."
@@ -447,7 +419,7 @@ execute_iv_compress_strategy = function(inputs) {
   # Cell-level design over the union of X and Z, and the cross moments
   # U'WU, U'Wy, y'Wy (exact, since U is constant within cells)
   U = as.matrix(dat[, union_names, drop = FALSE])
-  if (inputs[["intercept"]]) {
+  if (intercept) {
     U = cbind("(Intercept)" = 1, U)
   }
   S = rbind(
@@ -459,16 +431,9 @@ execute_iv_compress_strategy = function(inputs) {
   # Meat from the cells: HC1 from within-cell residual sums of squares;
   # clustered from cluster-by-cell residual sums (one query, shared by the
   # 2SLS fit and its first stages, whose outcomes are cell columns)
-  vcov_type = inputs[["vcov_type_req"]]
+  vcov_type = vcov_type_req
   cells = if (vcov_type == "cluster") {
-    query_cluster_cells(
-      conn = conn,
-      from_statement = paste0("FROM (", frame[["base_sql"]], ") AS base"),
-      group_cols = union_names,
-      yvar = yvar,
-      cluster_var = inputs[["cluster_var"]],
-      weights = weights
-    )
+    query_cluster_cells(inputs, paste0("FROM (", frame[["base_sql"]], ") AS base"), union_names)
   }
   meats_fn = function(fits, ys) {
     if (!vcov_type %in% c("hc1", "cluster")) {
@@ -479,7 +444,7 @@ execute_iv_compress_strategy = function(inputs) {
       yhat = as.numeric(U[, fit[["x"]], drop = FALSE] %*% fit[["coef"]])
       if (vcov_type == "cluster") {
         return(cluster_meat_from_cells(
-          cells, dat, union_names, inputs[["cluster_var"]], Z, yhat,
+          cells, dat, union_names, cluster_var, Z, yhat,
           y_cell = if (y != yvar) dat[[y]]
         ))
       }
@@ -512,10 +477,14 @@ execute_iv_compress_strategy = function(inputs) {
 
 #' @keywords internal
 dbivreg_finalize_fit = function(inputs, S, n_total, n_fe_levels, meats_fn, query_string) {
-  yvar = inputs[["yvar"]]
+  env2env(inputs, environment(), c(
+    "x_all_names", "z_all_names", "vcov_type_req", "instr_names",
+    "endog_names", "structural_fml", "endog_vars", "instr_vars", "yvar", "fe",
+    "weights", "ssc"
+  ))
   has_intercept = "(Intercept)" %in% rownames(S)
-  x_names_full = c(if (has_intercept) "(Intercept)", inputs[["x_all_names"]])
-  z_names_full = c(if (has_intercept) "(Intercept)", inputs[["z_all_names"]])
+  x_names_full = c(if (has_intercept) "(Intercept)", x_all_names)
+  z_names_full = c(if (has_intercept) "(Intercept)", z_all_names)
   fit = fit_2sls(S, yvar, x_names_full, z_names_full)
   betahat = fit[["coef"]]
   rss = fit[["rss"]]
@@ -525,17 +494,15 @@ dbivreg_finalize_fit = function(inputs, S, n_total, n_fe_levels, meats_fn, query
   df_res = max(n_total - length(x_names_full) - df_fe, 1)
   # For ssc = "nested", exclude nested FE parameters from the CR1 K
   nested_levels = 0L
-  if (inputs[["vcov_type_req"]] == "cluster" && inputs[["ssc"]] == "nested") {
-    nested_levels = nested_fe_df(
-      inputs[["conn"]], inputs[["from_statement"]], inputs[["fe"]], inputs[["cluster_var"]]
-    )
+  if (vcov_type_req == "cluster" && ssc == "nested") {
+    nested_levels = nested_fe_df(inputs)
   }
   n_params = length(x_names_full) + df_fe - nested_levels
 
   tss = moment_tss(S, yvar)
 
   # First stages: each endogenous regressor on the instruments
-  endog = if (length(inputs[["instr_names"]])) inputs[["endog_names"]] else character(0)
+  endog = if (length(instr_names)) endog_names else character(0)
   fs_fits = lapply(endog, function(y) fit_ols(S, y, z_names_full))
 
   # Score pass: residuals from the structural regressors (and the first
@@ -544,7 +511,7 @@ dbivreg_finalize_fit = function(inputs, S, n_total, n_fe_levels, meats_fn, query
   meats = meats_fn(c(list(fit), fs_fits), c(yvar, endog))
   meat = meats[[1]]
   vcov_mat = compute_vcov(
-    vcov_type = inputs[["vcov_type_req"]],
+    vcov_type = vcov_type_req,
     strategy = if (has_intercept) "moments" else "demean",
     XtX_inv = fit[["bread"]],
     rss = rss,
@@ -574,17 +541,17 @@ dbivreg_finalize_fit = function(inputs, S, n_total, n_fe_levels, meats_fn, query
   out = list(
     coeftable = coeftable,
     vcov = vcov_mat,
-    fml = inputs[["structural_fml"]],
-    yvar = inputs[["yvar"]],
+    fml = structural_fml,
+    yvar = yvar,
     xvars = standardize_coef_names(x_names_full[x_names_full != "(Intercept)"]),
-    fe = inputs[["fe"]],
-    weights = inputs[["weights"]],
+    fe = fe,
+    weights = weights,
     query_string = query_string,
     nobs = 1L,
     nobs_orig = n_total,
     estimator = "2SLS",
-    endogenous = inputs[["endog_vars"]],
-    instruments = inputs[["instr_vars"]],
+    endogenous = endog_vars,
+    instruments = instr_vars,
     diagnostics = iv_diagnostics,
     df_residual = df_res,
     n_fe_levels = if (n_fe > 0) n_fe_levels else NULL
@@ -755,14 +722,15 @@ compute_dbivreg_diagnostics = function(
 
 #' @keywords internal
 compute_dbivreg_first_stage_f = function(inputs, S, n_total, df_fe, has_intercept) {
-  excluded = inputs[["instr_names"]]
-  endogenous = inputs[["endog_names"]]
+  env2env(inputs, environment(), c("instr_names", "endog_names", "exog_names"))
+  excluded = instr_names
+  endogenous = endog_names
   if (!length(excluded) || !length(endogenous)) {
     return(NULL)
   }
 
-  unrestricted = c(if (has_intercept) "(Intercept)", inputs[["exog_names"]], excluded)
-  restricted = c(if (has_intercept) "(Intercept)", inputs[["exog_names"]])
+  unrestricted = c(if (has_intercept) "(Intercept)", exog_names, excluded)
+  restricted = c(if (has_intercept) "(Intercept)", exog_names)
   q = length(excluded)
   df2 = max(n_total - length(unrestricted) - df_fe, 1)
   out = lapply(endogenous, function(y_name) {
@@ -785,16 +753,19 @@ compute_dbivreg_first_stage_wald = function(
   df_fe,
   nested_levels = 0L
 ) {
-  excluded = inputs[["instr_names"]]
-  endogenous = inputs[["endog_names"]]
+  env2env(inputs, environment(), c(
+    "instr_names", "endog_names", "exog_names", "vcov_type_req"
+  ))
+  excluded = instr_names
+  endogenous = endog_names
   if (!length(excluded) || !length(endogenous)) {
     return(NULL)
   }
 
-  unrestricted = c(if (has_intercept) "(Intercept)", inputs[["exog_names"]], excluded)
+  unrestricted = c(if (has_intercept) "(Intercept)", exog_names, excluded)
   q = length(excluded)
   df2 = max(n_total - length(unrestricted) - df_fe, 1)
-  vcov_type = inputs[["vcov_type_req"]]
+  vcov_type = vcov_type_req
   out = Map(function(fit_u, meat_u) {
     vcov_u = compute_vcov(
       vcov_type = vcov_type,
@@ -828,14 +799,15 @@ compute_dbivreg_first_stage_wald = function(
 
 #' @keywords internal
 compute_dbivreg_overid = function(inputs, S, fit, z, n_total, meat = NULL) {
-  df = length(inputs[["instr_names"]]) - length(inputs[["endog_names"]])
-  iid = identical(inputs[["vcov_type_req"]], "iid")
+  env2env(inputs, environment(), c("instr_names", "endog_names", "vcov_type_req", "yvar"))
+  df = length(instr_names) - length(endog_names)
+  iid = identical(vcov_type_req, "iid")
   test_name = if (iid) "Sargan" else "Hansen J"
   na_out = list(stat = NA_real_, p = NA_real_, df = max(df, 0L), test = test_name)
   if (df <= 0 || (!iid && is.null(meat))) {
     return(na_out)
   }
-  y = inputs[["yvar"]]
+  y = yvar
   x = fit[["x"]]
   # Sample moment conditions Z'e at coefficients b
   moments = function(b) S[z, y, drop = FALSE] - S[z, x, drop = FALSE] %*% b

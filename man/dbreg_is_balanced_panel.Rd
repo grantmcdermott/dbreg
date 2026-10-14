@@ -4,7 +4,7 @@
 \alias{dbreg_is_balanced_panel}
 \title{Check if a two-way panel is balanced}
 \usage{
-dbreg_is_balanced_panel(conn, from_statement, fe)
+dbreg_is_balanced_panel(inputs)
 }
 \description{
 Check if a two-way panel is balanced

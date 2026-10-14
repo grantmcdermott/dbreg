@@ -48,7 +48,8 @@ Imports:
   MASS,
   Matrix,
   stats,
-  tinyplot
+  tinyplot,
+  utils
 Suggests:
   binsreg,
   here,

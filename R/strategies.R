@@ -4,37 +4,44 @@
 #' Execute moments strategy (no fixed effects)
 #' @keywords internal
 execute_moments_strategy = function(inputs) {
+  env2env(
+    inputs,
+    environment(), c(
+      "has_interactions", "from_statement", "conn", "sql_only", "verbose",
+      "data_only", "vcov_type_req", "fml", "fe", "intercept", "xvars", "yvar",
+      "weights", "compression_ratio_est"
+    )
+  )
   # Get SQL expressions for design matrix terms
   # For interactions/factors, this expands to CASE WHEN expressions
-  if (isTRUE(inputs[["has_interactions"]])) {
-    table_ref = sub("^FROM\\s+", "", inputs[["from_statement"]], ignore.case = TRUE)
+  if (isTRUE(has_interactions)) {
+    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
     sql_design = sql_model_matrix(
-      inputs[["fml"]],
-      inputs[["conn"]],
+      fml,
+      conn,
       table_ref,
       expand = "all",
-      fe_vars = inputs[["fe"]],
-      intercept = inputs[["intercept"]]
+      fe_vars = fe,
+      intercept = intercept
     )
     xvars_sql = sql_design[["select_exprs"]]
     xvar_names = sql_design[["col_names"]]
   } else {
-    xvars_sql = inputs[["xvars"]]
-    xvar_names = inputs[["xvars"]]
+    xvars_sql = xvars
+    xvar_names = xvars
   }
   
-  yvar = inputs[["yvar"]]
   frame = build_base_frame(inputs, xvars_sql, xvar_names)
-  moments_sql = frame_moments_sql(frame, yvar, xvar_names, inputs[["conn"]])
+  moments_sql = frame_moments_sql(frame, yvar, xvar_names, conn)
 
-  if (inputs[["sql_only"]]) {
+  if (sql_only) {
     return(moments_sql)
   }
-  if (inputs[["verbose"]]) {
-    message(if (!is.null(inputs[["weights"]])) "[dbreg] Executing weighted moments SQL\n" else "[dbreg] Executing moments SQL\n")
+  if (verbose) {
+    message(if (!is.null(weights)) "[dbreg] Executing weighted moments SQL\n" else "[dbreg] Executing moments SQL\n")
   }
-  moments_df = dbGetQuery(inputs[["conn"]], moments_sql)
-  if (inputs[["data_only"]]) {
+  moments_df = dbGetQuery(conn, moments_sql)
+  if (data_only) {
     return(moments_df)
   }
   n_total = moments_df[["n_total"]]
@@ -52,7 +59,7 @@ execute_moments_strategy = function(inputs) {
   meat = fit_meat(fit, frame, yvar, inputs)
   
   vcov_mat = compute_vcov(
-    vcov_type = inputs[["vcov_type_req"]],
+    vcov_type = vcov_type_req,
     strategy = "moments",
     XtX_inv = fit[["bread"]],
     rss = rss,
@@ -69,16 +76,16 @@ execute_moments_strategy = function(inputs) {
   list(
     coeftable = coeftable,
     vcov = vcov_mat,
-    fml = inputs[["fml"]],
-    yvar = inputs[["yvar"]],
-    xvars = standardize_coef_names(inputs[["xvars"]]),
+    fml = fml,
+    yvar = yvar,
+    xvars = standardize_coef_names(xvars),
     fe = NULL,
-    weights = inputs[["weights"]],
+    weights = weights,
     query_string = moments_sql,
     nobs = 1L,
     nobs_orig = n_total,
     strategy = "moments",
-    compression_ratio_est = inputs[["compression_ratio_est"]],
+    compression_ratio_est = compression_ratio_est,
     df_residual = df_res
   )
 }
@@ -90,71 +97,77 @@ execute_moments_strategy = function(inputs) {
 #' 
 #' @keywords internal
 execute_demean_strategy = function(inputs) {
+  env2env(
+    inputs,
+    environment(),
+    c(
+      "has_interactions", "from_statement", "conn", "sql_only", "data_only",
+      "vcov_type_req", "fml", "fe", "xvars", "yvar", "verbose", "weights",
+      "compression_ratio_est", "ssc"
+    )
+  )
   # Handle interactions: expand to SQL expressions
 
-  if (isTRUE(inputs[["has_interactions"]])) {
-    table_ref = sub("^FROM\\s+", "", inputs[["from_statement"]], ignore.case = TRUE)
+  if (isTRUE(has_interactions)) {
+    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
     sql_design = sql_model_matrix(
-      inputs[["fml"]],
-      inputs[["conn"]],
+      fml,
+      conn,
       table_ref,
       expand = "all",
-      fe_vars = inputs[["fe"]]
+      fe_vars = fe
     )
     xvars_sql = sql_design[["select_exprs"]]
     xvar_names = sql_design[["col_names"]]
   } else {
-    xvars_sql = inputs[["xvars"]]
-    xvar_names = inputs[["xvars"]]
+    xvars_sql = xvars
+    xvar_names = xvars
   }
   
-  yvar = inputs[["yvar"]]
   frame = build_demean_frame(inputs, xvars_sql, xvar_names)
   on.exit(frame[["cleanup"]](), add = TRUE)
-  demean_sql = frame_moments_sql(frame, yvar, xvar_names, inputs[["conn"]])
-  if (inputs[["sql_only"]]) {
+  demean_sql = frame_moments_sql(frame, yvar, xvar_names, conn)
+  if (sql_only) {
     return(demean_sql)
   }
 
   # Execute SQL and build matrices
-  if (inputs[["verbose"]]) {
-    message(if (!is.null(inputs[["weights"]])) "[dbreg] Executing weighted demean SQL\n" else "[dbreg] Executing demean SQL\n")
+  if (verbose) {
+    message(if (!is.null(weights)) "[dbreg] Executing weighted demean SQL\n" else "[dbreg] Executing demean SQL\n")
   }
-  demean_df = dbGetQuery(inputs[["conn"]], demean_sql)
-  if (inputs[["data_only"]]) {
+  demean_df = dbGetQuery(conn, demean_sql)
+  if (data_only) {
     return(demean_df)
   }
   n_total = demean_df[["n_total"]]
-  n_fe_levels = vapply(seq_along(inputs[["fe"]]), function(k) {
+  n_fe_levels = vapply(seq_along(fe), function(k) {
     val = demean_df[[sprintf("n_fe%d", k)]]
     if (is.null(val)) 1L else as.integer(val)
   }, integer(1))
 
   S = cross_moments(demean_df, xvar_names, yvar, intercept = FALSE)
-  fit = fit_ols(S, yvar, xvar_names, drop_collinear = TRUE, verbose = inputs[["verbose"]])
+  fit = fit_ols(S, yvar, xvar_names, drop_collinear = TRUE, verbose = verbose)
   betahat = fit[["coef"]]
   xvar_names_kept = fit[["x"]]
   collin_vars = fit[["dropped"]]
   p_kept = length(xvar_names_kept)
   rss = fit[["rss"]]
-  n_fe = length(inputs[["fe"]])
+  n_fe = length(fe)
   df_fe = sum(n_fe_levels) - (n_fe - 1)
   df_res = max(n_total - p_kept - df_fe, 1)
   
   # Compute meat matrix if needed (HC1 or cluster)
   meat = fit_meat(fit, frame, yvar, inputs)
   n_params_cluster = p_kept + df_fe  # K for CR1 correction
-  if (inputs[["vcov_type_req"]] == "cluster") {
+  if (vcov_type_req == "cluster") {
     # For ssc = "nested", exclude nested FE levels from K
-    if (inputs[["ssc"]] == "nested") {
-      n_params_cluster = p_kept + df_fe - nested_fe_df(
-        inputs[["conn"]], inputs[["from_statement"]], inputs[["fe"]], inputs[["cluster_var"]]
-      )
+    if (ssc == "nested") {
+      n_params_cluster = p_kept + df_fe - nested_fe_df(inputs)
     }
   }
   
   vcov_mat = compute_vcov(
-    vcov_type = inputs[["vcov_type_req"]],
+    vcov_type = vcov_type_req,
     strategy = "demean",
     XtX_inv = fit[["bread"]],
     rss = rss,
@@ -171,17 +184,17 @@ execute_demean_strategy = function(inputs) {
   list(
     coeftable = coeftable,
     vcov = vcov_mat,
-    fml = inputs[["fml"]],
+    fml = fml,
     yvar = yvar,
     xvars = standardize_coef_names(xvar_names_kept),
     collin.var = standardize_coef_names(collin_vars),
-    fe = inputs[["fe"]],
-    weights = inputs[["weights"]],
+    fe = fe,
+    weights = weights,
     query_string = demean_sql,
     nobs = 1L,
     nobs_orig = n_total,
     strategy = "demean",
-    compression_ratio_est = inputs[["compression_ratio_est"]],
+    compression_ratio_est = compression_ratio_est,
     df_residual = df_res,
     n_fe_levels = n_fe_levels
   )
@@ -194,8 +207,14 @@ execute_demean_strategy = function(inputs) {
 #'
 #' @keywords internal
 execute_mundlak_strategy = function(inputs) {
-  yvar = inputs[["yvar"]]
-  fe = inputs[["fe"]]
+  env2env(
+    inputs,
+    environment(), c(
+      "has_interactions", "from_statement", "conn", "cluster_var", "sql_only",
+      "verbose", "data_only", "vcov_type_req", "yvar", "fe", "fml", "xvars",
+      "weights", "compression_ratio_est"
+    )
+  )
   n_fe = length(fe)
 
   if (n_fe == 0) {
@@ -203,39 +222,38 @@ execute_mundlak_strategy = function(inputs) {
   }
 
   # Handle interactions: expand to SQL expressions
-  if (isTRUE(inputs[["has_interactions"]])) {
-    table_ref = sub("^FROM\\s+", "", inputs[["from_statement"]], ignore.case = TRUE)
+  if (isTRUE(has_interactions)) {
+    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
     sql_design = sql_model_matrix(
-      inputs[["fml"]],
-      inputs[["conn"]],
+      fml,
+      conn,
       table_ref,
       expand = "all",
-      fe_vars = inputs[["fe"]]
+      fe_vars = fe
     )
     xvars_sql = sql_design[["select_exprs"]]
     xvar_names = sql_design[["col_names"]]
   } else {
-    xvars_sql = inputs[["xvars"]]
-    xvar_names = inputs[["xvars"]]
+    xvars_sql = xvars
+    xvar_names = xvars
   }
   
-  weights_expr_base = sql_weight_expr(inputs[["weights"]])
-  weights_expr_aug = if (is.null(inputs[["weights"]])) NULL else sql_weight_expr("weights")
+  weights_expr_base = sql_weight_expr(weights)
+  weights_expr_aug = if (is.null(weights)) NULL else sql_weight_expr("weights")
 
-  cluster_var = inputs[["cluster_var"]]
 
   # Build base CTE with expanded columns AND original xvars (for group means)
-  base_select = c(fe, yvar, inputs[["xvars"]])
+  base_select = c(fe, yvar, xvars)
   for (i in seq_along(xvar_names)) {
     # Only add expanded terms that aren't already in original xvars
-    if (!xvar_names[i] %in% inputs[["xvars"]]) {
+    if (!xvar_names[i] %in% xvars) {
       base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
     }
   }
-  if (!is.null(inputs[["weights"]]) && !inputs[["weights"]] %in% c(fe, yvar, inputs[["xvars"]], xvar_names)) {
-    base_select = c(base_select, inputs[["weights"]])
+  if (!is.null(weights) && !weights %in% c(fe, yvar, xvars, xvar_names)) {
+    base_select = c(base_select, weights)
   }
-  if (!is.null(cluster_var) && !cluster_var %in% c(fe, yvar, inputs[["xvars"]], xvar_names, inputs[["weights"]])) {
+  if (!is.null(cluster_var) && !cluster_var %in% c(fe, yvar, xvars, xvar_names, weights)) {
     base_select = c(base_select, cluster_var)
   }
 
@@ -248,12 +266,12 @@ execute_mundlak_strategy = function(inputs) {
   # (can't compute AVG on factors; their means are handled via expanded dummies)
   # This follows the Mundlak/CRE approach of controlling for correlation
   # between original covariates and the FE
-  if (isTRUE(inputs[["has_interactions"]])) {
+  if (isTRUE(has_interactions)) {
     # Filter to numeric vars only (factors are in sql_design$factor_levels)
     factor_vars = names(sql_design[["factor_levels"]])
-    numeric_xvars = setdiff(inputs[["xvars"]], factor_vars)
+    numeric_xvars = setdiff(xvars, factor_vars)
   } else {
-    numeric_xvars = inputs[["xvars"]]
+    numeric_xvars = xvars
   }
   
   for (k in seq_along(fe)) {
@@ -293,8 +311,8 @@ execute_mundlak_strategy = function(inputs) {
   if (!is.null(cluster_var) && !cluster_var %in% c(fe, yvar, xvar_names)) {
     aug_select_parts = c(aug_select_parts, sprintf("b.%s AS %s", cluster_var, cluster_var))
   }
-  if (!is.null(inputs[["weights"]])) {
-    aug_select_parts = c(aug_select_parts, sprintf("b.%s AS weights", inputs[["weights"]]))
+  if (!is.null(weights)) {
+    aug_select_parts = c(aug_select_parts, sprintf("b.%s AS weights", weights))
   }
   for (k in seq_along(fe)) {
     if (length(numeric_xvars) > 0) {
@@ -310,7 +328,7 @@ execute_mundlak_strategy = function(inputs) {
 
   frame = list(
     cte_sql = paste0(
-      "WITH base AS (SELECT ", paste(base_select, collapse = ", "), " ", inputs[["from_statement"]], "),\n",
+      "WITH base AS (SELECT ", paste(base_select, collapse = ", "), " ", from_statement, "),\n",
       paste(cte_parts, collapse = ",\n"), ",\n",
       "augmented AS (SELECT ", aug_select, " FROM base b ", paste(join_parts, collapse = " "), ")"
     ),
@@ -320,22 +338,22 @@ execute_mundlak_strategy = function(inputs) {
     intercept = TRUE,
     cast = TRUE,
     prefix_terms = c(
-      sql_count(inputs[["conn"]], "n_total"),
-      if (n_fe >= 1) sql_count(inputs[["conn"]], "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
-      if (n_fe >= 2) sql_count(inputs[["conn"]], "n_fe2", fe[2], distinct = TRUE) else "1 AS n_fe2"
+      sql_count(conn, "n_total"),
+      if (n_fe >= 1) sql_count(conn, "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
+      if (n_fe >= 2) sql_count(conn, "n_fe2", fe[2], distinct = TRUE) else "1 AS n_fe2"
     )
   )
-  mundlak_sql = frame_moments_sql(frame, yvar, all_regressors, inputs[["conn"]])
+  mundlak_sql = frame_moments_sql(frame, yvar, all_regressors, conn)
 
-  if (inputs[["sql_only"]]) {
+  if (sql_only) {
     return(mundlak_sql)
   }
 
-  if (inputs[["verbose"]]) {
-    message(if (!is.null(inputs[["weights"]])) "[dbreg] Executing weighted mundlak SQL\n" else "[dbreg] Executing mundlak SQL\n")
+  if (verbose) {
+    message(if (!is.null(weights)) "[dbreg] Executing weighted mundlak SQL\n" else "[dbreg] Executing mundlak SQL\n")
   }
-  mundlak_df = dbGetQuery(inputs[["conn"]], mundlak_sql)
-  if (inputs[["data_only"]]) {
+  mundlak_df = dbGetQuery(conn, mundlak_sql)
+  if (data_only) {
     return(mundlak_df)
   }
 
@@ -356,7 +374,7 @@ execute_mundlak_strategy = function(inputs) {
   meat = fit_meat(fit, frame, yvar, inputs)
 
   vcov_mat = compute_vcov(
-    vcov_type = inputs[["vcov_type_req"]],
+    vcov_type = vcov_type_req,
     strategy = "mundlak",
     XtX_inv = fit[["bread"]],
     rss = rss,
@@ -373,16 +391,16 @@ execute_mundlak_strategy = function(inputs) {
   list(
     coeftable = coeftable,
     vcov = vcov_mat,
-    fml = inputs[["fml"]],
+    fml = fml,
     yvar = yvar,
     xvars = standardize_coef_names(xvar_names),
     fe = fe,
-    weights = inputs[["weights"]],
+    weights = weights,
     query_string = mundlak_sql,
     nobs = 1L,
     nobs_orig = n_total,
     strategy = "mundlak",
-    compression_ratio_est = inputs[["compression_ratio_est"]],
+    compression_ratio_est = compression_ratio_est,
     df_residual = df_res,
     mundlak_vars = numeric_xvars,
     n_fe1 = n_fe1,
@@ -393,6 +411,15 @@ execute_mundlak_strategy = function(inputs) {
 #' Execute compress strategy (groupby compression)
 #' @keywords internal
 execute_compress_strategy = function(inputs) {
+  env2env(
+    inputs,
+    environment(),
+    c(
+      "has_interactions", "conn", "sql_only", "data_only", "vcov_type_req",
+      "fml", "fe", "xvars", "weights", "yvar", "verbose", "intercept",
+      "compression_ratio_est", "ssc"
+    )
+  )
   from_statement = inputs[["from_statement"]]
   # catch for sampled (limited) queries
   if (grepl("LIMIT\\s+\\d+\\s*$", from_statement, ignore.case = TRUE)) {
@@ -400,17 +427,17 @@ execute_compress_strategy = function(inputs) {
   }
 
   # Handle interactions: expand to SQL expressions
-  if (isTRUE(inputs[["has_interactions"]])) {
+  if (isTRUE(has_interactions)) {
     # Extract table name from FROM statement for sql_model_matrix
     table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
     
     # Get SQL expansions for RHS terms (expand interactions only, keep main effects as-is)
     sql_design = sql_model_matrix(
-      inputs[["fml"]],
-      inputs[["conn"]],
+      fml,
+      conn,
       table_ref,
       expand = "interactions",
-      fe_vars = inputs[["fe"]]
+      fe_vars = fe
     )
     
     # Build SELECT expressions with aliases
@@ -418,20 +445,20 @@ execute_compress_strategy = function(inputs) {
     xvars_sql = paste(select_exprs, collapse = ", ")
     xvar_names = sql_design[["col_names"]]
   } else {
-    xvars_sql = paste(inputs[["xvars"]], collapse = ", ")
-    xvar_names = inputs[["xvars"]]
+    xvars_sql = paste(xvars, collapse = ", ")
+    xvar_names = xvars
   }
   
-  weights_expr = sql_weight_expr(inputs[["weights"]])
+  weights_expr = sql_weight_expr(weights)
   # FE columns (no expansion needed - used for grouping)
-  fe_sql = if (length(inputs[["fe"]])) paste(inputs[["fe"]], collapse = ", ") else NULL
+  fe_sql = if (length(fe)) paste(fe, collapse = ", ") else NULL
   
   # Combined columns for SELECT and GROUP BY
   all_cols_sql = if (!is.null(fe_sql)) paste(xvars_sql, fe_sql, sep = ", ") else xvars_sql
-  group_cols = if (!is.null(fe_sql)) c(xvar_names, inputs[["fe"]]) else xvar_names
+  group_cols = if (!is.null(fe_sql)) c(xvar_names, fe) else xvar_names
   group_cols_sql = paste(group_cols, collapse = ", ")
   moment_terms = build_weighted_moment_terms(
-    y_sql = inputs[["yvar"]],
+    y_sql = yvar,
     weights_expr = weights_expr,
     prefix_terms = "COUNT(*) AS n",
     include_w_sq = TRUE
@@ -449,41 +476,41 @@ execute_compress_strategy = function(inputs) {
     "\n    )\n    SELECT\n    *,\n    sum_wy / sum_w AS mean_Y,\n    sqrt(sum_w) AS wts\n    FROM cte"
   )
 
-  if (inputs[["sql_only"]]) {
+  if (sql_only) {
     return(query_string)
   }
-  if (inputs[["verbose"]]) {
-    message(if (!is.null(inputs[["weights"]])) "[dbreg] Executing weighted compress strategy SQL\n" else "[dbreg] Executing compress strategy SQL\n")
+  if (verbose) {
+    message(if (!is.null(weights)) "[dbreg] Executing weighted compress strategy SQL\n" else "[dbreg] Executing compress strategy SQL\n")
   }
-  compressed_dat = dbGetQuery(inputs[["conn"]], query_string)
+  compressed_dat = dbGetQuery(conn, query_string)
   nobs_orig = sum(compressed_dat[["n"]])
   nobs_comp = nrow(compressed_dat)
   compression_ratio = nobs_comp / max(nobs_orig, 1)
 
-  if (inputs[["verbose"]] && compression_ratio > 0.8) {
+  if (verbose && compression_ratio > 0.8) {
     warning(paste0(
       sprintf(
         "[dbreg] compression ineffective (%.1f%% of original rows). ",
         100 * compression_ratio
       ),
-      sprintf("Consider strategy = '%s'.", if (length(inputs[["fe"]])) "demean" else "moments")
+      sprintf("Consider strategy = '%s'.", if (length(fe)) "demean" else "moments")
     ))
   }
 
-  if (length(inputs[["fe"]])) {
-    for (f in inputs[["fe"]]) {
+  if (length(fe)) {
+    for (f in fe) {
       compressed_dat[[f]] = factor(compressed_dat[[f]])
     }
   }
-  if (inputs[["data_only"]]) {
+  if (data_only) {
     return(compressed_dat)
   }
 
   # Build design matrix
   # Use expanded column names if interactions were present
-  design_vars = if (isTRUE(inputs[["has_interactions"]])) xvar_names else inputs[["xvars"]]
+  design_vars = if (isTRUE(has_interactions)) xvar_names else xvars
   X = sparse.model.matrix(
-    reformulate(c(design_vars, inputs[["fe"]]), intercept = inputs[["intercept"]]),
+    reformulate(c(design_vars, fe), intercept = intercept),
     compressed_dat
   )
   if (ncol(X) == 0) {
@@ -497,7 +524,7 @@ execute_compress_strategy = function(inputs) {
   XtY = crossprod(Xw, Yw)
 
   # Detect and handle collinearity
-  collin = detect_collinearity(XtX, XtY, verbose = inputs[["verbose"]])
+  collin = detect_collinearity(XtX, XtY, verbose = verbose)
   XtX = collin[["XtX"]]
   XtY = collin[["Xty"]]
   collin_vars = collin[["drop_names"]]
@@ -531,35 +558,23 @@ execute_compress_strategy = function(inputs) {
   # For clustered SEs, need to query cluster-by-cell stats
   meat = NULL
   n_params_cluster = ncol(X)  # K for CR1 correction
-  if (inputs[["vcov_type_req"]] == "hc1" && !is.null(inputs[["weights"]])) {
+  if (vcov_type_req == "hc1" && !is.null(weights)) {
     sum_w2 = compressed_dat[["sum_w2"]]
     sum_w2y = compressed_dat[["sum_w2y"]]
     sum_w2y_sq = compressed_dat[["sum_w2y_sq"]]
     rss_g_w2 = sum_w2y_sq - 2 * yhat * sum_w2y + sum_w2 * (yhat^2)
     meat = crossprod(X, Diagonal(x = as.numeric(rss_g_w2)) %*% X)
   }
-  if (inputs[["vcov_type_req"]] == "cluster") {
-    meat = compute_meat_cluster_compress(
-      conn = inputs[["conn"]],
-      from_statement = from_statement,
-      group_cols = group_cols,
-      yvar = inputs[["yvar"]],
-      cluster_var = inputs[["cluster_var"]],
-      compressed_dat = compressed_dat,
-      X = X,
-      yhat = yhat,
-      weights = inputs[["weights"]]
-    )
+  if (vcov_type_req == "cluster") {
+    meat = compute_meat_cluster_compress(inputs, from_statement, group_cols, compressed_dat, X, yhat)
     # For ssc = "nested", exclude nested FE levels from K
-    if (inputs[["ssc"]] == "nested") {
-      n_params_cluster = ncol(X) - nested_fe_df(
-        inputs[["conn"]], from_statement, inputs[["fe"]], inputs[["cluster_var"]]
-      )
+    if (ssc == "nested") {
+      n_params_cluster = ncol(X) - nested_fe_df(inputs, from_statement)
     }
   }
   
   vcov_mat = compute_vcov(
-    vcov_type = inputs[["vcov_type_req"]],
+    vcov_type = vcov_type_req,
     strategy = "compress",
     XtX_inv = XtX_inv,
     rss = rss_total,
@@ -587,19 +602,19 @@ execute_compress_strategy = function(inputs) {
       coeftable = coeftable,
       data = compressed_dat,
       vcov = vcov_mat,
-      fml = inputs[["fml"]],
-      yvar = inputs[["yvar"]],
-      xvars = standardize_coef_names(inputs[["xvars"]]),
+      fml = fml,
+      yvar = yvar,
+      xvars = standardize_coef_names(xvars),
       collin.var = standardize_coef_names(collin_vars),
       coef_names = coef_names,
-      fe = inputs[["fe"]],
-      weights = inputs[["weights"]],
+      fe = fe,
+      weights = weights,
       query_string = query_string,
       nobs = nobs_comp,
       nobs_orig = nobs_orig,
       strategy = "compress",
       compression_ratio = compression_ratio,
-      compression_ratio_est = inputs[["compression_ratio_est"]],
+      compression_ratio_est = compression_ratio_est,
       df_residual = max(nobs_orig - ncol(X), 1)
     )
   )
@@ -614,7 +629,8 @@ execute_compress_strategy = function(inputs) {
 #' sum(G_j - 1) over nested FEs.
 #' 
 #' @keywords internal
-nested_fe_df = function(conn, from_statement, fe, cluster_var) {
+nested_fe_df = function(inputs, from_statement = inputs[["from_statement"]]) {
+  env2env(inputs, environment(), c("conn", "fe", "cluster_var"))
   if (is.null(fe) || length(fe) == 0 || is.null(cluster_var)) {
     return(0L)
   }

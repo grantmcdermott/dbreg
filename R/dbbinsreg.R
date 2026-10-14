@@ -578,39 +578,23 @@ dbbinsreg = function(
   }
   
   # Bundle inputs (environment for reference semantics, consistent with dbreg)
-  inputs = list2env(list(
-    conn = conn,
-    table_name = table_name,
-    sampled_table_name = sampled_table_name,
-    y_name = y_name,
-    x_name = x_name,
-    B = as.integer(B),
-    degree = degree,
-    smooth = smooth,
-    controls = controls,
-    fe = fe,
-    cluster_var = cluster_var,
-    partition_method = partition_method,
-    breaks = breaks,
-    ci = ci,
-    cb = cb,
-    nsims = nsims,
-    vcov = vcov,
-    alpha = alpha,  # Internal: use alpha (0.05) for calculations
-    strategy = strategy,
-    sample_fit = sample_fit,
-    n_rows_orig = n_rows_orig,
-    verbose = verbose,
-    formula = as.formula(formula_str),
-    # binsreg-style parameters
-    points = if (points_on) c(points_p, points_s) else NULL,
-    line = if (line_on) c(line_p, line_s) else NULL,
-    linegrid = linegrid,
-    points_on = points_on,
-    line_on = line_on,
-    binspos = binspos,
-    plot = plot
-  ), parent = emptyenv())
+  inputs = new.env(parent = emptyenv())
+  env2env(
+    environment(),
+    inputs,
+    c(
+      "conn", "table_name", "sampled_table_name", "y_name", "x_name", "degree",
+      "smooth", "controls", "fe", "cluster_var", "partition_method", "breaks",
+      "ci", "cb", "nsims", "vcov", "alpha", "strategy", "sample_fit",
+      "n_rows_orig", "verbose", "linegrid", "points_on", "line_on", "binspos",
+      "plot"
+    )
+  )
+  inputs[["B"]] = as.integer(B)
+  inputs[["formula"]] = as.formula(formula_str)
+  # binsreg-style (p, s) specs
+  inputs[["points"]] = if (points_on) c(points_p, points_s) else NULL
+  inputs[["line"]] = if (line_on) c(line_p, line_s) else NULL
 
   # -------------------------------------------------------------------------
   # DISPATCH: Execute estimation based on points/line parameters
