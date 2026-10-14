@@ -87,7 +87,7 @@ execute_moments_strategy = function(inputs) {
 }
 ```
 
-Lower-level helpers take `inputs` too (e.g. `dbreg_alternating_projections(inputs, x_sql, x_names)`, `nested_fe_df(inputs)`), keeping explicit arguments only for values that vary per call (residuals, score columns, a non-default `from_statement`). Keep `inputs[["field"]]` for one-off reads, fields a function reassigns locally, and writes back to `inputs` (e.g. `is_balanced`). Never use `<<-`.
+Lower-level helpers take `inputs` too (e.g. `dbreg_alternating_projections(inputs, x_sql, x_names)`, `nested_fe_df(inputs)`), keeping explicit arguments only for values that vary per call (residuals, score columns, a non-default `from_statement`). Keep `inputs[["field"]]` for one-off reads, fields a function reassigns locally, and writes back to `inputs` (e.g. `is_balanced`). Never use `<<-`. Variables pulled in via `env2env()` are invisible to R CMD check, so add any new key to the `globalVariables()` list in `R/dbreg-package.R`.
 
 `dbreg()`, `dbivreg()` and `dbbinsreg()` all follow this pattern.
 

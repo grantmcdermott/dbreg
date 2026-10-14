@@ -80,7 +80,8 @@ sql_linear_predictor = function(x_sql, beta, intercept = NULL) {
 #' (SQL expressions, typically `y - x'b` built with [sql_linear_predictor()])
 #' that share the same score columns `s`:
 #' - `vcov_type = "hc1"`: `sum_i w_i^2 e_i^2 s_i s_i'`
-#' - `vcov_type = "cluster"`: `sum_g (sum_{i in g} w_i e_i s_i)(...)'`
+#' - `vcov_type = "cluster"`: sum over clusters g of `s_g s_g'`, where `s_g`
+#'   is the sum of `w_i e_i s_i` over observations i in cluster g
 #'
 #' All residuals are scored in a single query. For OLS the score columns are
 #' the regressors; for IV they are the instruments (shared by the 2SLS fit and
