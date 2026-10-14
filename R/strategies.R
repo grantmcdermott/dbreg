@@ -23,12 +23,11 @@ execute_moments_strategy = function(inputs) {
   }
   
   weights_expr = sql_weight_expr(inputs[["weights"]])
+  yvar = inputs[["yvar"]]
   pair_exprs = build_weighted_moment_terms(
-    y_sql = inputs[["yvar"]],
+    y_sql = yvar,
     x_sql = xvars_sql,
-    x_aliases = xvar_names,
     weights_expr = weights_expr,
-    alias_mode = "names",
     prefix_terms = sql_count(inputs[["conn"]], "n_total")
   )
   
@@ -53,66 +52,29 @@ execute_moments_strategy = function(inputs) {
     return(moments_df)
   }
   n_total = moments_df[["n_total"]]
-  sum_w = moments_df[["sum_w"]]
 
+  S = cross_moments(moments_df, xvar_names, yvar)
   vars_all = c("(Intercept)", xvar_names)
   p = length(vars_all)
-  XtX = matrix(0, p, p, dimnames = list(vars_all, vars_all))
-  Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
-
-  XtX["(Intercept)", "(Intercept)"] = sum_w
-  Xty["(Intercept)", ] = moments_df[["sum_wy"]]
-  for (x in xvar_names) {
-    swx = moments_df[[paste0("sum_w", x)]]
-    swxx = moments_df[[paste0("sum_w", x, "_", x)]]
-    swxy = moments_df[[paste0("sum_w", x, "_y")]]
-    XtX["(Intercept)", x] = XtX[x, "(Intercept)"] = swx
-    XtX[x, x] = swxx
-    Xty[x, ] = swxy
-  }
-  xpairs = gen_xvar_pairs(xvar_names)
-  for (pair in xpairs) {
-    xi = pair[1]
-    xj = pair[2]
-    val = moments_df[[paste0("sum_w", xi, "_", xj)]]
-    XtX[xi, xj] = XtX[xj, xi] = val
-  }
-
-  solve_result = solve_with_fallback(XtX, Xty)
-  betahat = solve_result[["betahat"]]
-  XtX_inv = solve_result[["XtX_inv"]]
-  rownames(betahat) = vars_all
-
-  rss = as.numeric(
-    moments_df[["sum_wy_sq"]] -
-      2 * t(betahat) %*% Xty +
-      t(betahat) %*% XtX %*% betahat
-  )
+  fit = fit_ols(S, yvar, vars_all)
+  betahat = fit[["coef"]]
+  rss = fit[["rss"]]
+  tss = moment_tss(S, yvar)
   df_res = max(n_total - p, 1)
-  # Calculate TSS for R2
-  sum_wy = moments_df[["sum_wy"]]
-  sum_wy_sq = moments_df[["sum_wy_sq"]]
-  tss = sum_wy_sq - (sum_wy^2 / sum_w)
   
   # Compute meat matrix if needed (HC1 or cluster)
-  meat = compute_score_meat(
-    conn = inputs[["conn"]],
+  frame = list(
     cte_sql = cte_sql,
     cte_name = "base",
-    vcov_type = inputs[["vcov_type_req"]],
-    y_sql = inputs[["yvar"]],
-    x_sql = xvars_sql,
-    beta = betahat[xvar_names, 1],
-    intercept = betahat["(Intercept)", 1],
-    score_names = xvar_names,
-    weights_expr = weights_expr,
-    cluster_var = inputs[["cluster_var"]]
+    cols = setNames(c(yvar, xvars_sql), c(yvar, xvar_names)),
+    weights_expr = weights_expr
   )
+  meat = fit_meat(fit, frame, yvar, inputs)
   
   vcov_mat = compute_vcov(
     vcov_type = inputs[["vcov_type_req"]],
     strategy = "moments",
-    XtX_inv = XtX_inv,
+    XtX_inv = fit[["bread"]],
     rss = rss,
     df_res = df_res,
     nobs_orig = n_total,
@@ -269,15 +231,9 @@ execute_demean_strategy = function(inputs) {
       )"
     )
 
-    moment_terms = c(
+    prefix_terms = c(
       sql_count(inputs[["conn"]], "n_total"),
-      sql_count(inputs[["conn"]], "n_fe1", fe1, distinct = TRUE),
-      "1 AS n_fe2",
-      sql_weighted_sum(
-        glue("CAST({yvar}_tilde AS FLOAT) * CAST({yvar}_tilde AS FLOAT)"),
-        weights_expr_demeaned,
-        "sum_y_sq"
-      )
+      sql_count(inputs[["conn"]], "n_fe1", fe1, distinct = TRUE)
     )
   } else {
     # 2 FE: AP when weighted/unbalanced; double demeaning otherwise
@@ -303,15 +259,7 @@ execute_demean_strategy = function(inputs) {
       fe_count_terms = vapply(seq_along(inputs[["fe"]]), function(k) {
         sql_count(inputs[["conn"]], sprintf("n_fe%d", k), inputs[["fe"]][k], distinct = TRUE)
       }, character(1))
-      moment_terms = c(
-        sql_count(inputs[["conn"]], "n_total"),
-        fe_count_terms,
-        sql_weighted_sum(
-          glue("CAST({yvar}_tilde AS FLOAT) * CAST({yvar}_tilde AS FLOAT)"),
-          weights_expr_demeaned,
-          "sum_y_sq"
-        )
-      )
+      prefix_terms = c(sql_count(inputs[["conn"]], "n_total"), fe_count_terms)
     } else {
       # Double demeaning (balanced panels, unweighted)
       base_select = c(fe1, fe2, yvar)
@@ -431,50 +379,23 @@ execute_demean_strategy = function(inputs) {
         )"
       )
 
-      moment_terms = c(
+      prefix_terms = c(
         sql_count(inputs[["conn"]], "n_total"),
         sql_count(inputs[["conn"]], "n_fe1", fe1, distinct = TRUE),
-        sql_count(inputs[["conn"]], "n_fe2", fe2, distinct = TRUE),
-        sql_weighted_sum(
-          glue("CAST({yvar}_tilde AS FLOAT) * CAST({yvar}_tilde AS FLOAT)"),
-          weights_expr_demeaned,
-          "sum_y_sq"
-        )
+        sql_count(inputs[["conn"]], "n_fe2", fe2, distinct = TRUE)
       )
     }
   }
 
-  # Add moment terms for xvars (shared by both 1-FE and 2-FE cases)
-  # Use numeric indices for column aliases to avoid naming collisions
-  for (i in seq_along(xvar_names)) {
-    x = xvar_names[i]
-    moment_terms = c(
-      moment_terms,
-      sql_weighted_sum(
-        glue("CAST({x}_tilde AS FLOAT) * CAST({yvar}_tilde AS FLOAT)"),
-        weights_expr_demeaned,
-        sprintf("sum_%d_y", i)
-      ),
-      sql_weighted_sum(
-        glue("CAST({x}_tilde AS FLOAT) * CAST({x}_tilde AS FLOAT)"),
-        weights_expr_demeaned,
-        sprintf("sum_%d_%d", i, i)
-      )
-    )
-  }
-  xpairs = gen_xvar_pairs(xvar_names)
-  for (pair in xpairs) {
-    i = match(pair[1], xvar_names)  # larger index (i > j in gen_xvar_pairs)
-    j = match(pair[2], xvar_names)  # smaller index
-    moment_terms = c(
-      moment_terms,
-      sql_weighted_sum(
-        glue("CAST({pair[2]}_tilde AS FLOAT) * CAST({pair[1]}_tilde AS FLOAT)"),
-        weights_expr_demeaned,
-        sprintf("sum_%d_%d", j, i)  # store as sum_smaller_larger
-      )
-    )
-  }
+  # Moments of the demeaned variables (no intercept: means are absorbed)
+  as_float = function(v) sprintf("CAST(%s_tilde AS FLOAT)", v)
+  moment_terms = build_weighted_moment_terms(
+    y_sql = as_float(yvar),
+    x_sql = as_float(xvar_names),
+    weights_expr = weights_expr_demeaned,
+    intercept = FALSE,
+    prefix_terms = prefix_terms
+  )
 
   # Build full SQL
   demean_sql = paste0(
@@ -523,60 +444,25 @@ execute_demean_strategy = function(inputs) {
     if (is.null(val)) 1L else as.integer(val)
   }, integer(1))
 
-  p = length(xvar_names)
-  XtX = matrix(0, p, p, dimnames = list(xvar_names, xvar_names))
-  Xty = matrix(0, p, 1, dimnames = list(xvar_names, ""))
-
-  for (i in seq_along(xvar_names)) {
-    XtX[i, i] = demean_df[[sprintf("sum_%d_%d", i, i)]]
-    Xty[i, ] = demean_df[[sprintf("sum_%d_y", i)]]
-  }
-  if (length(xvar_names) > 1) {
-    for (i in seq_along(xvar_names)) {
-      if (i == 1) next
-      for (j in seq_len(i - 1)) {
-        # Pairs stored as sum_j_i where j < i
-        XtX[i, j] = XtX[j, i] = demean_df[[sprintf("sum_%d_%d", j, i)]]
-      }
-    }
-  }
-
-  # Detect and handle collinearity
-  collin = detect_collinearity(XtX, Xty, verbose = inputs[["verbose"]])
-  XtX = collin[["XtX"]]
-  Xty = collin[["Xty"]]
-  xvar_names_kept = collin[["keep_names"]]
-  collin_vars = collin[["drop_names"]]
-
-  solve_result = solve_with_fallback(XtX, Xty)
-  betahat = solve_result[["betahat"]]
-  XtX_inv = solve_result[["XtX_inv"]]
-  rownames(betahat) = xvar_names_kept
+  S = cross_moments(demean_df, xvar_names, yvar, intercept = FALSE)
+  fit = fit_ols(S, yvar, xvar_names, drop_collinear = TRUE, verbose = inputs[["verbose"]])
+  betahat = fit[["coef"]]
+  xvar_names_kept = fit[["x"]]
+  collin_vars = fit[["dropped"]]
   p_kept = length(xvar_names_kept)
-
-  rss = as.numeric(
-    demean_df[["sum_y_sq"]] -
-      2 * t(betahat) %*% Xty +
-      t(betahat) %*% XtX %*% betahat
-  )
+  rss = fit[["rss"]]
   n_fe = length(inputs[["fe"]])
   df_fe = sum(n_fe_levels) - (n_fe - 1)
   df_res = max(n_total - p_kept - df_fe, 1)
   
   # Compute meat matrix if needed (HC1 or cluster)
-  x_tilde = paste0(xvar_names_kept, "_tilde")
-  meat = compute_score_meat(
-    conn = inputs[["conn"]],
+  frame = list(
     cte_sql = cte_sql,
     cte_name = "demeaned",
-    vcov_type = inputs[["vcov_type_req"]],
-    y_sql = paste0(yvar, "_tilde"),
-    x_sql = x_tilde,
-    beta = betahat[xvar_names_kept, 1],
-    score_names = xvar_names_kept,
-    weights_expr = weights_expr_demeaned,
-    cluster_var = inputs[["cluster_var"]]
+    cols = setNames(paste0(all_var_names, "_tilde"), all_var_names),
+    weights_expr = weights_expr_demeaned
   )
+  meat = fit_meat(fit, frame, yvar, inputs)
   n_params_cluster = p_kept + df_fe  # K for CR1 correction
   if (inputs[["vcov_type_req"]] == "cluster") {
     # For ssc = "nested", exclude nested FE levels from K
@@ -590,7 +476,7 @@ execute_demean_strategy = function(inputs) {
   vcov_mat = compute_vcov(
     vcov_type = inputs[["vcov_type_req"]],
     strategy = "demean",
-    XtX_inv = XtX_inv,
+    XtX_inv = fit[["bread"]],
     rss = rss,
     df_res = df_res,
     nobs_orig = n_total,
@@ -598,7 +484,7 @@ execute_demean_strategy = function(inputs) {
     meat = meat
   )
   attr(vcov_mat, "rss") = rss
-  attr(vcov_mat, "tss") = demean_df[["sum_y_sq"]]
+  attr(vcov_mat, "tss") = moment_tss(S, yvar)
 
   coeftable = gen_coeftable(betahat, vcov_mat, df_res)
   ap_cleanup()
@@ -747,9 +633,7 @@ execute_mundlak_strategy = function(inputs) {
   moment_terms = build_weighted_moment_terms(
     y_sql = glue("CAST({yvar} AS FLOAT)"),
     x_sql = glue("CAST({all_regressors} AS FLOAT)"),
-    x_aliases = all_regressors,
     weights_expr = weights_expr_aug,
-    alias_mode = "indices",
     prefix_terms = c(
       sql_count(inputs[["conn"]], "n_total"),
       if (n_fe >= 1) sql_count(inputs[["conn"]], "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
@@ -790,68 +674,29 @@ execute_mundlak_strategy = function(inputs) {
   n_total = mundlak_df[["n_total"]]
   n_fe1 = mundlak_df[["n_fe1"]]
   n_fe2 = mundlak_df[["n_fe2"]]
-  sum_w = mundlak_df[["sum_w"]]
 
-  # Include intercept
+  S = cross_moments(mundlak_df, all_regressors, yvar)
   vars_all = c("(Intercept)", all_regressors)
   p = length(vars_all)
-
-  XtX = matrix(0, p, p, dimnames = list(vars_all, vars_all))
-  Xty = matrix(0, p, 1, dimnames = list(vars_all, ""))
-
-  # Intercept terms
-  XtX[1, 1] = sum_w
-  Xty[1, ] = mundlak_df[["sum_wy"]]
-
-  # Regressor terms (using numeric indices)
-  for (i in seq_along(all_regressors)) {
-    XtX[1, i + 1] = XtX[i + 1, 1] = mundlak_df[[sprintf("sum_w%d", i)]]
-    XtX[i + 1, i + 1] = mundlak_df[[sprintf("sum_w%d_%d", i, i)]]
-    Xty[i + 1, ] = mundlak_df[[sprintf("sum_w%d_y", i)]]
-  }
-
-  # Cross-terms
-  for (i in seq_along(all_regressors)) {
-    for (j in seq_along(all_regressors)) {
-      if (i < j) {
-        XtX[i + 1, j + 1] = XtX[j + 1, i + 1] = mundlak_df[[sprintf("sum_w%d_%d", i, j)]]
-      }
-    }
-  }
-
-  solve_result = solve_with_fallback(XtX, Xty)
-  betahat = solve_result[["betahat"]]
-  XtX_inv = solve_result[["XtX_inv"]]
-  rownames(betahat) = vars_all
-
-  # RSS and TSS
-  rss = as.numeric(
-    mundlak_df[["sum_wy_sq"]] -
-      2 * t(betahat) %*% Xty +
-      t(betahat) %*% XtX %*% betahat
-  )
-  tss = mundlak_df[["sum_wy_sq"]] - (mundlak_df[["sum_wy"]]^2 / sum_w)
-
+  fit = fit_ols(S, yvar, vars_all)
+  betahat = fit[["coef"]]
+  rss = fit[["rss"]]
+  tss = moment_tss(S, yvar)
   df_res = max(n_total - p, 1)
 
   # Compute meat matrix if needed (HC1 or cluster)
-  meat = compute_score_meat(
-    conn = inputs[["conn"]],
+  frame = list(
     cte_sql = cte_sql,
     cte_name = "augmented",
-    vcov_type = inputs[["vcov_type_req"]],
-    y_sql = yvar,
-    x_sql = all_regressors,
-    beta = betahat[all_regressors, 1],
-    intercept = betahat["(Intercept)", 1],
-    weights_expr = weights_expr_aug,
-    cluster_var = inputs[["cluster_var"]]
+    cols = setNames(c(yvar, all_regressors), c(yvar, all_regressors)),
+    weights_expr = weights_expr_aug
   )
+  meat = fit_meat(fit, frame, yvar, inputs)
 
   vcov_mat = compute_vcov(
     vcov_type = inputs[["vcov_type_req"]],
     strategy = "mundlak",
-    XtX_inv = XtX_inv,
+    XtX_inv = fit[["bread"]],
     rss = rss,
     df_res = df_res,
     nobs_orig = n_total,

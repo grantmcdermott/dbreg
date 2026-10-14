@@ -391,12 +391,11 @@ execute_iv_moments_strategy = function(inputs) {
   }
 
   weights_expr = if (is.null(inputs[["weights"]])) NULL else sql_weight_expr(weight_alias)
-  moment_terms = dbivreg_union_moment_terms(
-    conn = inputs[["conn"]],
-    union_names = inputs[["union_names"]],
-    y_expr = inputs[["yvar"]],
+  moment_terms = build_weighted_moment_terms(
+    y_sql = inputs[["yvar"]],
+    x_sql = inputs[["union_names"]],
     weights_expr = weights_expr,
-    has_intercept = TRUE
+    prefix_terms = sql_count(inputs[["conn"]], "n_total")
   )
 
   cte_sql = paste0(
@@ -429,15 +428,8 @@ execute_iv_moments_strategy = function(inputs) {
     inputs = inputs,
     moment_df = moments_df,
     query_string = moments_sql,
-    cte_sql = cte_sql,
-    cte_name = "base",
-    x_names_full = c("(Intercept)", inputs[["x_all_names"]]),
-    z_names_full = c("(Intercept)", inputs[["z_all_names"]]),
-    has_intercept = TRUE,
-    weights_expr = weights_expr,
-    x_vars_sql = inputs[["x_all_names"]],
-    z_vars_sql = inputs[["z_all_names"]],
-    yvar_sql = inputs[["yvar"]]
+    frame = dbivreg_frame(inputs, cte_sql, "base", weights_expr),
+    has_intercept = TRUE
   )
 }
 
@@ -474,11 +466,7 @@ execute_iv_compress_strategy = function(inputs) {
     sql_weighted_sum(yvar, weights_expr, "sum_wy"),
     sql_weighted_sum(glue("({yvar}) * ({yvar})"), weights_expr, "sum_wy_sq")
   )
-  compressed_moment_terms = dbivreg_compressed_moment_terms(
-    conn = inputs[["conn"]],
-    union_names = inputs[["union_names"]],
-    has_intercept = TRUE
-  )
+  compressed_moment_terms = dbivreg_compressed_moment_terms(inputs[["conn"]], inputs[["union_names"]])
   group_cols_sql = paste(inputs[["union_names"]], collapse = ", ")
 
   cte_sql = paste0(
@@ -525,15 +513,8 @@ execute_iv_compress_strategy = function(inputs) {
     inputs = inputs,
     moment_df = moments_df,
     query_string = compress_sql,
-    cte_sql = cte_sql,
-    cte_name = "base",
-    x_names_full = c("(Intercept)", inputs[["x_all_names"]]),
-    z_names_full = c("(Intercept)", inputs[["z_all_names"]]),
-    has_intercept = TRUE,
-    weights_expr = weights_expr,
-    x_vars_sql = inputs[["x_all_names"]],
-    z_vars_sql = inputs[["z_all_names"]],
-    yvar_sql = yvar
+    frame = dbivreg_frame(inputs, cte_sql, "base", weights_expr),
+    has_intercept = TRUE
   )
   result[["nobs"]] = moments_df[["n_compressed"]]
   result[["compression_ratio"]] = compression_ratio
@@ -783,47 +764,14 @@ execute_iv_demean_strategy = function(inputs) {
   if (length(fe) == 1) {
     fe_count_terms = c(fe_count_terms, "1 AS n_fe2")
   }
-  moment_terms = c(
-    sql_count(inputs[["conn"]], "n_total"),
-    fe_count_terms,
-    sql_weighted_sum(
-      glue("CAST({yvar}_tilde AS FLOAT) * CAST({yvar}_tilde AS FLOAT)"),
-      weights_expr_demeaned,
-      "sum_y_sq"
-    )
+  as_float = function(v) sprintf("CAST(%s_tilde AS FLOAT)", v)
+  moment_terms = build_weighted_moment_terms(
+    y_sql = as_float(yvar),
+    x_sql = as_float(union_names),
+    weights_expr = weights_expr_demeaned,
+    intercept = FALSE,
+    prefix_terms = c(sql_count(inputs[["conn"]], "n_total"), fe_count_terms)
   )
-  for (i in seq_along(union_names)) {
-    moment_terms = c(
-      moment_terms,
-      sql_weighted_sum(
-        glue("CAST({union_names[i]}_tilde AS FLOAT) * CAST({yvar}_tilde AS FLOAT)"),
-        weights_expr_demeaned,
-        sprintf("sum_u%d_y", i)
-      ),
-      sql_weighted_sum(
-        glue("CAST({union_names[i]}_tilde AS FLOAT) * CAST({union_names[i]}_tilde AS FLOAT)"),
-        weights_expr_demeaned,
-        sprintf("sum_u%d_%d", i, i)
-      )
-    )
-  }
-  if (length(union_names) > 1) {
-    for (i in seq_along(union_names)) {
-      if (i == 1) {
-        next
-      }
-      for (j in seq_len(i - 1)) {
-        moment_terms = c(
-          moment_terms,
-          sql_weighted_sum(
-            glue("CAST({union_names[j]}_tilde AS FLOAT) * CAST({union_names[i]}_tilde AS FLOAT)"),
-            weights_expr_demeaned,
-            sprintf("sum_u%d_%d", j, i)
-          )
-        )
-      }
-    }
-  }
 
   demean_sql = paste0(
     cte_sql,
@@ -867,60 +815,35 @@ execute_iv_demean_strategy = function(inputs) {
     inputs = inputs,
     moment_df = demean_df,
     query_string = demean_sql,
+    frame = dbivreg_frame(inputs, cte_sql, "demeaned", weights_expr_demeaned, suffix = "_tilde"),
+    has_intercept = FALSE
+  )
+}
+
+#' Column map for the IV score pass
+#'
+#' Maps the outcome and union (X and Z) names to their SQL columns in
+#' `cte_name` (with `suffix` for demeaned columns). See [fit_meat()].
+#' @keywords internal
+dbivreg_frame = function(inputs, cte_sql, cte_name, weights_expr, suffix = "") {
+  vars = c(inputs[["yvar"]], inputs[["union_names"]])
+  list(
     cte_sql = cte_sql,
-    cte_name = "demeaned",
-    x_names_full = inputs[["x_all_names"]],
-    z_names_full = inputs[["z_all_names"]],
-    has_intercept = FALSE,
-    weights_expr = weights_expr_demeaned,
-    x_vars_sql = paste0(inputs[["x_all_names"]], "_tilde"),
-    z_vars_sql = paste0(inputs[["z_all_names"]], "_tilde"),
-    yvar_sql = paste0(inputs[["yvar"]], "_tilde")
+    cte_name = cte_name,
+    cols = setNames(paste0(vars, suffix), vars),
+    weights_expr = weights_expr
   )
 }
 
 #' @keywords internal
-dbivreg_finalize_fit = function(
-  inputs,
-  moment_df,
-  query_string,
-  cte_sql,
-  cte_name,
-  x_names_full,
-  z_names_full,
-  has_intercept,
-  weights_expr,
-  x_vars_sql,
-  z_vars_sql,
-  yvar_sql
-) {
-  moms = dbivreg_reconstruct_moments(moment_df, inputs[["union_names"]], has_intercept)
-
-  S_xx = moms$S_uu[x_names_full, x_names_full, drop = FALSE]
-  S_xy = moms$S_uy[x_names_full, , drop = FALSE]
-  S_zz = moms$S_uu[z_names_full, z_names_full, drop = FALSE]
-  S_zx = moms$S_uu[z_names_full, x_names_full, drop = FALSE]
-  S_zy = moms$S_uy[z_names_full, , drop = FALSE]
-
-  if (qr(S_zz, tol = 1e-10)$rank < ncol(S_zz)) {
-    stop("Instrument matrix is rank deficient.")
-  }
-  z_inv = solve_with_fallback(S_zz, diag(ncol(S_zz)))$XtX_inv
-  A = Matrix::t(S_zx) %*% z_inv %*% S_zx
-  if (qr(A, tol = 1e-10)$rank < ncol(A)) {
-    stop("IV system is not identified or regressors are collinear after instrumentation.")
-  }
-  rhs = Matrix::t(S_zx) %*% z_inv %*% S_zy
-  solve_result = solve_with_fallback(A, rhs)
-  betahat = solve_result$betahat
-  A_inv = solve_result$XtX_inv
-  rownames(betahat) = x_names_full
-
-  rss = as.numeric(
-    moms$sum_y_sq -
-      2 * Matrix::t(betahat) %*% S_xy +
-      Matrix::t(betahat) %*% S_xx %*% betahat
-  )
+dbivreg_finalize_fit = function(inputs, moment_df, query_string, frame, has_intercept) {
+  yvar = inputs[["yvar"]]
+  x_names_full = c(if (has_intercept) "(Intercept)", inputs[["x_all_names"]])
+  z_names_full = c(if (has_intercept) "(Intercept)", inputs[["z_all_names"]])
+  S = cross_moments(moment_df, inputs[["union_names"]], yvar, intercept = has_intercept)
+  fit = fit_2sls(S, yvar, x_names_full, z_names_full)
+  betahat = fit[["coef"]]
+  rss = fit[["rss"]]
 
   n_fe = length(inputs[["fe"]])
   n_fe_levels = if (n_fe == 0) {
@@ -945,45 +868,20 @@ dbivreg_finalize_fit = function(
   }
   n_params = length(x_names_full) + df_fe - nested_levels
 
-  tss = if (has_intercept) {
-    moms$sum_y_sq - (moms$sum_wy^2 / moms$sum_w)
-  } else {
-    moms$sum_y_sq
-  }
+  tss = moment_tss(S, yvar)
 
-  # Score pass: residuals from the structural regressors, scores from instruments
-  x_slopes = x_names_full[x_names_full != "(Intercept)"]
-  meat = compute_score_meat(
-    conn = inputs[["conn"]],
-    cte_sql = cte_sql,
-    cte_name = cte_name,
-    vcov_type = inputs[["vcov_type_req"]],
-    y_sql = yvar_sql,
-    x_sql = x_vars_sql,
-    beta = betahat[x_slopes, 1],
-    intercept = if (has_intercept) betahat["(Intercept)", 1],
-    score_sql = z_vars_sql,
-    score_names = z_names_full[z_names_full != "(Intercept)"],
-    weights_expr = weights_expr,
-    cluster_var = inputs[["cluster_var"]]
-  )
-
-  # 2SLS sandwich: A^-1 [X'Z (Z'Z)^-1 Omega (Z'Z)^-1 Z'X] A^-1 has the same
-  # form as OLS's (X'X)^-1 Omega (X'X)^-1, so reuse the shared vcov scaling
-  meat_x = NULL
-  if (!is.null(meat)) {
-    meat_x = Matrix::t(S_zx) %*% z_inv %*% meat %*% z_inv %*% S_zx
-    attr(meat_x, "n_clusters") = attr(meat, "n_clusters")
-  }
+  # Score pass: residuals from the structural regressors, scores from the
+  # instruments; fit_2sls() projects the meat into coefficient space
+  meat = fit_meat(fit, frame, yvar, inputs)
   vcov_mat = compute_vcov(
     vcov_type = inputs[["vcov_type_req"]],
     strategy = if (has_intercept) "moments" else "demean",
-    XtX_inv = A_inv,
+    XtX_inv = fit[["bread"]],
     rss = rss,
     df_res = df_res,
     nobs_orig = moment_df$n_total,
     n_params = n_params,
-    meat = meat_x
+    meat = fit[["project_meat"]](meat)
   )
   attr(vcov_mat, "rss") = rss
   attr(vcov_mat, "tss") = tss
@@ -991,18 +889,13 @@ dbivreg_finalize_fit = function(
   coeftable = gen_coeftable(betahat, vcov_mat, df_res)
   iv_diagnostics = compute_dbivreg_diagnostics(
     inputs = inputs,
-    moms = moms,
-    cte_sql = cte_sql,
-    cte_name = cte_name,
+    S = S,
+    frame = frame,
+    fit = fit,
+    z = z_names_full,
     has_intercept = has_intercept,
-    weights_expr = weights_expr,
     n_total = moment_df$n_total,
     df_fe = df_fe,
-    rss = rss,
-    betahat = betahat,
-    S_zz = S_zz,
-    S_zx = S_zx,
-    S_zy = S_zy,
     meat = meat,
     nested_levels = nested_levels
   )
@@ -1035,101 +928,10 @@ dbivreg_finalize_fit = function(
   out
 }
 
+# Cross moments over the compressed table, in build_weighted_moment_terms()
+# alias form so cross_moments() can read them
 #' @keywords internal
-dbivreg_reconstruct_moments = function(moment_df, union_names, has_intercept) {
-  if (has_intercept) {
-    union_all = c("(Intercept)", union_names)
-    S_uu = matrix(0, length(union_all), length(union_all), dimnames = list(union_all, union_all))
-    S_uy = matrix(0, length(union_all), 1, dimnames = list(union_all, ""))
-
-    S_uu["(Intercept)", "(Intercept)"] = moment_df$sum_w
-    S_uy["(Intercept)", ] = moment_df$sum_wy
-    for (i in seq_along(union_names)) {
-      S_uu["(Intercept)", union_names[i]] = S_uu[union_names[i], "(Intercept)"] = moment_df[[sprintf("sum_u%d", i)]]
-      S_uu[union_names[i], union_names[i]] = moment_df[[sprintf("sum_u%d_%d", i, i)]]
-      S_uy[union_names[i], ] = moment_df[[sprintf("sum_u%d_y", i)]]
-    }
-    if (length(union_names) > 1) {
-      for (i in seq_along(union_names)) {
-        if (i == 1) {
-          next
-        }
-        for (j in seq_len(i - 1)) {
-          S_uu[union_names[i], union_names[j]] = S_uu[union_names[j], union_names[i]] = moment_df[[sprintf("sum_u%d_%d", j, i)]]
-        }
-      }
-    }
-    list(
-      S_uu = S_uu,
-      S_uy = S_uy,
-      sum_w = moment_df$sum_w,
-      sum_wy = moment_df$sum_wy,
-      sum_y_sq = moment_df$sum_wy_sq
-    )
-  } else {
-    S_uu = matrix(0, length(union_names), length(union_names), dimnames = list(union_names, union_names))
-    S_uy = matrix(0, length(union_names), 1, dimnames = list(union_names, ""))
-
-    for (i in seq_along(union_names)) {
-      S_uu[i, i] = moment_df[[sprintf("sum_u%d_%d", i, i)]]
-      S_uy[i, ] = moment_df[[sprintf("sum_u%d_y", i)]]
-    }
-    if (length(union_names) > 1) {
-      for (i in seq_along(union_names)) {
-        if (i == 1) {
-          next
-        }
-        for (j in seq_len(i - 1)) {
-          S_uu[i, j] = S_uu[j, i] = moment_df[[sprintf("sum_u%d_%d", j, i)]]
-        }
-      }
-    }
-    list(
-      S_uu = S_uu,
-      S_uy = S_uy,
-      sum_w = NA_real_,
-      sum_wy = NA_real_,
-      sum_y_sq = moment_df$sum_y_sq
-    )
-  }
-}
-
-#' @keywords internal
-dbivreg_union_moment_terms = function(conn, union_names, y_expr, weights_expr, has_intercept) {
-  terms = c(
-    sql_count(conn, "n_total"),
-    if (is.null(weights_expr)) sql_count(conn, "sum_w") else glue("SUM({weights_expr}) AS sum_w"),
-    sql_weighted_sum(y_expr, weights_expr, "sum_wy"),
-    sql_weighted_sum(glue("({y_expr}) * ({y_expr})"), weights_expr, "sum_wy_sq")
-  )
-  for (i in seq_along(union_names)) {
-    if (has_intercept) {
-      terms = c(terms, sql_weighted_sum(union_names[i], weights_expr, sprintf("sum_u%d", i)))
-    }
-    terms = c(
-      terms,
-      sql_weighted_sum(glue("({union_names[i]}) * ({y_expr})"), weights_expr, sprintf("sum_u%d_y", i)),
-      sql_weighted_sum(glue("({union_names[i]}) * ({union_names[i]})"), weights_expr, sprintf("sum_u%d_%d", i, i))
-    )
-  }
-  if (length(union_names) > 1) {
-    for (i in seq_along(union_names)) {
-      if (i == 1) {
-        next
-      }
-      for (j in seq_len(i - 1)) {
-        terms = c(
-          terms,
-          sql_weighted_sum(glue("({union_names[j]}) * ({union_names[i]})"), weights_expr, sprintf("sum_u%d_%d", j, i))
-        )
-      }
-    }
-  }
-  terms
-}
-
-#' @keywords internal
-dbivreg_compressed_moment_terms = function(conn, union_names, has_intercept) {
+dbivreg_compressed_moment_terms = function(conn, union_names) {
   terms = c(
     "SUM(n) AS n_total",
     sql_count(conn, "n_compressed"),
@@ -1138,29 +940,13 @@ dbivreg_compressed_moment_terms = function(conn, union_names, has_intercept) {
     "SUM(sum_wy_sq) AS sum_wy_sq"
   )
   for (i in seq_along(union_names)) {
-    if (has_intercept) {
-      terms = c(
-        terms,
-        glue("SUM(sum_w * ({union_names[i]})) AS sum_u{i}")
-      )
-    }
     terms = c(
       terms,
-      glue("SUM(sum_wy * ({union_names[i]})) AS sum_u{i}_y"),
-      glue("SUM(sum_w * ({union_names[i]}) * ({union_names[i]})) AS sum_u{i}_{i}")
+      glue("SUM(sum_w * ({union_names[i]})) AS sum_w{i}"),
+      glue("SUM(sum_wy * ({union_names[i]})) AS sum_w{i}_y")
     )
-  }
-  if (length(union_names) > 1) {
-    for (i in seq_along(union_names)) {
-      if (i == 1) {
-        next
-      }
-      for (j in seq_len(i - 1)) {
-        terms = c(
-          terms,
-          glue("SUM(sum_w * ({union_names[j]}) * ({union_names[i]})) AS sum_u{j}_{i}")
-        )
-      }
+    for (j in seq_len(i)) {
+      terms = c(terms, glue("SUM(sum_w * ({union_names[j]}) * ({union_names[i]})) AS sum_w{j}_{i}"))
     }
   }
   terms
@@ -1409,46 +1195,24 @@ dbivreg_trim_ws = function(x) {
 #' @keywords internal
 compute_dbivreg_diagnostics = function(
   inputs,
-  moms,
-  cte_sql,
-  cte_name,
+  S,
+  frame,
+  fit,
+  z,
   has_intercept,
-  weights_expr,
   n_total,
   df_fe,
-  rss,
-  betahat,
-  S_zz,
-  S_zx,
-  S_zy,
   meat,
   nested_levels = 0L
 ) {
-  overid = compute_dbivreg_overid(
-    inputs = inputs,
-    betahat = betahat,
-    S_zz = S_zz,
-    S_zx = S_zx,
-    S_zy = S_zy,
-    rss = rss,
-    n_total = n_total,
-    meat = meat
-  )
+  overid = compute_dbivreg_overid(inputs, S, fit, z, n_total, meat)
   list(
-    first_stage_f = compute_dbivreg_first_stage_f(
-      inputs = inputs,
-      moms = moms,
-      n_total = n_total,
-      df_fe = df_fe,
-      has_intercept = has_intercept
-    ),
+    first_stage_f = compute_dbivreg_first_stage_f(inputs, S, n_total, df_fe, has_intercept),
     first_stage_wald = compute_dbivreg_first_stage_wald(
       inputs = inputs,
-      moms = moms,
-      cte_sql = cte_sql,
-      cte_name = cte_name,
+      S = S,
+      frame = frame,
       has_intercept = has_intercept,
-      weights_expr = weights_expr,
       n_total = n_total,
       df_fe = df_fe,
       nested_levels = nested_levels
@@ -1460,7 +1224,7 @@ compute_dbivreg_diagnostics = function(
 }
 
 #' @keywords internal
-compute_dbivreg_first_stage_f = function(inputs, moms, n_total, df_fe, has_intercept) {
+compute_dbivreg_first_stage_f = function(inputs, S, n_total, df_fe, has_intercept) {
   excluded = inputs[["instr_names"]]
   endogenous = inputs[["endog_names"]]
   if (!length(excluded) || !length(endogenous)) {
@@ -1470,50 +1234,23 @@ compute_dbivreg_first_stage_f = function(inputs, moms, n_total, df_fe, has_inter
   unrestricted = c(if (has_intercept) "(Intercept)", inputs[["exog_names"]], excluded)
   restricted = c(if (has_intercept) "(Intercept)", inputs[["exog_names"]])
   q = length(excluded)
-  out = vector("list", length(endogenous))
+  df2 = max(n_total - length(unrestricted) - df_fe, 1)
+  out = lapply(endogenous, function(y_name) {
+    rss_u = fit_ols(S, y_name, unrestricted)[["rss"]]
+    rss_r = if (length(restricted)) fit_ols(S, y_name, restricted)[["rss"]] else S[y_name, y_name]
+    stat = max(((rss_r - rss_u) / q) / (rss_u / df2), 0)
+    list(stat = stat, p = stats::pf(stat, q, df2, lower.tail = FALSE), df1 = q, df2 = df2)
+  })
   names(out) = standardize_coef_names(endogenous)
-
-  for (j in seq_along(endogenous)) {
-    y_name = endogenous[j]
-    S_uu = moms$S_uu[unrestricted, unrestricted, drop = FALSE]
-    S_uy = moms$S_uu[unrestricted, y_name, drop = FALSE]
-    fit_u = solve_with_fallback(S_uu, S_uy)
-    beta_u = fit_u$betahat
-    yy = moms$S_uu[y_name, y_name]
-    rss_u = as.numeric(yy - 2 * Matrix::t(beta_u) %*% S_uy + Matrix::t(beta_u) %*% S_uu %*% beta_u)
-
-    if (length(restricted) == 0) {
-      rss_r = yy
-    } else {
-      S_rr = moms$S_uu[restricted, restricted, drop = FALSE]
-      S_ry = moms$S_uu[restricted, y_name, drop = FALSE]
-      fit_r = solve_with_fallback(S_rr, S_ry)
-      beta_r = fit_r$betahat
-      rss_r = as.numeric(yy - 2 * Matrix::t(beta_r) %*% S_ry + Matrix::t(beta_r) %*% S_rr %*% beta_r)
-    }
-
-    df2 = max(n_total - length(unrestricted) - df_fe, 1)
-    stat = ((rss_r - rss_u) / q) / (rss_u / df2)
-    stat = max(as.numeric(stat), 0)
-    out[[j]] = list(
-      stat = stat,
-      p = stats::pf(stat, q, df2, lower.tail = FALSE),
-      df1 = q,
-      df2 = df2
-    )
-  }
-
   out
 }
 
 #' @keywords internal
 compute_dbivreg_first_stage_wald = function(
   inputs,
-  moms,
-  cte_sql,
-  cte_name,
+  S,
+  frame,
   has_intercept,
-  weights_expr,
   n_total,
   df_fe,
   nested_levels = 0L
@@ -1525,79 +1262,50 @@ compute_dbivreg_first_stage_wald = function(
   }
 
   unrestricted = c(if (has_intercept) "(Intercept)", inputs[["exog_names"]], excluded)
-  regressors = c(inputs[["exog_names"]], excluded)
   q = length(excluded)
-  out = vector("list", length(endogenous))
-  names(out) = standardize_coef_names(endogenous)
-
-  for (j in seq_along(endogenous)) {
-    y_name = endogenous[j]
-    S_uu = moms$S_uu[unrestricted, unrestricted, drop = FALSE]
-    S_uy = moms$S_uu[unrestricted, y_name, drop = FALSE]
-    fit_u = solve_with_fallback(S_uu, S_uy)
-    beta_u = fit_u$betahat
-    XtX_inv = fit_u$XtX_inv
-    rownames(beta_u) = unrestricted
-
-    yy = moms$S_uu[y_name, y_name]
-    rss_u = as.numeric(yy - 2 * Matrix::t(beta_u) %*% S_uy + Matrix::t(beta_u) %*% S_uu %*% beta_u)
-    df2 = max(n_total - length(unrestricted) - df_fe, 1)
-
-    vcov_type = inputs[["vcov_type_req"]]
-    meat = compute_score_meat(
-      conn = inputs[["conn"]],
-      cte_sql = cte_sql,
-      cte_name = cte_name,
-      vcov_type = vcov_type,
-      y_sql = if (has_intercept) y_name else paste0(y_name, "_tilde"),
-      x_sql = if (has_intercept) regressors else paste0(regressors, "_tilde"),
-      beta = beta_u[regressors, 1],
-      intercept = if (has_intercept) beta_u["(Intercept)", 1],
-      score_names = regressors,
-      weights_expr = weights_expr,
-      cluster_var = inputs[["cluster_var"]]
-    )
+  df2 = max(n_total - length(unrestricted) - df_fe, 1)
+  vcov_type = inputs[["vcov_type_req"]]
+  out = lapply(endogenous, function(y_name) {
+    fit_u = fit_ols(S, y_name, unrestricted)
     vcov_u = compute_vcov(
       vcov_type = vcov_type,
       strategy = if (has_intercept) "moments" else "demean",
-      XtX_inv = XtX_inv,
-      rss = rss_u,
+      XtX_inv = fit_u[["bread"]],
+      rss = fit_u[["rss"]],
       df_res = df2,
       nobs_orig = n_total,
       n_params = length(unrestricted) + df_fe - if (vcov_type == "cluster") nested_levels else 0L,
-      meat = meat
+      meat = fit_meat(fit_u, frame, y_name, inputs)
     )
-    vcov_label = format_vcov_label(vcov_type, attr(vcov_u, "n_clusters"))
-
-    beta_q = beta_u[excluded, , drop = FALSE]
+    beta_q = fit_u[["coef"]][excluded, , drop = FALSE]
     vcov_q = vcov_u[excluded, excluded, drop = FALSE]
-    inv_vcov_q = solve_with_fallback(vcov_q, beta_q)$betahat
-    stat = as.numeric(Matrix::t(beta_q) %*% inv_vcov_q) / q
+    stat = as.numeric(Matrix::t(beta_q) %*% solve_with_fallback(vcov_q, beta_q)$betahat) / q
     stat = max(stat, 0)
-    out[[j]] = list(
+    list(
       stat = stat,
       p = stats::pf(stat, q, df2, lower.tail = FALSE),
       df1 = q,
       df2 = df2,
-      vcov = vcov_label
+      vcov = format_vcov_label(vcov_type, attr(vcov_u, "n_clusters"))
     )
-  }
-
+  })
+  names(out) = standardize_coef_names(endogenous)
   out
 }
 
 #' @keywords internal
-compute_dbivreg_overid = function(inputs, betahat, S_zz, S_zx, S_zy, rss, n_total, meat = NULL) {
+compute_dbivreg_overid = function(inputs, S, fit, z, n_total, meat = NULL) {
   df = length(inputs[["instr_names"]]) - length(inputs[["endog_names"]])
   if (df <= 0) {
     test_name = if (identical(inputs[["vcov_type_req"]], "iid")) "Sargan" else "Hansen J"
     return(list(stat = NA_real_, p = NA_real_, df = max(df, 0L), test = test_name))
   }
 
-  moments = S_zy - S_zx %*% betahat
+  # Sample moment conditions Z'e
+  moments = S[z, inputs[["yvar"]], drop = FALSE] - S[z, fit[["x"]], drop = FALSE] %*% fit[["coef"]]
   if (identical(inputs[["vcov_type_req"]], "iid")) {
-    z_inv = solve_with_fallback(S_zz, moments)$betahat
-    stat = as.numeric(Matrix::t(moments) %*% z_inv) / (rss / n_total)
+    z_inv = solve_with_fallback(S[z, z, drop = FALSE], moments)$betahat
+    stat = as.numeric(Matrix::t(moments) %*% z_inv) / (fit[["rss"]] / n_total)
     test_name = "Sargan"
   } else {
     if (is.null(meat)) {

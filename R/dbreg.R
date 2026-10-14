@@ -562,25 +562,19 @@ sql_weighted_mean = function(expr, weights_expr, alias) {
   glue("SUM(({weights_expr}) * ({expr})) / SUM({weights_expr}) AS {alias}")
 }
 
-# build_weighted_moment_terms: aggregate terms for weighted sufficient stats
+# build_weighted_moment_terms: aggregate terms for weighted sufficient stats.
+# Aliases use variable indices (sum_w{i}, sum_w{i}_y, sum_w{i}_{j} for i <= j)
+# and are read back into a matrix by cross_moments(). Set intercept = FALSE to
+# skip the linear sums (e.g., for demeaned data).
 build_weighted_moment_terms = function(
   y_sql,
   x_sql = character(0),
-  x_aliases = NULL,
   weights_expr = NULL,
-  alias_mode = c("names", "indices"),
+  intercept = TRUE,
   prefix_terms = NULL,
   include_w_sq = FALSE,
   w_sq_alias_base = "sum_w2"
 ) {
-  alias_mode = match.arg(alias_mode)
-  if (is.null(x_aliases)) {
-    x_aliases = x_sql
-  }
-  if (length(x_sql) != length(x_aliases)) {
-    stop("`x_sql` and `x_aliases` must have the same length.")
-  }
-
   weights_sq_expr = if (is.null(weights_expr)) NULL else glue("({weights_expr}) * ({weights_expr})")
   moment_terms = c(
     prefix_terms,
@@ -602,60 +596,17 @@ build_weighted_moment_terms = function(
     )
   }
 
-  if (!length(x_sql)) {
-    return(moment_terms)
-  }
-
-  if (alias_mode == "names") {
-    for (i in seq_along(x_sql)) {
-      x_expr = x_sql[i]
-      x_alias = x_aliases[i]
+  for (i in seq_along(x_sql)) {
+    moment_terms = c(
+      moment_terms,
+      if (intercept) sql_weighted_sum(x_sql[i], weights_expr, sprintf("sum_w%d", i)),
+      sql_weighted_sum(glue("({x_sql[i]}) * ({y_sql})"), weights_expr, sprintf("sum_w%d_y", i))
+    )
+    for (j in seq_len(i)) {
       moment_terms = c(
         moment_terms,
-        sql_weighted_sum(x_expr, weights_expr, paste0("sum_w", x_alias)),
-        sql_weighted_sum(glue("({x_expr}) * ({y_sql})"), weights_expr, paste0("sum_w", x_alias, "_y")),
-        sql_weighted_sum(glue("({x_expr}) * ({x_expr})"), weights_expr, paste0("sum_w", x_alias, "_", x_alias))
+        sql_weighted_sum(glue("({x_sql[j]}) * ({x_sql[i]})"), weights_expr, sprintf("sum_w%d_%d", j, i))
       )
-    }
-
-    xpairs = gen_xvar_pairs(x_aliases)
-    for (pair in xpairs) {
-      i = match(pair[1], x_aliases)
-      j = match(pair[2], x_aliases)
-      moment_terms = c(
-        moment_terms,
-        sql_weighted_sum(
-          glue("({x_sql[i]}) * ({x_sql[j]})"),
-          weights_expr,
-          paste0("sum_w", pair[1], "_", pair[2])
-        )
-      )
-    }
-  } else {
-    for (i in seq_along(x_sql)) {
-      x_expr = x_sql[i]
-      moment_terms = c(
-        moment_terms,
-        sql_weighted_sum(x_expr, weights_expr, sprintf("sum_w%d", i)),
-        sql_weighted_sum(glue("({x_expr}) * ({y_sql})"), weights_expr, sprintf("sum_w%d_y", i)),
-        sql_weighted_sum(glue("({x_expr}) * ({x_expr})"), weights_expr, sprintf("sum_w%d_%d", i, i))
-      )
-    }
-
-    for (i in seq_along(x_sql)) {
-      if (i == length(x_sql)) {
-        next
-      }
-      for (j in (i + 1):length(x_sql)) {
-        moment_terms = c(
-          moment_terms,
-          sql_weighted_sum(
-            glue("({x_sql[i]}) * ({x_sql[j]})"),
-            weights_expr,
-            sprintf("sum_w%d_%d", i, j)
-          )
-        )
-      }
     }
   }
 

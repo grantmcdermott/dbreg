@@ -26,8 +26,9 @@ dbreg(weight ~ Time | Diet + Chick, data = ChickWeight, strategy = "mundlak")
 - `R/` — Package source:
   - `dbreg.R` — public API, input processing, strategy selection, alternating projections, finalization
   - `strategies.R` — strategy execution functions (called from `dbreg.R`)
+  - `fit.R` — estimators on sufficient statistics (`cross_moments()`, `fit_ols()`, `fit_2sls()`, `fit_meat()`)
   - `vcov.R` — variance-covariance and meat matrix computation (shared across strategies)
-  - `utils.R` — shared helpers: SQL dialect, formula parsing, connection setup, `env2env`, `gen_xvar_pairs`
+  - `utils.R` — shared helpers: SQL dialect, formula parsing, connection setup, `env2env`
   - `dbbinsreg.R` — binscatter on database backends
   - `sql_model_matrix.R` — factor/interaction expansion to SQL
   - `stats-methods.R`, `tidiers.R`, `print.R`, `gof.R`, `plot.r` — S3 methods and output
@@ -94,8 +95,7 @@ Both `dbreg()` and `dbbinsreg()` follow this pattern.
 
 ### Variance-Covariance Computation
 - `compute_vcov()` — dispatches on vcov_type (iid/hc1/cluster) × strategy
-- `compute_meat_sql()` — HC1 meat via SQL (residuals computed in-database)
-- `compute_meat_cluster_sql()` — cluster-robust meat via SQL (score aggregation by cluster)
+- `compute_score_meat()` — HC1/cluster meat via a SQL score pass (residuals from `sql_linear_predictor()`; score columns can differ from regressors, e.g. instruments for IV)
 - `compute_meat_cluster_compress()` — special cluster meat for compress strategy
 
 ### Alternating Projections (AP)
