@@ -6,6 +6,12 @@ _This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg
 
 New features
 
+- Added `dbivreg()` for instrumental-variables (2SLS) regression on database
+  backends. Uses `fixest`-style IV formulas, e.g. `y ~ x | d ~ z` or
+  `y ~ x | fe1 + fe2 | d ~ z`, and supports multiple endogenous regressors,
+  factors/interactions, weights, and iid, HC1, or clustered SEs (incl.
+  `ssc`). Estimation is exact via the `"moments"`, `"demean"` (any number of
+  FE), and `"compress"` (no FE) strategies. (#66)
 - Added support for weighted regression via the new `weights` argument. Accepts
   a column name string and is compatible with all strategies and SE types (iid,
   HC1, clustered). (#12)
@@ -44,6 +50,11 @@ Internal
   as a `Makefile` for automating dev workflows. (#64)
 - Refactored and modularized the codebase to make it more efficient and safer.
   (#65)
+- Estimation internals now share a common set of building blocks (estimation
+  frames, a cross-moment matrix, estimator fits, and a SQL score pass for
+  robust/clustered meat matrices), which `dbreg()` and `dbivreg()` both use.
+  This removes a lot of duplicated code and should make it easier to add new
+  estimators. (#66)
 
 ## dbreg 0.0.3
 
