@@ -30,7 +30,7 @@ compute_vcov = function(
   } else if (vcov_type == "cluster") {
     # Cluster-robust (CR1) standard errors
     if (is.null(meat)) {
-      stop("Clustered SEs require meat matrix from compute_meat_cluster_sql")
+      stop("Clustered SEs require a meat matrix from compute_score_meat()")
     }
     n_clusters = attr(meat, "n_clusters") # G
     if (is.null(n_clusters)) {
@@ -52,224 +52,122 @@ compute_vcov = function(
   vcov_mat
 }
 
-#' Compute HC1 meat matrix via SQL
+#' Linear predictor as a SQL expression
+#'
+#' Pushes fitted coefficients back into the database as `b0 + b1*x1 + ...`.
+#' This is the shared prediction scaffolding behind the score pass (residuals
+#' for robust/clustered meat matrices), and can equally power out-of-sample
+#' predictions or residualization steps in other estimators.
+#'
+#' @param x_sql Character vector of SQL column expressions.
+#' @param beta Numeric coefficients aligned with `x_sql`.
+#' @param intercept Optional numeric intercept.
 #' @keywords internal
-compute_meat_sql = function(conn, cte_sql, vars, yvar, betahat,
-                            is_athena = FALSE,
-                            var_suffix = "_tilde",
-                            cte_name = "demeaned",
-                            has_intercept = FALSE,
-                            vars_sql = NULL,
-                            weights_expr = NULL) {
-  # Build variable SQL expressions (use provided or construct from suffix)
-  if (is.null(vars_sql)) {
-    vars_sql = paste0(vars, var_suffix)
-  }
-  yvar_sql = paste0(yvar, var_suffix)
-
-  # Extract beta values (betahat may be a matrix)
-  beta_vals = as.numeric(betahat[vars, 1])
-  weight_sql = if (is.null(weights_expr)) {
-    NULL
-  } else {
-    sprintf("CAST((%s) * (%s) AS FLOAT)", weights_expr, weights_expr)
-  }
-  build_sum = function(parts, alias) {
-    parts = parts[!vapply(parts, is.null, logical(1))]
-    sprintf("SUM(%s) AS %s", paste(parts, collapse = " * "), alias)
-  }
-
-  # Build residual expression: y - intercept - sum(beta_j * x_j)
-  if (has_intercept) {
-    intercept_val = as.numeric(betahat["(Intercept)", 1])
-    beta_terms = paste(
-      sprintf("%.15g * %s", beta_vals, vars_sql),
-      collapse = " + "
-    )
-    resid_expr = sprintf("(%s - %.15g - (%s))", yvar_sql, intercept_val, beta_terms)
-  } else {
-    beta_terms = paste(
-      sprintf("%.15g * %s", beta_vals, vars_sql),
-      collapse = " + "
-    )
-    resid_expr = sprintf("(%s - (%s))", yvar_sql, beta_terms)
-  }
-
-  # Build meat terms using numeric indices to avoid naming collisions
-  # (variable names may contain underscores from interaction terms)
-  meat_terms = character(0)
-
-  if (has_intercept) {
-    meat_terms = c(meat_terms, build_sum(c(
-      sprintf("CAST(%s AS FLOAT)", resid_expr),
-      sprintf("CAST(%s AS FLOAT)", resid_expr),
-      weight_sql
-    ), "meat_0_0"))
-    for (j in seq_along(vars)) {
-      meat_terms = c(meat_terms, build_sum(c(
-        sprintf("CAST(%s AS FLOAT)", resid_expr),
-        sprintf("CAST(%s AS FLOAT)", resid_expr),
-        sprintf("CAST(%s AS FLOAT)", vars_sql[j]),
-        weight_sql
-      ), sprintf("meat_0_%d", j)))
-    }
-  }
-
-  for (i in seq_along(vars)) {
-    for (j in i:length(vars)) {
-      meat_terms = c(meat_terms, build_sum(c(
-        sprintf("CAST(%s AS FLOAT)", resid_expr),
-        sprintf("CAST(%s AS FLOAT)", resid_expr),
-        sprintf("CAST(%s AS FLOAT)", vars_sql[i]),
-        sprintf("CAST(%s AS FLOAT)", vars_sql[j]),
-        weight_sql
-      ), sprintf("meat_%d_%d", i, j)))
-    }
-  }
-
-  meat_sql = paste0(
-    cte_sql,
-    ",\nmeat AS (SELECT ", paste(meat_terms, collapse = ", "), " FROM ", cte_name, ")\n",
-    "SELECT * FROM meat"
+sql_linear_predictor = function(x_sql, beta, intercept = NULL) {
+  terms = c(
+    if (!is.null(intercept)) sprintf("%.17g", intercept),
+    if (length(x_sql)) sprintf("%.17g * %s", beta, x_sql)
   )
-
-  if (is_athena) {
-    meat_sql = gsub("FLOAT", "REAL", meat_sql, fixed = TRUE)
+  if (!length(terms)) {
+    return("0")
   }
-
-  meat_df = dbGetQuery(conn, meat_sql)
-
-  # Reconstruct meat matrix
-  if (has_intercept) {
-    vars_all = c("(Intercept)", vars)
-  } else {
-    vars_all = vars
-  }
-  p = length(vars_all)
-  meat_mat = matrix(0, p, p, dimnames = list(vars_all, vars_all))
-
-  if (has_intercept) {
-    meat_mat[1, 1] = meat_df[["meat_0_0"]]
-    for (j in seq_along(vars)) {
-      val = meat_df[[sprintf("meat_0_%d", j)]]
-      meat_mat[1, j + 1] = meat_mat[j + 1, 1] = val
-    }
-  }
-
-  for (i in seq_along(vars)) {
-    for (j in i:length(vars)) {
-      val = meat_df[[sprintf("meat_%d_%d", i, j)]]
-      idx_i = if (has_intercept) i + 1 else i
-      idx_j = if (has_intercept) j + 1 else j
-      meat_mat[idx_i, idx_j] = meat_mat[idx_j, idx_i] = val
-    }
-  }
-  meat_mat
+  paste0("(", paste(terms, collapse = " + "), ")")
 }
 
-#' Compute cluster-robust meat matrix via SQL
+#' Compute HC1 or cluster-robust meat matrix via a SQL score pass
 #'
-#' Computes the meat matrix for cluster-robust (CR0) standard errors by
-#' aggregating score vectors within clusters and computing outer products.
+#' Forms residuals `e = y - x'b` in SQL (via [sql_linear_predictor()]) and
+#' aggregates the score vectors `w * e * s`, where `s` are the score columns:
+#' - `vcov_type = "hc1"`: `sum_i w_i^2 e_i^2 s_i s_i'`
+#' - `vcov_type = "cluster"`: `sum_g (sum_{i in g} w_i e_i s_i)(...)'`
 #'
+#' For OLS the score columns are the regressors themselves; for IV they are
+#' the instruments, while the residual is still formed from the regressors.
+#' When `intercept` is supplied, a constant score column is included first.
+#'
+#' @param vcov_type One of `"iid"`, `"hc1"`, `"cluster"`. Returns `NULL` for
+#'   `"iid"`, since no meat matrix is needed.
+#' @param y_sql SQL expression for the outcome.
+#' @param x_sql,beta,intercept Regressor columns and coefficients used to form
+#'   the residual. See [sql_linear_predictor()].
+#' @param score_sql,score_names SQL expressions and names for the score columns.
+#' @param weights_expr Optional SQL weight expression.
+#' @param cluster_var Cluster variable (required for `"cluster"`).
+#' @return Meat matrix with dimnames `c("(Intercept)"?, score_names)`. For
+#'   clustered meat, the number of clusters is attached as `n_clusters`.
 #' @keywords internal
-compute_meat_cluster_sql = function(conn, cte_sql, vars, yvar, betahat,
-                                    cluster_var,
-                                    is_athena = FALSE,
-                                    var_suffix = "_tilde",
-                                    cte_name = "demeaned",
-                                    has_intercept = FALSE,
-                                    vars_sql = NULL,
-                                    weights_expr = NULL) {
-  # Build variable SQL expressions (use provided or construct from suffix)
-  if (is.null(vars_sql)) {
-    vars_sql = paste0(vars, var_suffix)
+compute_score_meat = function(
+  conn,
+  cte_sql,
+  cte_name,
+  vcov_type,
+  y_sql,
+  x_sql,
+  beta,
+  intercept = NULL,
+  score_sql = x_sql,
+  score_names = score_sql,
+  weights_expr = NULL,
+  cluster_var = NULL
+) {
+  if (!vcov_type %in% c("hc1", "cluster")) {
+    return(NULL)
   }
-  yvar_sql = paste0(yvar, var_suffix)
+  as_float = function(x) sprintf("CAST(%s AS FLOAT)", x)
+  resid = as_float(sprintf("(%s - %s)", y_sql, sql_linear_predictor(x_sql, beta, intercept)))
+  # Score columns, with the constant first when the model has an intercept
+  s_sql = c(if (!is.null(intercept)) "1", score_sql)
+  s_names = c(if (!is.null(intercept)) "(Intercept)", score_names)
+  idx = seq_along(s_sql)
+  sql_prod = function(...) paste(c(...), collapse = " * ")
 
-  # Extract beta values
-  beta_vals = as.numeric(betahat[vars, 1])
-  weight_sql = if (is.null(weights_expr)) NULL else sprintf("CAST(%s AS FLOAT)", weights_expr)
-  build_sum = function(parts, alias) {
-    parts = parts[!vapply(parts, is.null, logical(1))]
-    sprintf("SUM(%s) AS %s", paste(parts, collapse = " * "), alias)
-  }
-
-  # Build residual expression: y - intercept - sum(beta_j * x_j)
-  if (has_intercept) {
-    intercept_val = as.numeric(betahat["(Intercept)", 1])
-    beta_terms = paste(
-      sprintf("%.15g * %s", beta_vals, vars_sql),
-      collapse = " + "
+  if (vcov_type == "hc1") {
+    w_sq = if (is.null(weights_expr)) NULL else as_float(sprintf("(%s) * (%s)", weights_expr, weights_expr))
+    pairs = which(upper.tri(diag(length(idx)), diag = TRUE), arr.ind = TRUE)
+    terms = sprintf(
+      "SUM(%s) AS meat_%d_%d",
+      vapply(seq_len(nrow(pairs)), function(k) {
+        i = pairs[k, 1]
+        j = pairs[k, 2]
+        sql_prod(resid, resid, if (s_sql[i] != "1") as_float(s_sql[i]), if (s_sql[j] != "1") as_float(s_sql[j]), w_sq)
+      }, character(1)),
+      pairs[, 1],
+      pairs[, 2]
     )
-    resid_expr = sprintf("(%s - %.15g - (%s))", yvar_sql, intercept_val, beta_terms)
+    sql = paste0(cte_sql, ",\nmeat AS (SELECT ", paste(terms, collapse = ", "), " FROM ", cte_name, ")\nSELECT * FROM meat")
   } else {
-    beta_terms = paste(
-      sprintf("%.15g * %s", beta_vals, vars_sql),
-      collapse = " + "
+    w = if (is.null(weights_expr)) NULL else as_float(weights_expr)
+    terms = sprintf(
+      "SUM(%s) AS score_%d",
+      vapply(idx, function(i) sql_prod(resid, if (s_sql[i] != "1") as_float(s_sql[i]), w), character(1)),
+      idx
     )
-    resid_expr = sprintf("(%s - (%s))", yvar_sql, beta_terms)
+    sql = paste0(
+      cte_sql,
+      ",\ncluster_scores AS (\n  SELECT ", cluster_var, ", ", paste(terms, collapse = ", "),
+      "\n  FROM ", cte_name, "\n  GROUP BY ", cluster_var, "\n)\nSELECT * FROM cluster_scores"
+    )
   }
-
-  # Build cluster score terms using numeric indices to avoid naming collisions
-  score_terms = character(0)
-
-  if (has_intercept) {
-    score_terms = c(score_terms, build_sum(c(
-      sprintf("CAST(%s AS FLOAT)", resid_expr),
-      weight_sql
-    ), "score_0"))
+  # Athena FLOAT gotcha
+  if (inherits(conn, "AthenaConnection")) {
+    sql = gsub("FLOAT", "REAL", sql, fixed = TRUE)
   }
+  res = dbGetQuery(conn, sql)
 
-  for (j in seq_along(vars)) {
-    score_terms = c(score_terms, build_sum(c(
-      sprintf("CAST(%s AS FLOAT)", resid_expr),
-      sprintf("CAST(%s AS FLOAT)", vars_sql[j]),
-      weight_sql
-    ), sprintf("score_%d", j)))
-  }
-
-  # Query: aggregate scores by cluster
-  cluster_sql = paste0(
-    cte_sql,
-    ",\ncluster_scores AS (\n  SELECT ", cluster_var, ", ",
-    paste(score_terms, collapse = ", "),
-    "\n  FROM ", cte_name,
-    "\n  GROUP BY ", cluster_var,
-    "\n)\nSELECT * FROM cluster_scores"
-  )
-
-  if (is_athena) {
-    cluster_sql = gsub("FLOAT", "REAL", cluster_sql, fixed = TRUE)
-  }
-
-  cluster_df = dbGetQuery(conn, cluster_sql)
-
-  # Build meat matrix from cluster scores: M = sum_g(s_g %*% t(s_g))
-  if (has_intercept) {
-    vars_all = c("(Intercept)", vars)
+  if (vcov_type == "hc1") {
+    meat = matrix(0, length(idx), length(idx), dimnames = list(s_names, s_names))
+    for (k in seq_len(nrow(pairs))) {
+      i = pairs[k, 1]
+      j = pairs[k, 2]
+      meat[i, j] = meat[j, i] = res[[sprintf("meat_%d_%d", i, j)]]
+    }
   } else {
-    vars_all = vars
+    scores = as.matrix(res[, paste0("score_", idx), drop = FALSE])
+    meat = crossprod(scores)
+    dimnames(meat) = list(s_names, s_names)
+    attr(meat, "n_clusters") = nrow(res)
   }
-  p = length(vars_all)
-  meat_mat = matrix(0, p, p, dimnames = list(vars_all, vars_all))
-
-  # Extract score columns
-  score_cols = if (has_intercept) {
-    c("score_0", paste0("score_", seq_along(vars)))
-  } else {
-    paste0("score_", seq_along(vars))
-  }
-
-  # Sum outer products across clusters
-  for (i in seq_len(nrow(cluster_df))) {
-    s_g = as.numeric(cluster_df[i, score_cols])
-    meat_mat = meat_mat + tcrossprod(s_g)
-  }
-
-  # Return meat matrix and number of clusters for df adjustment
-  attr(meat_mat, "n_clusters") = nrow(cluster_df)
-  meat_mat
+  meat
 }
 
 #' Compute cluster-robust meat matrix for compress strategy

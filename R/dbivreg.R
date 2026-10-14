@@ -951,42 +951,22 @@ dbivreg_finalize_fit = function(
     moms$sum_y_sq
   }
 
-  meat = NULL
-  is_athena = inherits(inputs[["conn"]], "AthenaConnection")
-  if (inputs[["vcov_type_req"]] == "hc1") {
-    meat = compute_iv_meat_sql(
-      conn = inputs[["conn"]],
-      cte_sql = cte_sql,
-      x_vars = x_names_full[!x_names_full %in% "(Intercept)"],
-      z_vars = z_names_full[!z_names_full %in% "(Intercept)"],
-      yvar = inputs[["yvar"]],
-      betahat = betahat,
-      weights_expr = weights_expr,
-      cte_name = cte_name,
-      has_intercept = has_intercept,
-      is_athena = is_athena,
-      x_vars_sql = x_vars_sql,
-      z_vars_sql = z_vars_sql,
-      yvar_sql = yvar_sql
-    )
-  } else if (inputs[["vcov_type_req"]] == "cluster") {
-    meat = compute_iv_meat_cluster_sql(
-      conn = inputs[["conn"]],
-      cte_sql = cte_sql,
-      x_vars = x_names_full[!x_names_full %in% "(Intercept)"],
-      z_vars = z_names_full[!z_names_full %in% "(Intercept)"],
-      yvar = inputs[["yvar"]],
-      betahat = betahat,
-      cluster_var = inputs[["cluster_var"]],
-      weights_expr = weights_expr,
-      cte_name = cte_name,
-      has_intercept = has_intercept,
-      is_athena = is_athena,
-      x_vars_sql = x_vars_sql,
-      z_vars_sql = z_vars_sql,
-      yvar_sql = yvar_sql
-    )
-  }
+  # Score pass: residuals from the structural regressors, scores from instruments
+  x_slopes = x_names_full[x_names_full != "(Intercept)"]
+  meat = compute_score_meat(
+    conn = inputs[["conn"]],
+    cte_sql = cte_sql,
+    cte_name = cte_name,
+    vcov_type = inputs[["vcov_type_req"]],
+    y_sql = yvar_sql,
+    x_sql = x_vars_sql,
+    beta = betahat[x_slopes, 1],
+    intercept = if (has_intercept) betahat["(Intercept)", 1],
+    score_sql = z_vars_sql,
+    score_names = z_names_full[z_names_full != "(Intercept)"],
+    weights_expr = weights_expr,
+    cluster_var = inputs[["cluster_var"]]
+  )
 
   # 2SLS sandwich: A^-1 [X'Z (Z'Z)^-1 Omega (Z'Z)^-1 Z'X] A^-1 has the same
   # form as OLS's (X'X)^-1 Omega (X'X)^-1, so reuse the shared vcov scaling
@@ -1546,9 +1526,7 @@ compute_dbivreg_first_stage_wald = function(
 
   unrestricted = c(if (has_intercept) "(Intercept)", inputs[["exog_names"]], excluded)
   regressors = c(inputs[["exog_names"]], excluded)
-  is_athena = inherits(inputs[["conn"]], "AthenaConnection")
   q = length(excluded)
-  vcov_label = format_vcov_label(inputs[["vcov_type_req"]], NULL)
   out = vector("list", length(endogenous))
   names(out) = standardize_coef_names(endogenous)
 
@@ -1565,63 +1543,31 @@ compute_dbivreg_first_stage_wald = function(
     rss_u = as.numeric(yy - 2 * Matrix::t(beta_u) %*% S_uy + Matrix::t(beta_u) %*% S_uu %*% beta_u)
     df2 = max(n_total - length(unrestricted) - df_fe, 1)
 
-    if (inputs[["vcov_type_req"]] == "iid") {
-      vcov_u = (rss_u / df2) * XtX_inv
-      attr(vcov_u, "type") = "iid"
-    } else if (inputs[["vcov_type_req"]] == "hc1") {
-      meat = compute_meat_sql(
-        conn = inputs[["conn"]],
-        cte_sql = cte_sql,
-        vars = regressors,
-        yvar = y_name,
-        betahat = beta_u,
-        is_athena = is_athena,
-        var_suffix = if (has_intercept) "" else "_tilde",
-        cte_name = cte_name,
-        has_intercept = has_intercept,
-        vars_sql = if (has_intercept) regressors else paste0(regressors, "_tilde"),
-        weights_expr = weights_expr
-      )
-      vcov_u = compute_vcov(
-        vcov_type = "hc1",
-        strategy = if (has_intercept) "moments" else "demean",
-        XtX_inv = XtX_inv,
-        rss = rss_u,
-        df_res = df2,
-        nobs_orig = n_total,
-        n_params = length(unrestricted) + df_fe,
-        meat = meat
-      )
-      vcov_label = format_vcov_label("hc1", NULL)
-    } else if (inputs[["vcov_type_req"]] == "cluster") {
-      meat = compute_meat_cluster_sql(
-        conn = inputs[["conn"]],
-        cte_sql = cte_sql,
-        vars = regressors,
-        yvar = y_name,
-        betahat = beta_u,
-        cluster_var = inputs[["cluster_var"]],
-        is_athena = is_athena,
-        var_suffix = if (has_intercept) "" else "_tilde",
-        cte_name = cte_name,
-        has_intercept = has_intercept,
-        vars_sql = if (has_intercept) regressors else paste0(regressors, "_tilde"),
-        weights_expr = weights_expr
-      )
-      vcov_u = compute_vcov(
-        vcov_type = "cluster",
-        strategy = if (has_intercept) "moments" else "demean",
-        XtX_inv = XtX_inv,
-        rss = rss_u,
-        df_res = df2,
-        nobs_orig = n_total,
-        n_params = length(unrestricted) + df_fe - nested_levels,
-        meat = meat
-      )
-      vcov_label = format_vcov_label("cluster", attr(vcov_u, "n_clusters"))
-    } else {
-      stop("Unsupported vcov type for first-stage diagnostics: ", inputs[["vcov_type_req"]])
-    }
+    vcov_type = inputs[["vcov_type_req"]]
+    meat = compute_score_meat(
+      conn = inputs[["conn"]],
+      cte_sql = cte_sql,
+      cte_name = cte_name,
+      vcov_type = vcov_type,
+      y_sql = if (has_intercept) y_name else paste0(y_name, "_tilde"),
+      x_sql = if (has_intercept) regressors else paste0(regressors, "_tilde"),
+      beta = beta_u[regressors, 1],
+      intercept = if (has_intercept) beta_u["(Intercept)", 1],
+      score_names = regressors,
+      weights_expr = weights_expr,
+      cluster_var = inputs[["cluster_var"]]
+    )
+    vcov_u = compute_vcov(
+      vcov_type = vcov_type,
+      strategy = if (has_intercept) "moments" else "demean",
+      XtX_inv = XtX_inv,
+      rss = rss_u,
+      df_res = df2,
+      nobs_orig = n_total,
+      n_params = length(unrestricted) + df_fe - if (vcov_type == "cluster") nested_levels else 0L,
+      meat = meat
+    )
+    vcov_label = format_vcov_label(vcov_type, attr(vcov_u, "n_clusters"))
 
     beta_q = beta_u[excluded, , drop = FALSE]
     vcov_q = vcov_u[excluded, excluded, drop = FALSE]
@@ -1669,191 +1615,6 @@ compute_dbivreg_overid = function(inputs, betahat, S_zz, S_zx, S_zy, rss, n_tota
     df = df,
     test = test_name
   )
-}
-
-#' @keywords internal
-compute_iv_meat_sql = function(
-  conn,
-  cte_sql,
-  x_vars,
-  z_vars,
-  yvar,
-  betahat,
-  weights_expr = NULL,
-  cte_name = "base",
-  has_intercept = TRUE,
-  is_athena = FALSE,
-  x_vars_sql = x_vars,
-  z_vars_sql = z_vars,
-  yvar_sql = yvar
-) {
-  beta_vals = as.numeric(betahat[c(if (has_intercept) "(Intercept)" else NULL, x_vars), 1])
-  if (has_intercept) {
-    intercept_val = beta_vals[1]
-    beta_vals = beta_vals[-1]
-  }
-
-  weight_sql = if (is.null(weights_expr)) NULL else sprintf("CAST((%s) * (%s) AS FLOAT)", weights_expr, weights_expr)
-  build_sum = function(parts, alias) {
-    parts = parts[!vapply(parts, is.null, logical(1))]
-    sprintf("SUM(%s) AS %s", paste(parts, collapse = " * "), alias)
-  }
-
-  beta_terms = if (length(x_vars_sql)) {
-    paste(sprintf("%.15g * %s", beta_vals, x_vars_sql), collapse = " + ")
-  } else {
-    "0"
-  }
-  if (has_intercept) {
-    resid_expr = sprintf("(%s - %.15g - (%s))", yvar_sql, intercept_val, beta_terms)
-  } else {
-    resid_expr = sprintf("(%s - (%s))", yvar_sql, beta_terms)
-  }
-
-  meat_terms = character(0)
-  if (has_intercept) {
-    meat_terms = c(meat_terms, build_sum(c(
-      sprintf("CAST(%s AS FLOAT)", resid_expr),
-      sprintf("CAST(%s AS FLOAT)", resid_expr),
-      weight_sql
-    ), "meat_0_0"))
-    for (j in seq_along(z_vars_sql)) {
-      meat_terms = c(meat_terms, build_sum(c(
-        sprintf("CAST(%s AS FLOAT)", resid_expr),
-        sprintf("CAST(%s AS FLOAT)", resid_expr),
-        sprintf("CAST(%s AS FLOAT)", z_vars_sql[j]),
-        weight_sql
-      ), sprintf("meat_0_%d", j)))
-    }
-  }
-  for (i in seq_along(z_vars_sql)) {
-    for (j in i:length(z_vars_sql)) {
-      meat_terms = c(meat_terms, build_sum(c(
-        sprintf("CAST(%s AS FLOAT)", resid_expr),
-        sprintf("CAST(%s AS FLOAT)", resid_expr),
-        sprintf("CAST(%s AS FLOAT)", z_vars_sql[i]),
-        sprintf("CAST(%s AS FLOAT)", z_vars_sql[j]),
-        weight_sql
-      ), sprintf("meat_%d_%d", i, j)))
-    }
-  }
-
-  meat_sql = paste0(
-    cte_sql,
-    ",\nmeat AS (SELECT ",
-    paste(meat_terms, collapse = ", "),
-    " FROM ",
-    cte_name,
-    ")\nSELECT * FROM meat"
-  )
-  if (is_athena) {
-    meat_sql = gsub("FLOAT", "REAL", meat_sql, fixed = TRUE)
-  }
-
-  meat_df = dbGetQuery(conn, meat_sql)
-  vars_all = if (has_intercept) c("(Intercept)", z_vars) else z_vars
-  meat_mat = matrix(0, length(vars_all), length(vars_all), dimnames = list(vars_all, vars_all))
-
-  if (has_intercept) {
-    meat_mat[1, 1] = meat_df$meat_0_0
-    for (j in seq_along(z_vars)) {
-      val = meat_df[[sprintf("meat_0_%d", j)]]
-      meat_mat[1, j + 1] = meat_mat[j + 1, 1] = val
-    }
-  }
-  for (i in seq_along(z_vars)) {
-    for (j in i:length(z_vars)) {
-      val = meat_df[[sprintf("meat_%d_%d", i, j)]]
-      idx_i = if (has_intercept) i + 1 else i
-      idx_j = if (has_intercept) j + 1 else j
-      meat_mat[idx_i, idx_j] = meat_mat[idx_j, idx_i] = val
-    }
-  }
-  meat_mat
-}
-
-#' @keywords internal
-compute_iv_meat_cluster_sql = function(
-  conn,
-  cte_sql,
-  x_vars,
-  z_vars,
-  yvar,
-  betahat,
-  cluster_var,
-  weights_expr = NULL,
-  cte_name = "base",
-  has_intercept = TRUE,
-  is_athena = FALSE,
-  x_vars_sql = x_vars,
-  z_vars_sql = z_vars,
-  yvar_sql = yvar
-) {
-  beta_vals = as.numeric(betahat[c(if (has_intercept) "(Intercept)" else NULL, x_vars), 1])
-  if (has_intercept) {
-    intercept_val = beta_vals[1]
-    beta_vals = beta_vals[-1]
-  }
-
-  weight_sql = if (is.null(weights_expr)) NULL else sprintf("CAST(%s AS FLOAT)", weights_expr)
-  build_sum = function(parts, alias) {
-    parts = parts[!vapply(parts, is.null, logical(1))]
-    sprintf("SUM(%s) AS %s", paste(parts, collapse = " * "), alias)
-  }
-
-  beta_terms = if (length(x_vars_sql)) {
-    paste(sprintf("%.15g * %s", beta_vals, x_vars_sql), collapse = " + ")
-  } else {
-    "0"
-  }
-  if (has_intercept) {
-    resid_expr = sprintf("(%s - %.15g - (%s))", yvar_sql, intercept_val, beta_terms)
-  } else {
-    resid_expr = sprintf("(%s - (%s))", yvar_sql, beta_terms)
-  }
-
-  score_terms = character(0)
-  if (has_intercept) {
-    score_terms = c(score_terms, build_sum(c(
-      sprintf("CAST(%s AS FLOAT)", resid_expr),
-      weight_sql
-    ), "score_0"))
-  }
-  for (j in seq_along(z_vars_sql)) {
-    score_terms = c(score_terms, build_sum(c(
-      sprintf("CAST(%s AS FLOAT)", resid_expr),
-      sprintf("CAST(%s AS FLOAT)", z_vars_sql[j]),
-      weight_sql
-    ), sprintf("score_%d", j)))
-  }
-
-  cluster_sql = paste0(
-    cte_sql,
-    ",\ncluster_scores AS (\n  SELECT ",
-    cluster_var,
-    ", ",
-    paste(score_terms, collapse = ", "),
-    "\n  FROM ",
-    cte_name,
-    "\n  GROUP BY ",
-    cluster_var,
-    "\n)\nSELECT * FROM cluster_scores"
-  )
-  if (is_athena) {
-    cluster_sql = gsub("FLOAT", "REAL", cluster_sql, fixed = TRUE)
-  }
-
-  cluster_df = dbGetQuery(conn, cluster_sql)
-  vars_all = if (has_intercept) c("(Intercept)", z_vars) else z_vars
-  meat_mat = matrix(0, length(vars_all), length(vars_all), dimnames = list(vars_all, vars_all))
-  score_cols = if (has_intercept) c("score_0", paste0("score_", seq_along(z_vars))) else paste0("score_", seq_along(z_vars))
-
-  for (i in seq_len(nrow(cluster_df))) {
-    s_g = as.numeric(cluster_df[i, score_cols])
-    meat_mat = meat_mat + tcrossprod(s_g)
-  }
-  attr(meat_mat, "n_clusters") = nrow(cluster_df)
-  meat_mat
 }
 
 #' Print method for dbivreg objects

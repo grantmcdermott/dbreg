@@ -95,38 +95,19 @@ execute_moments_strategy = function(inputs) {
   tss = sum_wy_sq - (sum_wy^2 / sum_w)
   
   # Compute meat matrix if needed (HC1 or cluster)
-  meat = NULL
-  is_athena = inherits(inputs[["conn"]], "AthenaConnection")
-  if (inputs[["vcov_type_req"]] == "hc1") {
-    meat = compute_meat_sql(
-      conn = inputs[["conn"]],
-      cte_sql = cte_sql,
-      vars = xvar_names,
-      vars_sql = xvars_sql,
-      yvar = inputs[["yvar"]],
-      betahat = betahat,
-      is_athena = is_athena,
-      var_suffix = "",
-      cte_name = "base",
-      has_intercept = TRUE,
-      weights_expr = weights_expr
-    )
-  } else if (inputs[["vcov_type_req"]] == "cluster") {
-    meat = compute_meat_cluster_sql(
-      conn = inputs[["conn"]],
-      cte_sql = cte_sql,
-      vars = xvar_names,
-      vars_sql = xvars_sql,
-      yvar = inputs[["yvar"]],
-      betahat = betahat,
-      cluster_var = inputs[["cluster_var"]],
-      is_athena = is_athena,
-      var_suffix = "",
-      cte_name = "base",
-      has_intercept = TRUE,
-      weights_expr = weights_expr
-    )
-  }
+  meat = compute_score_meat(
+    conn = inputs[["conn"]],
+    cte_sql = cte_sql,
+    cte_name = "base",
+    vcov_type = inputs[["vcov_type_req"]],
+    y_sql = inputs[["yvar"]],
+    x_sql = xvars_sql,
+    beta = betahat[xvar_names, 1],
+    intercept = betahat["(Intercept)", 1],
+    score_names = xvar_names,
+    weights_expr = weights_expr,
+    cluster_var = inputs[["cluster_var"]]
+  )
   
   vcov_mat = compute_vcov(
     vcov_type = inputs[["vcov_type_req"]],
@@ -583,30 +564,21 @@ execute_demean_strategy = function(inputs) {
   df_res = max(n_total - p_kept - df_fe, 1)
   
   # Compute meat matrix if needed (HC1 or cluster)
-  meat = NULL
+  x_tilde = paste0(xvar_names_kept, "_tilde")
+  meat = compute_score_meat(
+    conn = inputs[["conn"]],
+    cte_sql = cte_sql,
+    cte_name = "demeaned",
+    vcov_type = inputs[["vcov_type_req"]],
+    y_sql = paste0(yvar, "_tilde"),
+    x_sql = x_tilde,
+    beta = betahat[xvar_names_kept, 1],
+    score_names = xvar_names_kept,
+    weights_expr = weights_expr_demeaned,
+    cluster_var = inputs[["cluster_var"]]
+  )
   n_params_cluster = p_kept + df_fe  # K for CR1 correction
-  is_athena = inherits(inputs[["conn"]], "AthenaConnection")
-  if (inputs[["vcov_type_req"]] == "hc1") {
-    meat = compute_meat_sql(
-      conn = inputs[["conn"]],
-      cte_sql = cte_sql,
-      vars = xvar_names_kept,
-      yvar = yvar,
-      betahat = betahat,
-      is_athena = is_athena,
-      weights_expr = weights_expr_demeaned
-    )
-  } else if (inputs[["vcov_type_req"]] == "cluster") {
-    meat = compute_meat_cluster_sql(
-      conn = inputs[["conn"]],
-      cte_sql = cte_sql,
-      vars = xvar_names_kept,
-      yvar = yvar,
-      betahat = betahat,
-      cluster_var = inputs[["cluster_var"]],
-      is_athena = is_athena,
-      weights_expr = weights_expr_demeaned
-    )
+  if (inputs[["vcov_type_req"]] == "cluster") {
     # For ssc = "nested", exclude nested FE levels from K
     if (inputs[["ssc"]] == "nested") {
       n_params_cluster = p_kept + df_fe - nested_fe_df(
@@ -863,36 +835,18 @@ execute_mundlak_strategy = function(inputs) {
   df_res = max(n_total - p, 1)
 
   # Compute meat matrix if needed (HC1 or cluster)
-  meat = NULL
-  is_athena = inherits(inputs[["conn"]], "AthenaConnection")
-  if (inputs[["vcov_type_req"]] == "hc1") {
-    meat = compute_meat_sql(
-      conn = inputs[["conn"]],
-      cte_sql = cte_sql,
-      vars = all_regressors,
-      yvar = yvar,
-      betahat = betahat,
-      is_athena = is_athena,
-      var_suffix = "",
-      cte_name = "augmented",
-      has_intercept = TRUE,
-      weights_expr = weights_expr_aug
-    )
-  } else if (inputs[["vcov_type_req"]] == "cluster") {
-    meat = compute_meat_cluster_sql(
-      conn = inputs[["conn"]],
-      cte_sql = cte_sql,
-      vars = all_regressors,
-      yvar = yvar,
-      betahat = betahat,
-      cluster_var = inputs[["cluster_var"]],
-      is_athena = is_athena,
-      var_suffix = "",
-      cte_name = "augmented",
-      has_intercept = TRUE,
-      weights_expr = weights_expr_aug
-    )
-  }
+  meat = compute_score_meat(
+    conn = inputs[["conn"]],
+    cte_sql = cte_sql,
+    cte_name = "augmented",
+    vcov_type = inputs[["vcov_type_req"]],
+    y_sql = yvar,
+    x_sql = all_regressors,
+    beta = betahat[all_regressors, 1],
+    intercept = betahat["(Intercept)", 1],
+    weights_expr = weights_expr_aug,
+    cluster_var = inputs[["cluster_var"]]
+  )
 
   vcov_mat = compute_vcov(
     vcov_type = inputs[["vcov_type_req"]],
