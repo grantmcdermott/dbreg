@@ -153,7 +153,7 @@ db_comp_hc1 = dbivreg(
   strategy = "compress"
 )
 fx_comp_hc1 = feols(y ~ x | d ~ z, data = dat_comp, weights = ~w, vcov = "hc1")
-expect_iv_match(db_comp_hc1, fx_comp_hc1, tol_coef = tol, tol_se = tol, label = "Compressed IV HC1")
+expect_iv_match(db_comp_hc1, fx_comp_hc1, tol_coef = 1e-10, tol_se = 1e-10, label = "Compressed IV HC1")
 expect_true(
   db_comp_hc1$nobs < db_comp_hc1$nobs_orig && db_comp_hc1$compression_ratio < 1,
   info = "Compressed IV records fewer design rows than original observations"
@@ -174,7 +174,7 @@ db_comp_cl = dbivreg(
   strategy = "compress"
 )
 fx_comp_cl = feols(y ~ x | d ~ z, data = dat_comp, weights = ~w, vcov = ~cluster)
-expect_iv_match(db_comp_cl, fx_comp_cl, tol_coef = tol, tol_se = tol_cluster, label = "Compressed IV cluster")
+expect_iv_match(db_comp_cl, fx_comp_cl, tol_coef = 1e-10, tol_se = 1e-10, label = "Compressed IV cluster")
 
 sql_comp = invisible(capture.output(
   dbivreg(
@@ -186,6 +186,40 @@ sql_comp = invisible(capture.output(
 ))
 expect_true(any(grepl("GROUP BY", sql_comp)), info = "Compressed IV sql_only exposes the GROUP BY compression")
 expect_stdout(print(db_comp_hc1), "Compressed 2SLS estimation", info = "Compressed IV print header")
+
+# Unweighted, overidentified compressed IV (exact on cells, so tight tolerances)
+set.seed(2031)
+n_ov_cells = 300L
+ov_cell = data.frame(
+  x = round(rnorm(n_ov_cells), 1),
+  z1 = round(rnorm(n_ov_cells), 1),
+  z2 = sample(0:3, n_ov_cells, replace = TRUE)
+)
+v_ov = rnorm(n_ov_cells)
+ov_cell$d = round(ov_cell$z1 + 0.5 * ov_cell$z2 + v_ov, 1)
+dat_comp_ov = ov_cell[rep(seq_len(n_ov_cells), 5), ]
+dat_comp_ov$y = 1 + 2 * dat_comp_ov$d + 0.3 * dat_comp_ov$x + v_ov[rep(seq_len(n_ov_cells), 5)] + rnorm(nrow(dat_comp_ov))
+dat_comp_ov$cl = sample(1:40, nrow(dat_comp_ov), replace = TRUE)
+
+for (vc in list("iid", "hc1", ~cl)) {
+  lbl = paste("Unweighted compressed IV", format(vc))
+  db_ov = dbivreg(y ~ x | d ~ z1 + z2, data = dat_comp_ov, vcov = vc, strategy = "compress")
+  db_ov_mom = dbivreg(y ~ x | d ~ z1 + z2, data = dat_comp_ov, vcov = vc, strategy = "moments")
+  fx_ov = feols(y ~ x | d ~ z1 + z2, data = dat_comp_ov, vcov = vc)
+  expect_iv_match(db_ov, fx_ov, tol_coef = 1e-10, tol_se = 1e-10, label = lbl)
+  expect_equal(
+    db_ov$diagnostics$first_stage_wald$d$stat,
+    extract_fixest_ivstat(fitstat(fx_ov, ~ivwald1, simplify = TRUE), "ivwald1", "d")$stat,
+    tolerance = 1e-10,
+    info = paste(lbl, "first-stage Wald matches fixest")
+  )
+  expect_equal(
+    db_ov$diagnostics$overid$stat,
+    db_ov_mom$diagnostics$overid$stat,
+    tolerance = 1e-6,
+    info = paste(lbl, "overid statistic matches moments strategy")
+  )
+}
 
 set.seed(2027)
 

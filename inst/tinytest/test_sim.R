@@ -180,3 +180,32 @@ expect_equal(
   tolerance = 1e-6,
   info = "moments: predictions match fixest OLS"
 )
+
+#
+## Rows with a missing cluster variable are dropped (as in fixest) ----
+
+sim_na_cl = sim_panel
+sim_na_cl$cl = (sim_na_cl$firm %% 10) + 1
+sim_na_cl$cl[c(3, 57, 211, 404)] = NA
+fx_na_cl = feols(y ~ x1 + x2 | firm, data = sim_na_cl[!is.na(sim_na_cl$cl), ], vcov = ~cl)
+fx_na_cl_nofe = feols(y ~ x1 + x2, data = sim_na_cl[!is.na(sim_na_cl$cl), ], vcov = ~cl)
+
+for (s in c("demean", "compress")) {
+  # firm is nested in cl; fixest's default K excludes nested FEs
+  db_na_cl = dbreg(y ~ x1 + x2 | firm, data = sim_na_cl, vcov = ~cl, ssc = "nested", strategy = s)
+  expect_equal(db_na_cl$nobs_orig, nobs(fx_na_cl), info = paste(s, "drops rows with missing cluster"))
+  expect_equal(
+    as.numeric(db_na_cl$coeftable[c("x1", "x2"), "std.error"]),
+    as.numeric(se(fx_na_cl)[c("x1", "x2")]),
+    tolerance = 1e-6,
+    info = paste(s, "cluster SEs match fixest after dropping missing clusters")
+  )
+}
+db_na_cl_mom = dbreg(y ~ x1 + x2, data = sim_na_cl, vcov = ~cl, strategy = "moments")
+expect_equal(db_na_cl_mom$nobs_orig, nobs(fx_na_cl_nofe), info = "moments drops rows with missing cluster")
+expect_equal(
+  as.numeric(db_na_cl_mom$coeftable[, "std.error"]),
+  as.numeric(se(fx_na_cl_nofe)),
+  tolerance = 1e-6,
+  info = "moments cluster SEs match fixest after dropping missing clusters"
+)
