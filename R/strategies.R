@@ -22,24 +22,9 @@ execute_moments_strategy = function(inputs) {
     xvar_names = inputs[["xvars"]]
   }
   
-  weights_expr = sql_weight_expr(inputs[["weights"]])
   yvar = inputs[["yvar"]]
-  pair_exprs = build_weighted_moment_terms(
-    y_sql = yvar,
-    x_sql = xvars_sql,
-    weights_expr = weights_expr,
-    prefix_terms = sql_count(inputs[["conn"]], "n_total")
-  )
-  
-  # CTE structure for HC1 meat computation
-  cte_sql = paste0("WITH base AS (SELECT * ", inputs[["from_statement"]], ")")
-  
-  moments_sql = paste0(
-    cte_sql, "\n",
-    "SELECT\n  ",
-    paste(pair_exprs, collapse = ",\n  "),
-    "\nFROM base"
-  )
+  frame = build_base_frame(inputs, xvars_sql, xvar_names)
+  moments_sql = frame_moments_sql(frame, yvar, xvar_names, inputs[["conn"]])
 
   if (inputs[["sql_only"]]) {
     return(moments_sql)
@@ -63,12 +48,6 @@ execute_moments_strategy = function(inputs) {
   df_res = max(n_total - p, 1)
   
   # Compute meat matrix if needed (HC1 or cluster)
-  frame = list(
-    cte_sql = cte_sql,
-    cte_name = "base",
-    cols = setNames(c(yvar, xvars_sql), c(yvar, xvar_names)),
-    weights_expr = weights_expr
-  )
   meat = fit_meat(fit, frame, yvar, inputs)
   
   vcov_mat = compute_vcov(
@@ -129,294 +108,9 @@ execute_demean_strategy = function(inputs) {
   }
   
   yvar = inputs[["yvar"]]
-  weights_expr_base = sql_weight_expr(inputs[["weights"]])
-  weights_expr_demeaned = if (is.null(inputs[["weights"]])) NULL else sql_weight_expr("weights")
-
-  all_var_names = c(yvar, xvar_names)
-  all_var_sql = c(yvar, xvars_sql)
-  
-  cluster_var = inputs[["cluster_var"]]
-  use_ap = FALSE
-  ap_tables = NULL
-  if (length(inputs[["fe"]]) >= 2) {
-    if (length(inputs[["fe"]]) > 2) {
-      use_ap = TRUE
-    } else {
-      is_balanced = inputs[["is_balanced"]]
-      if (is.null(is_balanced)) {
-        is_balanced = dbreg_is_balanced_panel(inputs[["conn"]], inputs[["from_statement"]], inputs[["fe"]])
-      }
-      use_ap = !is.null(inputs[["weights"]]) || !isTRUE(is_balanced)
-    }
-    if (isTRUE(use_ap) && inputs[["verbose"]]) {
-      message("[dbreg] Using alternating projections for FE demeaning")
-    }
-    if (isTRUE(use_ap) && inputs[["sql_only"]]) {
-      stop("[dbreg] sql_only is not supported for alternating projections.", call. = FALSE)
-    }
-  }
-  if (length(inputs[["fe"]]) == 1) {
-    # Single FE: simple within-group demeaning
-    fe1 = inputs[["fe"]][1]
-    
-    # Build base CTE with expanded columns
-    base_select = c(fe1, yvar)
-    for (i in seq_along(xvar_names)) {
-      base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
-    }
-    if (!is.null(inputs[["weights"]]) && !inputs[["weights"]] %in% c(fe1, yvar, xvar_names)) {
-      base_select = c(base_select, inputs[["weights"]])
-    }
-    if (!is.null(cluster_var) && !cluster_var %in% c(fe1, yvar, xvar_names, inputs[["weights"]])) {
-      base_select = c(base_select, cluster_var)
-    }
-    
-    means_cols = paste(
-      vapply(
-        all_var_names,
-        function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_mean")),
-        character(1)
-      ),
-      collapse = ", "
-    )
-    tilde_exprs = paste(
-      sprintf("(b.%s - gm.%s_mean) AS %s_tilde", all_var_names, all_var_names, all_var_names),
-      collapse = ",\n       "
-    )
-    if (!is.null(inputs[["weights"]])) {
-      tilde_exprs = paste(
-        tilde_exprs,
-        sprintf("b.%s AS weights", inputs[["weights"]]),
-        sep = ",\n       "
-      )
-    }
-    if (!is.null(cluster_var) && !cluster_var %in% c(fe1)) {
-      tilde_exprs = paste(
-        tilde_exprs,
-        sprintf("b.%s AS %s", cluster_var, cluster_var),
-        sep = ",\n       "
-      )
-    }
-
-    # CTE part (reusable for HC1 meat computation)
-    cte_sql = paste0(
-      "WITH base AS (
-      SELECT ", paste(base_select, collapse = ", "), " ",
-      inputs[["from_statement"]],
-      "
-      ),
-      group_means AS (
-      SELECT ",
-      fe1,
-      ", ",
-      means_cols,
-      " FROM base GROUP BY ",
-      fe1,
-      "
-      ),
-      demeaned AS (
-      SELECT
-          b.",
-      fe1,
-      ",
-          ",
-      tilde_exprs,
-      "
-      FROM base b
-      JOIN group_means gm ON b.",
-      fe1,
-      " = gm.",
-      fe1,
-      "
-      )"
-    )
-
-    prefix_terms = c(
-      sql_count(inputs[["conn"]], "n_total"),
-      sql_count(inputs[["conn"]], "n_fe1", fe1, distinct = TRUE)
-    )
-  } else {
-    # 2 FE: AP when weighted/unbalanced; double demeaning otherwise
-    fe1 = inputs[["fe"]][1]
-    fe2 = inputs[["fe"]][2]
-
-    if (isTRUE(use_ap)) {
-      ap_res = dbreg_alternating_projections(
-        conn = inputs[["conn"]],
-        from_statement = inputs[["from_statement"]],
-        fe = inputs[["fe"]],
-        yvar = yvar,
-        xvars_sql = xvars_sql,
-        xvar_names = xvar_names,
-        weights = inputs[["weights"]],
-        cluster_var = cluster_var,
-        verbose = inputs[["verbose"]]
-      )
-      ap_tables = c(ap_res[["table"]], ap_res[["base_table"]])
-      weights_expr_demeaned = "__w"
-      cte_sql = paste0("WITH demeaned AS (SELECT * FROM ", ap_res[["table"]], ")")
-
-      fe_count_terms = vapply(seq_along(inputs[["fe"]]), function(k) {
-        sql_count(inputs[["conn"]], sprintf("n_fe%d", k), inputs[["fe"]][k], distinct = TRUE)
-      }, character(1))
-      prefix_terms = c(sql_count(inputs[["conn"]], "n_total"), fe_count_terms)
-    } else {
-      # Double demeaning (balanced panels, unweighted)
-      base_select = c(fe1, fe2, yvar)
-      for (i in seq_along(xvar_names)) {
-        base_select = c(base_select, sprintf("%s AS %s", xvars_sql[i], xvar_names[i]))
-      }
-      if (!is.null(inputs[["weights"]]) && !inputs[["weights"]] %in% c(fe1, fe2, yvar, xvar_names)) {
-        base_select = c(base_select, inputs[["weights"]])
-      }
-      if (!is.null(cluster_var) && !cluster_var %in% c(fe1, fe2, yvar, xvar_names, inputs[["weights"]])) {
-        base_select = c(base_select, cluster_var)
-      }
-
-      unit_means_cols = paste(
-        vapply(
-          all_var_names,
-          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_u")),
-          character(1)
-        ),
-        collapse = ", "
-      )
-      time_means_cols = paste(
-        vapply(
-          all_var_names,
-          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_t")),
-          character(1)
-        ),
-        collapse = ", "
-      )
-      overall_cols = paste(
-        vapply(
-          all_var_names,
-          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_o")),
-          character(1)
-        ),
-        collapse = ", "
-      )
-      tilde_exprs = paste(
-        sprintf(
-          "(b.%s - um.%s_u - tm.%s_t + o.%s_o) AS %s_tilde",
-          all_var_names,
-          all_var_names,
-          all_var_names,
-          all_var_names,
-          all_var_names
-        ),
-        collapse = ",\n       "
-      )
-      if (!is.null(cluster_var) && !cluster_var %in% c(fe1, fe2)) {
-        tilde_exprs = paste(
-          tilde_exprs,
-          sprintf("b.%s AS %s", cluster_var, cluster_var),
-          sep = ",\n       "
-        )
-      }
-      if (!is.null(inputs[["weights"]])) {
-        tilde_exprs = paste(
-          tilde_exprs,
-          sprintf("b.%s AS weights", inputs[["weights"]]),
-          sep = ",\n       "
-        )
-      }
-
-      # CTE part (reusable for HC1 meat computation)
-      cte_sql = paste0(
-        "WITH base AS (
-        SELECT ", paste(base_select, collapse = ", "), " ",
-        inputs[["from_statement"]],
-        "
-        ),
-        unit_means AS (
-        SELECT ",
-        fe1,
-        ", ",
-        unit_means_cols,
-        " FROM base GROUP BY ",
-        fe1,
-        "
-        ),
-        time_means AS (
-        SELECT ",
-        fe2,
-        ", ",
-        time_means_cols,
-        " FROM base GROUP BY ",
-        fe2,
-        "
-        ),
-        overall AS (
-        SELECT ",
-        overall_cols,
-        " FROM base
-        ),
-        demeaned AS (
-        SELECT
-            b.",
-        fe1,
-        ",
-            b.",
-        fe2,
-        ",
-            ",
-        tilde_exprs,
-        "
-        FROM base b
-        JOIN unit_means um ON b.",
-        fe1,
-        " = um.",
-        fe1,
-        "
-        JOIN time_means tm ON b.",
-        fe2,
-        " = tm.",
-        fe2,
-        "
-        CROSS JOIN overall o
-        )"
-      )
-
-      prefix_terms = c(
-        sql_count(inputs[["conn"]], "n_total"),
-        sql_count(inputs[["conn"]], "n_fe1", fe1, distinct = TRUE),
-        sql_count(inputs[["conn"]], "n_fe2", fe2, distinct = TRUE)
-      )
-    }
-  }
-
-  # Moments of the demeaned variables (no intercept: means are absorbed)
-  as_float = function(v) sprintf("CAST(%s_tilde AS FLOAT)", v)
-  moment_terms = build_weighted_moment_terms(
-    y_sql = as_float(yvar),
-    x_sql = as_float(xvar_names),
-    weights_expr = weights_expr_demeaned,
-    intercept = FALSE,
-    prefix_terms = prefix_terms
-  )
-
-  # Build full SQL
-  demean_sql = paste0(
-    cte_sql,
-    ",
-      moments AS (
-      SELECT
-          ",
-    paste(moment_terms, collapse = ",\n    "),
-    "
-      FROM demeaned
-      )
-      SELECT * FROM moments"
-  )
-
-  # Athena FLOAT gotcha
-  # https://github.com/DyfanJones/noctua/issues/228
-  if (inherits(inputs[["conn"]], "AthenaConnection")) {
-    demean_sql = gsub("FLOAT", "REAL", demean_sql, fixed = TRUE)
-  }
-
+  frame = build_demean_frame(inputs, xvars_sql, xvar_names)
+  on.exit(frame[["cleanup"]](), add = TRUE)
+  demean_sql = frame_moments_sql(frame, yvar, xvar_names, inputs[["conn"]])
   if (inputs[["sql_only"]]) {
     return(demean_sql)
   }
@@ -426,16 +120,7 @@ execute_demean_strategy = function(inputs) {
     message(if (!is.null(inputs[["weights"]])) "[dbreg] Executing weighted demean SQL\n" else "[dbreg] Executing demean SQL\n")
   }
   demean_df = dbGetQuery(inputs[["conn"]], demean_sql)
-  ap_cleanup = function() {
-    if (!is.null(ap_tables)) {
-      backend = detect_backend(inputs[["conn"]])[["name"]]
-      for (tbl in ap_tables) {
-        drop_table_if_exists(inputs[["conn"]], tbl, backend)
-      }
-    }
-  }
   if (inputs[["data_only"]]) {
-    ap_cleanup()
     return(demean_df)
   }
   n_total = demean_df[["n_total"]]
@@ -456,12 +141,6 @@ execute_demean_strategy = function(inputs) {
   df_res = max(n_total - p_kept - df_fe, 1)
   
   # Compute meat matrix if needed (HC1 or cluster)
-  frame = list(
-    cte_sql = cte_sql,
-    cte_name = "demeaned",
-    cols = setNames(paste0(all_var_names, "_tilde"), all_var_names),
-    weights_expr = weights_expr_demeaned
-  )
   meat = fit_meat(fit, frame, yvar, inputs)
   n_params_cluster = p_kept + df_fe  # K for CR1 correction
   if (inputs[["vcov_type_req"]] == "cluster") {
@@ -487,7 +166,6 @@ execute_demean_strategy = function(inputs) {
   attr(vcov_mat, "tss") = moment_tss(S, yvar)
 
   coeftable = gen_coeftable(betahat, vcov_mat, df_res)
-  ap_cleanup()
 
   list(
     coeftable = coeftable,
@@ -629,35 +307,24 @@ execute_mundlak_strategy = function(inputs) {
   # All regressors: expanded X plus group means of numeric xvars
   all_regressors = c(xvar_names, xbar_all)
 
-  # Build moment terms using numeric indices
-  moment_terms = build_weighted_moment_terms(
-    y_sql = glue("CAST({yvar} AS FLOAT)"),
-    x_sql = glue("CAST({all_regressors} AS FLOAT)"),
+  frame = list(
+    cte_sql = paste0(
+      "WITH base AS (SELECT ", paste(base_select, collapse = ", "), " ", inputs[["from_statement"]], "),\n",
+      paste(cte_parts, collapse = ",\n"), ",\n",
+      "augmented AS (SELECT ", aug_select, " FROM base b ", paste(join_parts, collapse = " "), ")"
+    ),
+    cte_name = "augmented",
+    cols = setNames(c(yvar, all_regressors), c(yvar, all_regressors)),
     weights_expr = weights_expr_aug,
+    intercept = TRUE,
+    cast = TRUE,
     prefix_terms = c(
       sql_count(inputs[["conn"]], "n_total"),
       if (n_fe >= 1) sql_count(inputs[["conn"]], "n_fe1", fe[1], distinct = TRUE) else "1 AS n_fe1",
       if (n_fe >= 2) sql_count(inputs[["conn"]], "n_fe2", fe[2], distinct = TRUE) else "1 AS n_fe2"
     )
   )
-
-  # CTE part (reusable for HC1 meat computation)
-  cte_sql = paste0(
-    "WITH base AS (SELECT ", paste(base_select, collapse = ", "), " ", inputs[["from_statement"]], "),\n",
-    paste(cte_parts, collapse = ",\n"), ",\n",
-    "augmented AS (SELECT ", aug_select, " FROM base b ", paste(join_parts, collapse = " "), ")"
-  )
-
-  mundlak_sql = paste0(
-    cte_sql, ",\n",
-    "moments AS (SELECT ", paste(moment_terms, collapse = ", "), " FROM augmented)\n",
-    "SELECT * FROM moments"
-  )
-
-  # Athena FLOAT gotcha
-  if (inherits(inputs[["conn"]], "AthenaConnection")) {
-    mundlak_sql = gsub("FLOAT", "REAL", mundlak_sql, fixed = TRUE)
-  }
+  mundlak_sql = frame_moments_sql(frame, yvar, all_regressors, inputs[["conn"]])
 
   if (inputs[["sql_only"]]) {
     return(mundlak_sql)
@@ -685,12 +352,6 @@ execute_mundlak_strategy = function(inputs) {
   df_res = max(n_total - p, 1)
 
   # Compute meat matrix if needed (HC1 or cluster)
-  frame = list(
-    cte_sql = cte_sql,
-    cte_name = "augmented",
-    cols = setNames(c(yvar, all_regressors), c(yvar, all_regressors)),
-    weights_expr = weights_expr_aug
-  )
   meat = fit_meat(fit, frame, yvar, inputs)
 
   vcov_mat = compute_vcov(

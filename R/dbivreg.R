@@ -374,63 +374,32 @@ choose_dbivreg_strategy = function(inputs) {
 
 #' @keywords internal
 execute_iv_moments_strategy = function(inputs) {
-  weight_alias = "__dbivreg_weight"
-  base_select = c(sprintf("%s AS %s", inputs[["yvar"]], inputs[["yvar"]]))
-  for (i in seq_along(inputs[["union_names"]])) {
-    if (identical(inputs[["union_sql"]][i], inputs[["union_names"]][i])) {
-      base_select = c(base_select, inputs[["union_names"]][i])
-    } else {
-      base_select = c(base_select, sprintf("%s AS %s", inputs[["union_sql"]][i], inputs[["union_names"]][i]))
-    }
-  }
-  if (!is.null(inputs[["weights"]])) {
-    base_select = c(base_select, sprintf("%s AS %s", inputs[["weights"]], weight_alias))
-  }
-  if (!is.null(inputs[["cluster_var"]]) && !inputs[["cluster_var"]] %in% c(inputs[["yvar"]], inputs[["union_names"]], weight_alias)) {
-    base_select = c(base_select, inputs[["cluster_var"]])
-  }
+  frame = build_base_frame(inputs, inputs[["union_sql"]], inputs[["union_names"]])
+  dbivreg_run_frame(inputs, frame, "IV moments")
+}
 
-  weights_expr = if (is.null(inputs[["weights"]])) NULL else sql_weight_expr(weight_alias)
-  moment_terms = build_weighted_moment_terms(
-    y_sql = inputs[["yvar"]],
-    x_sql = inputs[["union_names"]],
-    weights_expr = weights_expr,
-    prefix_terms = sql_count(inputs[["conn"]], "n_total")
-  )
+#' @keywords internal
+execute_iv_demean_strategy = function(inputs) {
+  frame = build_demean_frame(inputs, inputs[["union_sql"]], inputs[["union_names"]], tag = "dbivreg")
+  on.exit(frame[["cleanup"]](), add = TRUE)
+  dbivreg_run_frame(inputs, frame, "demeaned IV")
+}
 
-  cte_sql = paste0(
-    "WITH base AS (\n  SELECT ",
-    paste(base_select, collapse = ", "),
-    " ",
-    inputs[["from_statement"]],
-    "\n)"
-  )
-  moments_sql = paste0(
-    cte_sql,
-    "\nSELECT\n  ",
-    paste(moment_terms, collapse = ",\n  "),
-    "\nFROM base"
-  )
-
+# Moments pass over a frame, then the 2SLS fit
+#' @keywords internal
+dbivreg_run_frame = function(inputs, frame, label) {
+  moments_sql = frame_moments_sql(frame, inputs[["yvar"]], inputs[["union_names"]], inputs[["conn"]])
   if (inputs[["sql_only"]]) {
     return(moments_sql)
   }
   if (inputs[["verbose"]]) {
-    message(if (!is.null(inputs[["weights"]])) "[dbivreg] Executing weighted IV moments SQL\n" else "[dbivreg] Executing IV moments SQL\n")
+    message(sprintf("[dbivreg] Executing %s%s SQL\n", if (!is.null(inputs[["weights"]])) "weighted " else "", label))
   }
-
   moments_df = dbGetQuery(inputs[["conn"]], moments_sql)
   if (inputs[["data_only"]]) {
     return(moments_df)
   }
-
-  dbivreg_finalize_fit(
-    inputs = inputs,
-    moment_df = moments_df,
-    query_string = moments_sql,
-    frame = dbivreg_frame(inputs, cte_sql, "base", weights_expr),
-    has_intercept = TRUE
-  )
+  dbivreg_finalize_fit(inputs, moments_df, moments_sql, frame)
 }
 
 #' @keywords internal
@@ -443,23 +412,8 @@ execute_iv_compress_strategy = function(inputs) {
   }
 
   yvar = inputs[["yvar"]]
-  weight_alias = "__dbivreg_weight"
-  base_select = c(sprintf("%s AS %s", yvar, yvar))
-  for (i in seq_along(inputs[["union_names"]])) {
-    if (identical(inputs[["union_sql"]][i], inputs[["union_names"]][i])) {
-      base_select = c(base_select, inputs[["union_names"]][i])
-    } else {
-      base_select = c(base_select, sprintf("%s AS %s", inputs[["union_sql"]][i], inputs[["union_names"]][i]))
-    }
-  }
-  if (!is.null(inputs[["weights"]])) {
-    base_select = c(base_select, sprintf("%s AS %s", inputs[["weights"]], weight_alias))
-  }
-  if (!is.null(inputs[["cluster_var"]]) && !inputs[["cluster_var"]] %in% c(yvar, inputs[["union_names"]], weight_alias)) {
-    base_select = c(base_select, inputs[["cluster_var"]])
-  }
-
-  weights_expr = if (is.null(inputs[["weights"]])) NULL else sql_weight_expr(weight_alias)
+  frame = build_base_frame(inputs, inputs[["union_sql"]], inputs[["union_names"]])
+  weights_expr = frame[["weights_expr"]]
   compressed_terms = c(
     sql_count(inputs[["conn"]], "n"),
     if (is.null(weights_expr)) sql_count(inputs[["conn"]], "sum_w") else glue("SUM({weights_expr}) AS sum_w"),
@@ -469,13 +423,7 @@ execute_iv_compress_strategy = function(inputs) {
   compressed_moment_terms = dbivreg_compressed_moment_terms(inputs[["conn"]], inputs[["union_names"]])
   group_cols_sql = paste(inputs[["union_names"]], collapse = ", ")
 
-  cte_sql = paste0(
-    "WITH base AS (\n  SELECT ",
-    paste(base_select, collapse = ", "),
-    " ",
-    inputs[["from_statement"]],
-    "\n)"
-  )
+  cte_sql = frame[["cte_sql"]]
   compress_sql = paste0(
     cte_sql,
     ",\ncompressed AS (\n  SELECT\n    ",
@@ -513,8 +461,7 @@ execute_iv_compress_strategy = function(inputs) {
     inputs = inputs,
     moment_df = moments_df,
     query_string = compress_sql,
-    frame = dbivreg_frame(inputs, cte_sql, "base", weights_expr),
-    has_intercept = TRUE
+    frame = frame
   )
   result[["nobs"]] = moments_df[["n_compressed"]]
   result[["compression_ratio"]] = compression_ratio
@@ -522,322 +469,9 @@ execute_iv_compress_strategy = function(inputs) {
 }
 
 #' @keywords internal
-execute_iv_demean_strategy = function(inputs) {
+dbivreg_finalize_fit = function(inputs, moment_df, query_string, frame) {
   yvar = inputs[["yvar"]]
-  fe = inputs[["fe"]]
-  union_names = inputs[["union_names"]]
-  weights_expr_base = sql_weight_expr(inputs[["weights"]])
-  weights_expr_demeaned = if (is.null(inputs[["weights"]])) NULL else sql_weight_expr("weights")
-
-  all_var_names = c(yvar, union_names)
-  cluster_var = inputs[["cluster_var"]]
-  ap_tables = NULL
-
-  use_ap = FALSE
-  if (length(fe) >= 2) {
-    if (length(fe) > 2) {
-      use_ap = TRUE
-    } else {
-      is_balanced = dbreg_is_balanced_panel(inputs[["conn"]], inputs[["from_statement"]], fe)
-      use_ap = !is.null(inputs[["weights"]]) || !isTRUE(is_balanced)
-    }
-    if (isTRUE(use_ap) && inputs[["verbose"]]) {
-      message("[dbivreg] Using alternating projections for FE demeaning")
-    }
-    if (isTRUE(use_ap) && inputs[["sql_only"]]) {
-      stop("[dbivreg] sql_only is not supported for alternating projections.", call. = FALSE)
-    }
-  }
-
-  if (length(fe) == 1) {
-    fe1 = fe[1]
-    base_select = c(fe1, yvar)
-    for (i in seq_along(union_names)) {
-      base_select = c(base_select, sprintf("%s AS %s", inputs[["union_sql"]][i], union_names[i]))
-    }
-    if (!is.null(inputs[["weights"]]) && !inputs[["weights"]] %in% c(fe1, yvar, union_names)) {
-      base_select = c(base_select, inputs[["weights"]])
-    }
-    if (!is.null(cluster_var) && !cluster_var %in% c(fe1, yvar, union_names, inputs[["weights"]])) {
-      base_select = c(base_select, cluster_var)
-    }
-
-    means_cols = paste(
-      vapply(
-        all_var_names,
-        function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_mean")),
-        character(1)
-      ),
-      collapse = ", "
-    )
-    tilde_exprs = paste(
-      sprintf("(b.%s - gm.%s_mean) AS %s_tilde", all_var_names, all_var_names, all_var_names),
-      collapse = ",\n       "
-    )
-    if (!is.null(inputs[["weights"]])) {
-      tilde_exprs = paste(
-        tilde_exprs,
-        sprintf("b.%s AS weights", inputs[["weights"]]),
-        sep = ",\n       "
-      )
-    }
-    if (!is.null(cluster_var) && !cluster_var %in% fe1) {
-      tilde_exprs = paste(
-        tilde_exprs,
-        sprintf("b.%s AS %s", cluster_var, cluster_var),
-        sep = ",\n       "
-      )
-    }
-
-    cte_sql = paste0(
-      "WITH base AS (
-      SELECT ", paste(base_select, collapse = ", "), " ",
-      inputs[["from_statement"]],
-      "
-      ),
-      group_means AS (
-      SELECT ",
-      fe1,
-      ", ",
-      means_cols,
-      " FROM base GROUP BY ",
-      fe1,
-      "
-      ),
-      demeaned AS (
-      SELECT
-          b.",
-      fe1,
-      ",
-          ",
-      tilde_exprs,
-      "
-      FROM base b
-      JOIN group_means gm ON b.",
-      fe1,
-      " = gm.",
-      fe1,
-      "
-      )"
-    )
-  } else {
-    fe1 = fe[1]
-    fe2 = fe[2]
-
-    if (isTRUE(use_ap)) {
-      ap_res = dbreg_alternating_projections(
-        conn = inputs[["conn"]],
-        from_statement = inputs[["from_statement"]],
-        fe = fe,
-        yvar = yvar,
-        xvars_sql = inputs[["union_sql"]],
-        xvar_names = union_names,
-        weights = inputs[["weights"]],
-        cluster_var = cluster_var,
-        verbose = inputs[["verbose"]]
-      )
-      ap_tables = c(ap_res[["table"]], ap_res[["base_table"]])
-      weights_expr_demeaned = "__w"
-      cte_sql = paste0("WITH demeaned AS (SELECT * FROM ", ap_res[["table"]], ")")
-    } else {
-      base_select = c(fe1, fe2, yvar)
-      for (i in seq_along(union_names)) {
-        base_select = c(base_select, sprintf("%s AS %s", inputs[["union_sql"]][i], union_names[i]))
-      }
-      if (!is.null(inputs[["weights"]]) && !inputs[["weights"]] %in% c(fe1, fe2, yvar, union_names)) {
-        base_select = c(base_select, inputs[["weights"]])
-      }
-      if (!is.null(cluster_var) && !cluster_var %in% c(fe1, fe2, yvar, union_names, inputs[["weights"]])) {
-        base_select = c(base_select, cluster_var)
-      }
-
-      unit_means_cols = paste(
-        vapply(
-          all_var_names,
-          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_u")),
-          character(1)
-        ),
-        collapse = ", "
-      )
-      time_means_cols = paste(
-        vapply(
-          all_var_names,
-          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_t")),
-          character(1)
-        ),
-        collapse = ", "
-      )
-      overall_cols = paste(
-        vapply(
-          all_var_names,
-          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, "_o")),
-          character(1)
-        ),
-        collapse = ", "
-      )
-      tilde_exprs = paste(
-        sprintf(
-          "(b.%s - um.%s_u - tm.%s_t + o.%s_o) AS %s_tilde",
-          all_var_names,
-          all_var_names,
-          all_var_names,
-          all_var_names,
-          all_var_names
-        ),
-        collapse = ",\n       "
-      )
-      if (!is.null(cluster_var) && !cluster_var %in% c(fe1, fe2)) {
-        tilde_exprs = paste(
-          tilde_exprs,
-          sprintf("b.%s AS %s", cluster_var, cluster_var),
-          sep = ",\n       "
-        )
-      }
-      if (!is.null(inputs[["weights"]])) {
-        tilde_exprs = paste(
-          tilde_exprs,
-          sprintf("b.%s AS weights", inputs[["weights"]]),
-          sep = ",\n       "
-        )
-      }
-
-      cte_sql = paste0(
-        "WITH base AS (
-        SELECT ", paste(base_select, collapse = ", "), " ",
-        inputs[["from_statement"]],
-        "
-        ),
-        unit_means AS (
-        SELECT ",
-        fe1,
-        ", ",
-        unit_means_cols,
-        " FROM base GROUP BY ",
-        fe1,
-        "
-        ),
-        time_means AS (
-        SELECT ",
-        fe2,
-        ", ",
-        time_means_cols,
-        " FROM base GROUP BY ",
-        fe2,
-        "
-        ),
-        overall AS (
-        SELECT ",
-        overall_cols,
-        " FROM base
-        ),
-        demeaned AS (
-        SELECT
-            b.",
-        fe1,
-        ",
-            b.",
-        fe2,
-        ",
-            ",
-        tilde_exprs,
-        "
-        FROM base b
-        JOIN unit_means um ON b.",
-        fe1,
-        " = um.",
-        fe1,
-        "
-        JOIN time_means tm ON b.",
-        fe2,
-        " = tm.",
-        fe2,
-        "
-        CROSS JOIN overall o
-        )"
-      )
-    }
-  }
-
-  fe_count_terms = vapply(seq_along(fe), function(k) {
-    sql_count(inputs[["conn"]], sprintf("n_fe%d", k), fe[k], distinct = TRUE)
-  }, character(1))
-  if (length(fe) == 1) {
-    fe_count_terms = c(fe_count_terms, "1 AS n_fe2")
-  }
-  as_float = function(v) sprintf("CAST(%s_tilde AS FLOAT)", v)
-  moment_terms = build_weighted_moment_terms(
-    y_sql = as_float(yvar),
-    x_sql = as_float(union_names),
-    weights_expr = weights_expr_demeaned,
-    intercept = FALSE,
-    prefix_terms = c(sql_count(inputs[["conn"]], "n_total"), fe_count_terms)
-  )
-
-  demean_sql = paste0(
-    cte_sql,
-    ",
-      moments AS (
-      SELECT
-          ",
-    paste(moment_terms, collapse = ",\n    "),
-    "
-      FROM demeaned
-      )
-      SELECT * FROM moments"
-  )
-
-  if (inherits(inputs[["conn"]], "AthenaConnection")) {
-    demean_sql = gsub("FLOAT", "REAL", demean_sql, fixed = TRUE)
-  }
-  if (inputs[["sql_only"]]) {
-    return(demean_sql)
-  }
-  if (inputs[["verbose"]]) {
-    message(if (!is.null(inputs[["weights"]])) "[dbivreg] Executing weighted demeaned IV SQL\n" else "[dbivreg] Executing demeaned IV SQL\n")
-  }
-
-  ap_cleanup = function() {
-    if (!is.null(ap_tables)) {
-      backend = detect_backend(inputs[["conn"]])[["name"]]
-      for (tbl in ap_tables) {
-        drop_table_if_exists(inputs[["conn"]], tbl, backend)
-      }
-    }
-  }
-  on.exit(ap_cleanup(), add = TRUE)
-
-  demean_df = dbGetQuery(inputs[["conn"]], demean_sql)
-  if (inputs[["data_only"]]) {
-    return(demean_df)
-  }
-
-  dbivreg_finalize_fit(
-    inputs = inputs,
-    moment_df = demean_df,
-    query_string = demean_sql,
-    frame = dbivreg_frame(inputs, cte_sql, "demeaned", weights_expr_demeaned, suffix = "_tilde"),
-    has_intercept = FALSE
-  )
-}
-
-#' Column map for the IV score pass
-#'
-#' Maps the outcome and union (X and Z) names to their SQL columns in
-#' `cte_name` (with `suffix` for demeaned columns). See [fit_meat()].
-#' @keywords internal
-dbivreg_frame = function(inputs, cte_sql, cte_name, weights_expr, suffix = "") {
-  vars = c(inputs[["yvar"]], inputs[["union_names"]])
-  list(
-    cte_sql = cte_sql,
-    cte_name = cte_name,
-    cols = setNames(paste0(vars, suffix), vars),
-    weights_expr = weights_expr
-  )
-}
-
-#' @keywords internal
-dbivreg_finalize_fit = function(inputs, moment_df, query_string, frame, has_intercept) {
-  yvar = inputs[["yvar"]]
+  has_intercept = frame[["intercept"]]
   x_names_full = c(if (has_intercept) "(Intercept)", inputs[["x_all_names"]])
   z_names_full = c(if (has_intercept) "(Intercept)", inputs[["z_all_names"]])
   S = cross_moments(moment_df, inputs[["union_names"]], yvar, intercept = has_intercept)
@@ -916,14 +550,11 @@ dbivreg_finalize_fit = function(inputs, moment_df, query_string, frame, has_inte
     instruments = inputs[["instr_vars"]],
     diagnostics = iv_diagnostics,
     df_residual = df_res,
-    n_fe_levels = if (n_fe > 0) n_fe_levels else NULL,
-    n_fe1 = if ("n_fe1" %in% names(moment_df)) moment_df$n_fe1 else NULL,
-    n_fe2 = if ("n_fe2" %in% names(moment_df)) moment_df$n_fe2 else NULL
+    n_fe_levels = if (n_fe > 0) n_fe_levels else NULL
   )
-  if (n_fe > 2) {
-    for (k in seq.int(3L, n_fe)) {
-      out[[sprintf("n_fe%d", k)]] = unname(n_fe_levels[k])
-    }
+  # Per-FE counts by position (n_fe1, n_fe2, ...)
+  for (k in seq_len(n_fe)) {
+    out[[sprintf("n_fe%d", k)]] = unname(n_fe_levels[k])
   }
   out
 }
