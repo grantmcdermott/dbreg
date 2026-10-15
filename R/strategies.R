@@ -7,30 +7,27 @@ execute_moments_strategy = function(inputs) {
   env2env(
     inputs,
     environment(), c(
-      "has_interactions", "from_statement", "conn", "sql_only", "verbose",
+      "from_statement", "conn", "sql_only", "verbose",
       "data_only", "vcov_type_req", "fml", "fe", "intercept", "xvars", "yvar",
       "weights", "compression_ratio_est"
     )
   )
   # Get SQL expressions for design matrix terms
   # For interactions/factors, this expands to CASE WHEN expressions
-  if (isTRUE(has_interactions)) {
-    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
-    sql_design = sql_model_matrix(
-      fml,
-      conn,
-      table_ref,
-      expand = "all",
-      fe_vars = fe,
-      intercept = intercept
-    )
-    xvars_sql = sql_design[["select_exprs"]]
-    xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
-  } else {
-    xvars_sql = xvars
-    xvar_names = xvars
-  }
+  # Expand factors and interactions to SQL expressions (numeric terms pass
+  # through unchanged)
+  table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
+  sql_design = sql_model_matrix(
+    fml,
+    conn,
+    table_ref,
+    expand = "all",
+    fe_vars = fe,
+    intercept = intercept
+  )
+  xvars_sql = sql_design[["select_exprs"]]
+  xvar_names = sql_design[["aliases"]]
+  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   
   frame = build_base_frame(inputs, xvars_sql, xvar_names)
   moments_sql = frame_moments_sql(frame, yvar, xvar_names, conn)
@@ -50,8 +47,9 @@ execute_moments_strategy = function(inputs) {
   S = cross_moments(moments_df, xvar_names, yvar, intercept = frame[["intercept"]])
   vars_all = c(if (frame[["intercept"]]) "(Intercept)", xvar_names)
   p = length(vars_all)
-  fit = fit_ols(S, yvar, vars_all)
+  fit = fit_ols(S, yvar, vars_all, drop_collinear = TRUE, verbose = verbose)
   betahat = fit[["coef"]]
+  p = length(fit[["x"]])
   rss = fit[["rss"]]
   tss = moment_tss(S, yvar)
   df_res = max(n_total - p, 1)
@@ -102,29 +100,24 @@ execute_demean_strategy = function(inputs) {
     inputs,
     environment(),
     c(
-      "has_interactions", "from_statement", "conn", "sql_only", "data_only",
+      "from_statement", "conn", "sql_only", "data_only",
       "vcov_type_req", "fml", "fe", "xvars", "yvar", "verbose", "weights",
       "compression_ratio_est", "ssc"
     )
   )
-  # Handle interactions: expand to SQL expressions
-
-  if (isTRUE(has_interactions)) {
-    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
-    sql_design = sql_model_matrix(
-      fml,
-      conn,
-      table_ref,
-      expand = "all",
-      fe_vars = fe
-    )
-    xvars_sql = sql_design[["select_exprs"]]
-    xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
-  } else {
-    xvars_sql = xvars
-    xvar_names = xvars
-  }
+  # Expand factors and interactions to SQL expressions (numeric terms pass
+  # through unchanged)
+  table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
+  sql_design = sql_model_matrix(
+    fml,
+    conn,
+    table_ref,
+    expand = "all",
+    fe_vars = fe
+  )
+  xvars_sql = sql_design[["select_exprs"]]
+  xvar_names = sql_design[["aliases"]]
+  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   
   frame = build_demean_frame(inputs, xvars_sql, xvar_names)
   on.exit(frame[["cleanup"]](), add = TRUE)
@@ -212,7 +205,7 @@ execute_mundlak_strategy = function(inputs) {
   env2env(
     inputs,
     environment(), c(
-      "has_interactions", "from_statement", "conn", "cluster_var", "sql_only",
+      "from_statement", "conn", "cluster_var", "sql_only",
       "verbose", "data_only", "vcov_type_req", "yvar", "fe", "fml", "xvars",
       "weights", "compression_ratio_est"
     )
@@ -223,23 +216,19 @@ execute_mundlak_strategy = function(inputs) {
     stop("mundlak strategy requires at least one fixed effect")
   }
 
-  # Handle interactions: expand to SQL expressions
-  if (isTRUE(has_interactions)) {
-    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
-    sql_design = sql_model_matrix(
-      fml,
-      conn,
-      table_ref,
-      expand = "all",
-      fe_vars = fe
-    )
-    xvars_sql = sql_design[["select_exprs"]]
-    xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
-  } else {
-    xvars_sql = xvars
-    xvar_names = xvars
-  }
+  # Expand factors and interactions to SQL expressions (numeric terms pass
+  # through unchanged)
+  table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
+  sql_design = sql_model_matrix(
+    fml,
+    conn,
+    table_ref,
+    expand = "all",
+    fe_vars = fe
+  )
+  xvars_sql = sql_design[["select_exprs"]]
+  xvar_names = sql_design[["aliases"]]
+  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   
   weights_expr_base = sql_weight_expr(weights)
   weights_expr_aug = if (is.null(weights)) NULL else sql_weight_expr("weights")
@@ -260,53 +249,29 @@ execute_mundlak_strategy = function(inputs) {
     base_select = c(base_select, cluster_var)
   }
 
-  # Build group means CTEs and join clauses for each FE
+  # Group means of every regressor column (incl. factor dummies and
+  # interactions), one set per FE. Anything less isn't FE-equivalent (#77).
+  # Means get opaque internal names, with display names registered below.
   cte_parts = character(0)
   join_parts = character(0)
+  aug_bar_parts = character(0)
   xbar_all = character(0)
-
-  # Build group means CTEs using ORIGINAL numeric xvars only
-  # (can't compute AVG on factors; their means are handled via expanded dummies)
-  # This follows the Mundlak/CRE approach of controlling for correlation
-  # between original covariates and the FE
-  if (isTRUE(has_interactions)) {
-    # Filter to numeric vars only (factors are in sql_design$factor_levels)
-    factor_vars = names(sql_design[["factor_levels"]])
-    numeric_xvars = setdiff(xvars, factor_vars)
-  } else {
-    numeric_xvars = xvars
-  }
-  
   for (k in seq_along(fe)) {
     fe_k = fe[k]
-    suffix = paste0("_bar_", fe_k)
-    
-    if (length(numeric_xvars) > 0) {
-      xbar_k = paste0(numeric_xvars, suffix)
-      xbar_all = c(xbar_all, xbar_k)
-      means_cols = paste(
-        vapply(
-          numeric_xvars,
-          function(v) sql_weighted_mean(v, weights_expr_base, paste0(v, suffix)),
-          character(1)
-        ),
-        collapse = ", "
-      )
-      cte_parts = c(cte_parts, sprintf(
-        "fe%d_means AS (SELECT %s, %s FROM base GROUP BY %s)",
-        k, fe_k, means_cols, fe_k
-      ))
+    xbar_k = if (length(xvar_names)) sprintf("dbreg_bar%d_%d", k, seq_along(xvar_names)) else character(0)
+    xbar_all = c(xbar_all, xbar_k)
+    means_cols = vapply(
+      seq_along(xvar_names),
+      function(i) sql_weighted_mean(xvar_names[i], weights_expr_base, xbar_k[i]),
+      character(1)
+    )
+    cte_parts = c(cte_parts, if (length(means_cols)) {
+      sprintf("fe%d_means AS (SELECT %s, %s FROM base GROUP BY %s)", k, fe_k, paste(means_cols, collapse = ", "), fe_k)
     } else {
-      # No numeric vars - just select FE for joining
-      cte_parts = c(cte_parts, sprintf(
-        "fe%d_means AS (SELECT DISTINCT %s FROM base)",
-        k, fe_k
-      ))
-    }
-    join_parts = c(join_parts, sprintf(
-      "JOIN fe%d_means m%d ON b.%s = m%d.%s",
-      k, k, fe_k, k, fe_k
-    ))
+      sprintf("fe%d_means AS (SELECT DISTINCT %s FROM base)", k, fe_k)
+    })
+    join_parts = c(join_parts, sprintf("JOIN fe%d_means m%d ON b.%s = m%d.%s", k, k, fe_k, k, fe_k))
+    aug_bar_parts = c(aug_bar_parts, paste0("m", k, ".", xbar_k))
   }
 
   # Select columns for augmented table (include FE for counting)
@@ -317,24 +282,25 @@ execute_mundlak_strategy = function(inputs) {
   if (!is.null(weights)) {
     aug_select_parts = c(aug_select_parts, sprintf("b.%s AS weights", weights))
   }
-  for (k in seq_along(fe)) {
-    if (length(numeric_xvars) > 0) {
-      suffix = paste0("_bar_", fe[k])
-      xbar_k = paste0(numeric_xvars, suffix)
-      aug_select_parts = c(aug_select_parts, paste0("m", k, ".", xbar_k))
-    }
-  }
-  aug_select = paste(aug_select_parts, collapse = ", ")
+  aug_select = paste(c(aug_select_parts, aug_bar_parts), collapse = ", ")
 
-  # All regressors: expanded X plus group means of numeric xvars
-  all_regressors = c(xvar_names, xbar_all)
-  # Group-mean regressors are named after (safe) variables; register display names
+  # Display names for the means: "<coef name>_bar_<fe>"
   map = inputs[["name_map"]]
-  if (length(map) && length(xbar_all)) {
-    disp = function(v) ifelse(v %in% names(map), map[v], v)
-    bar_display = unlist(lapply(fe, function(f) paste0(disp(numeric_xvars), "_bar_", disp(f))))
-    inputs[["name_map"]] = c(map, setNames(bar_display, xbar_all)[xbar_all != bar_display])
-  }
+  coef_map = map
+  is_var = names(coef_map) %in% names(inputs[["source_map"]])
+  coef_map[is_var] = coef_var_name(coef_map[is_var])
+  term_display = standardize_coef_names(restore_names(xvar_names, coef_map))
+  fe_display = restore_names(fe, map)
+  mundlak_means = data.frame(
+    term = rep(term_display, length(fe)),
+    fe = rep(fe_display, each = length(xvar_names)),
+    name = paste0(rep(term_display, length(fe)), "_bar_", rep(fe_display, each = length(xvar_names)))
+  )
+  inputs[["name_map"]] = c(map, setNames(mundlak_means[["name"]], xbar_all))
+
+  # Regressors before means, so collinearity (e.g. a regressor that's constant
+  # within groups) drops the mean and keeps the regressor, as in CRE
+  all_regressors = c(xvar_names, xbar_all)
 
   frame = list(
     cte_sql = paste0(
@@ -374,8 +340,9 @@ execute_mundlak_strategy = function(inputs) {
   S = cross_moments(mundlak_df, all_regressors, yvar)
   vars_all = c("(Intercept)", all_regressors)
   p = length(vars_all)
-  fit = fit_ols(S, yvar, vars_all)
+  fit = fit_ols(S, yvar, vars_all, drop_collinear = TRUE, verbose = verbose)
   betahat = fit[["coef"]]
+  p = length(fit[["x"]])
   rss = fit[["rss"]]
   tss = moment_tss(S, yvar)
   df_res = max(n_total - p, 1)
@@ -404,6 +371,7 @@ execute_mundlak_strategy = function(inputs) {
     fml = fml,
     yvar = yvar,
     xvars = standardize_coef_names(xvar_names),
+    collin.var = fit[["dropped"]],
     fe = fe,
     weights = weights,
     query_string = mundlak_sql,
@@ -412,7 +380,7 @@ execute_mundlak_strategy = function(inputs) {
     strategy = "mundlak",
     compression_ratio_est = compression_ratio_est,
     df_residual = df_res,
-    mundlak_vars = numeric_xvars,
+    mundlak_means = mundlak_means,
     n_fe1 = n_fe1,
     n_fe2 = n_fe2
   )

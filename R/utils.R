@@ -521,7 +521,7 @@ restore_result_names = function(result, inputs) {
   for (f in c("xvars", "collin.var", "coef_names", "endogenous", "instruments")) {
     if (!is.null(result[[f]])) result[[f]] = restore_names(result[[f]], coef_map)
   }
-  for (f in c("yvar", "fe", "weights", "mundlak_vars")) {
+  for (f in c("yvar", "fe", "weights")) {
     if (!is.null(result[[f]])) result[[f]] = restore_names(result[[f]], map)
   }
   if (!is.null(result[["n_fe_levels"]]) && !is.null(names(result[["n_fe_levels"]]))) {

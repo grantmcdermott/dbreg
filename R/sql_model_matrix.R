@@ -131,9 +131,8 @@ get_column_info = function(conn, table, term_labels) {
     # Treat character, factor, logical as categorical
     if (col_class %in% c("character", "factor", "logical")) {
       types[[v]] = "factor"
-      # Get distinct levels
-      lvl_sample = sql_limit(glue("SELECT {v} {from_sql}"), 100000, backend)
-      lvl_query = glue("SELECT DISTINCT {v} FROM ({lvl_sample}) lvl WHERE {v} IS NOT NULL ORDER BY {v}")
+      # All distinct levels (a sample could miss rare levels)
+      lvl_query = glue("SELECT DISTINCT {v} FROM (SELECT {v} {from_sql}) lvl WHERE {v} IS NOT NULL ORDER BY {v}")
       levels[[v]] = dbGetQuery(conn, lvl_query)[[1]]
     } else {
       types[[v]] = "numeric"

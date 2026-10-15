@@ -57,6 +57,9 @@ Bug fixes
   names with spaces, or reserved words) and factor levels with spaces or other
   special characters now work in `dbreg()`, `dbivreg()` and `dbbinsreg()`.
   Results use the original names. (#58)
+- Plain factor regressors (without interactions) now work for the
+  `"moments"`, `"demean"` and `"mundlak"` strategies, and factor levels are
+  read from all rows rather than the first 100,000. (#76)
 - `predict()` now errors for `"demean"` models with more than two fixed
   effects. Previously it silently ignored the third and later fixed effects,
   returning incorrect predictions. (#66)
@@ -67,6 +70,11 @@ Bug fixes
   precision on all backends. Previously, they were cast to `FLOAT`, which is
   single precision on DuckDB, MySQL, Spark and Athena, limiting the
   `"demean"` and `"mundlak"` strategies (and robust SEs) to ~1e-8 accuracy. (#78)
+- The `"mundlak"` strategy now includes group means of every regressor column,
+  incl. factor dummies and interactions. Previously only raw numeric variables
+  were averaged, so models with factors or interactions didn't match the
+  equivalent fixed effects estimates. Time-invariant regressors now keep their
+  coefficient (dropping their collinear group mean) instead of erroring. (#77)
 
 Internal
 
