@@ -199,3 +199,15 @@ expect_equal(
   tolerance = 1e-6,
   info = "moments cluster SEs match fixest after dropping missing clusters"
 )
+
+#
+## Moments are computed in double precision (FLOAT is 4-byte on DuckDB) ----
+
+sim_cl = transform(sim_panel, cl = (firm %% 10) + 1)
+fx_prec = feols(y ~ x1 + x2 | firm, data = sim_cl, vcov = ~cl)
+for (s in c("demean", "mundlak")) {
+  db_prec = dbreg(y ~ x1 + x2 | firm, data = sim_cl, vcov = ~cl, strategy = s)
+  expect_equal(coef(db_prec)[c("x1", "x2")], coef(fx_prec), tolerance = 1e-12, info = paste(s, "coefficients match fixest to double precision"))
+}
+db_prec = dbreg(y ~ x1 + x2 | firm, data = sim_cl, vcov = ~cl, ssc = "nested", strategy = "demean")
+expect_equal(as.numeric(db_prec$coeftable[c("x1", "x2"), "std.error"]), as.numeric(se(fx_prec)), tolerance = 1e-12, info = "cluster SEs match fixest to double precision")

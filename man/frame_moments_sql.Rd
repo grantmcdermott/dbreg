@@ -11,7 +11,7 @@ frame_moments_sql(frame, y, x, conn)
 
 \item{y, x}{Outcome and regressor names.}
 
-\item{conn}{Database connection (for the Athena FLOAT gotcha).}
+\item{conn}{Database connection (for the cast type).}
 }
 \description{
 Appends the cross-moment aggregates for `y` and `x` (names in `frame$cols`)

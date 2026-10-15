@@ -114,11 +114,11 @@ compute_score_meat = function(
   if (!vcov_type %in% c("hc1", "cluster")) {
     return(NULL)
   }
-  as_float = function(x) sprintf("CAST(%s AS FLOAT)", x)
-  resid = as_float(resid_sql)
+  as_double = function(x) sql_cast_double(x, conn)
+  resid = as_double(resid_sql)
   s_sql = c(if (score_intercept) "1", score_sql)
   s_names = c(if (score_intercept) "(Intercept)", score_names)
-  s_term = ifelse(s_sql == "1", NA_character_, as_float(s_sql))
+  s_term = ifelse(s_sql == "1", NA_character_, as_double(s_sql))
   idx = seq_along(s_sql)
   sql_prod = function(...) {
     x = c(...)
@@ -126,7 +126,7 @@ compute_score_meat = function(
   }
 
   if (vcov_type == "hc1") {
-    w_sq = if (is.null(weights_expr)) NULL else as_float(sprintf("(%s) * (%s)", weights_expr, weights_expr))
+    w_sq = if (is.null(weights_expr)) NULL else as_double(sprintf("(%s) * (%s)", weights_expr, weights_expr))
     pairs = which(upper.tri(diag(length(idx)), diag = TRUE), arr.ind = TRUE)
     terms = unlist(lapply(seq_along(resid), function(r) {
       sprintf(
@@ -139,7 +139,7 @@ compute_score_meat = function(
     }))
     sql = paste0(cte_sql, ",\nmeat AS (SELECT ", paste(terms, collapse = ", "), " FROM ", cte_name, ")\nSELECT * FROM meat")
   } else {
-    w = if (is.null(weights_expr)) NULL else as_float(weights_expr)
+    w = if (is.null(weights_expr)) NULL else as_double(weights_expr)
     terms = unlist(lapply(seq_along(resid), function(r) {
       sprintf(
         "SUM(%s) AS score_%d_%d",
@@ -152,10 +152,6 @@ compute_score_meat = function(
       ",\ncluster_scores AS (\n  SELECT ", cluster_var, ", ", paste(terms, collapse = ", "),
       "\n  FROM ", cte_name, "\n  GROUP BY ", cluster_var, "\n)\nSELECT * FROM cluster_scores"
     )
-  }
-  # Athena FLOAT gotcha
-  if (inherits(conn, "AthenaConnection")) {
-    sql = gsub("FLOAT", "REAL", sql, fixed = TRUE)
   }
   res = dbGetQuery(conn, sql)
 
