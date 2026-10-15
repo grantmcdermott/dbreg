@@ -4,11 +4,16 @@
 \alias{safe_identifiers}
 \title{Make SQL-safe identifiers}
 \usage{
-safe_identifiers(x, taken = character())
+safe_identifiers(x, taken = character(), fold_case = FALSE)
+}
+\arguments{
+\item{fold_case}{Logical. Require lower case (see [folds_identifier_case()]).}
 }
 \description{
-Leaves safe names unchanged; otherwise replaces invalid characters with `_`,
-prefixes names that would start with a digit or are reserved, and
-de-duplicates against each other and against `taken`.
+Leaves safe names unchanged; otherwise replaces invalid characters with `_`
+(lower-casing on case-folding backends), prefixes names that would start
+with a digit or are reserved, and de-duplicates against each other and
+against `taken`. De-duplication ignores case, since most backends match
+identifiers case-insensitively.
 }
 \keyword{internal}

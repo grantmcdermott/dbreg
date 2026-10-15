@@ -4,7 +4,10 @@
 \alias{is_safe_identifier}
 \title{Is `x` usable as an unquoted SQL identifier?}
 \usage{
-is_safe_identifier(x)
+is_safe_identifier(x, fold_case = FALSE)
+}
+\arguments{
+\item{fold_case}{Logical. Require lower case (see [folds_identifier_case()]).}
 }
 \description{
 Is `x` usable as an unquoted SQL identifier?

@@ -26,7 +26,7 @@ execute_moments_strategy = function(inputs) {
     )
     xvars_sql = sql_design[["select_exprs"]]
     xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]])
+    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   } else {
     xvars_sql = xvars
     xvar_names = xvars
@@ -120,7 +120,7 @@ execute_demean_strategy = function(inputs) {
     )
     xvars_sql = sql_design[["select_exprs"]]
     xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]])
+    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   } else {
     xvars_sql = xvars
     xvar_names = xvars
@@ -235,7 +235,7 @@ execute_mundlak_strategy = function(inputs) {
     )
     xvars_sql = sql_design[["select_exprs"]]
     xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]])
+    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   } else {
     xvars_sql = xvars
     xvar_names = xvars
@@ -454,7 +454,7 @@ execute_compress_strategy = function(inputs) {
     select_exprs = paste0(sql_design[["select_exprs"]], " AS ", sql_design[["aliases"]])
     xvars_sql = paste(select_exprs, collapse = ", ")
     xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]])
+    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   } else {
     xvars_sql = paste(xvars, collapse = ", ")
     xvar_names = xvars

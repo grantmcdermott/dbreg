@@ -50,3 +50,35 @@ bins_dot = dbbinsreg(Sepal.Length ~ Petal.Length | Species, data = ir, nbins = 5
 bins_ref = dbbinsreg(y ~ x | f, data = data.frame(y = ir$Sepal.Length, x = ir$Petal.Length, f = ir$Species), nbins = 5, plot = FALSE)
 expect_equal(bins_dot$points$fit, bins_ref$points$fit, tolerance = 1e-10, info = "dbbinsreg: dotted names give the same fit")
 expect_equal(bins_dot$opt$x_var, "Petal.Length", info = "dbbinsreg: display names restored")
+
+# dbbinsreg with separate points/line fits restores names in both
+bins_sep = dbbinsreg(Sepal.Length ~ Petal.Length + Sepal.Width, data = ir, nbins = 5, points = c(0, 0), line = c(1, 1), plot = FALSE)
+expect_true(
+  "Sepal.Width" %in% rownames(bins_sep$model$points$coeftable) && "Sepal.Width" %in% rownames(bins_sep$model$line$coeftable),
+  info = "dbbinsreg: names restored in separate points/line fits"
+)
+
+# Identifier rules on case-folding backends (Postgres, Athena/Trino)
+expect_equal(
+  dbreg:::is_safe_identifier(c("temp", "Temp", "sepal_length"), fold_case = TRUE),
+  c(TRUE, FALSE, TRUE),
+  info = "fold_case: only lower-case names are safe"
+)
+expect_equal(
+  dbreg:::safe_identifiers(c("Temp", "temp.x", "Sepal.Length"), fold_case = TRUE),
+  c("temp", "temp_x", "sepal_length"),
+  info = "fold_case: generated aliases are lower case"
+)
+expect_equal(
+  dbreg:::safe_identifiers(c("Sepal_Length", "sepal.length")),
+  c("Sepal_Length", "sepal_length_1"),
+  info = "aliases are de-duplicated case-insensitively"
+)
+
+# End to end with case folding (forced here, since CI only has DuckDB)
+folds_orig = dbreg:::folds_identifier_case
+assignInNamespace("folds_identifier_case", function(conn) TRUE, "dbreg")
+db_fold = dbreg(Sepal.Length ~ Petal.Length + Petal.Width:`my grp` | Species, data = ir, strategy = "demean")
+assignInNamespace("folds_identifier_case", folds_orig, "dbreg")
+fx_fold = feols(Sepal.Length ~ Petal.Length + Petal.Width:`my grp` | Species, data = ir)
+expect_equal(coef(db_fold)[names(coef(fx_fold))], coef(fx_fold), tolerance = 1e-6, info = "fold_case end to end: coefficients and names")

@@ -65,6 +65,11 @@ mm_space = sql_model_matrix(~ x1 + g, con, "test_space")
 expect_equal(mm_space$col_names, c("x1", "gb c"), info = "col_names keep the level text")
 expect_equal(mm_space$aliases, c("x1", "gb_c"), info = "aliases are SQL-safe")
 
+# Generated aliases don't collide with existing variable names
+duckdb_register(con, "test_clash", data.frame(gb_c = 1:4, g = c("a", "b c", "a", "b c")))
+mm_clash = sql_model_matrix(~ gb_c + g, con, "test_clash")
+expect_false(anyDuplicated(mm_clash$aliases) > 0, info = "factor aliases avoid variable names")
+
 ## Cleanup ----
 
 dbDisconnect(con)

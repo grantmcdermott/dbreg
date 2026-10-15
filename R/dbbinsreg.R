@@ -638,8 +638,13 @@ dbbinsreg = function(
     result[["opt"]][["x_var"]] = restore_names(result[["opt"]][["x_var"]], name_map)
     result[["opt"]][["y_var"]] = restore_names(result[["opt"]][["y_var"]], name_map)
     result[["opt"]][["formula"]] = rename_expr_vars(result[["opt"]][["formula"]], name_map)
-    if (is.list(result[["model"]])) {
-      result[["model"]] = restore_result_names(result[["model"]], list(name_map = name_map, source_map = name_map))
+    # A single fit, or separate points/line fits
+    restore_fit = function(fit) restore_result_names(fit, list(name_map = name_map, source_map = name_map))
+    model = result[["model"]]
+    if (!is.null(model[["coeftable"]])) {
+      result[["model"]] = restore_fit(model)
+    } else if (is.list(model)) {
+      result[["model"]] = lapply(model, function(m) if (is.list(m)) restore_fit(m) else m)
     }
   }
 

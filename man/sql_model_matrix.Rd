@@ -43,6 +43,8 @@ List with:
   - `col_names`: corresponding column names
   - `aliases`: SQL-safe versions of `col_names` (identical unless, e.g.,
     factor levels contain spaces or other special characters)
+  - `level_aliases`: data frame mapping each factor dummy `alias` to its
+    `var` and `level`
   - `factor_levels`: list of factor levels by variable (for reference)
 }
 \description{

@@ -203,9 +203,11 @@ process_dbivreg_inputs = function(inputs) {
   exog_design = dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe, intercept)
   endog_design = dbivreg_expand_block(parsed_fml[["endog_rhs"]], conn, design_source, fe)
   instr_design = dbivreg_expand_block(parsed_fml[["instr_rhs"]], conn, design_source, fe)
-  register_factor_display(inputs, c(
-    exog_design[["factor_levels"]], endog_design[["factor_levels"]], instr_design[["factor_levels"]]
-  ))
+  register_factor_display(
+    inputs,
+    c(exog_design[["factor_levels"]], endog_design[["factor_levels"]], instr_design[["factor_levels"]]),
+    rbind(exog_design[["level_aliases"]], endog_design[["level_aliases"]], instr_design[["level_aliases"]])
+  )
   # Without an intercept, factor coding of the endogenous/instrument blocks
   # would depend on the combined X and Z designs; not supported yet
   if (!intercept && length(c(endog_design[["factor_levels"]], instr_design[["factor_levels"]]))) {
@@ -704,6 +706,7 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(),
     sql = sql_design$select_exprs,
     names = sql_design$aliases,
     factor_levels = sql_design$factor_levels,
+    level_aliases = sql_design$level_aliases,
     vars = all.vars(rhs_formula),
     term_labels = attr(terms(rhs_formula), "term.labels")
   )

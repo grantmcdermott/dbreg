@@ -24,6 +24,8 @@
 #'   - `col_names`: corresponding column names
 #'   - `aliases`: SQL-safe versions of `col_names` (identical unless, e.g.,
 #'     factor levels contain spaces or other special characters)
+#'   - `level_aliases`: data frame mapping each factor dummy `alias` to its
+#'     `var` and `level`
 #'   - `factor_levels`: list of factor levels by variable (for reference)
 #' @importFrom stats terms
 #' @export
@@ -55,12 +57,30 @@ sql_model_matrix = function(
   term_labels = attr(tt, "term.labels")
   
   if (!length(term_labels)) {
-    return(list(select_exprs = character(), col_names = character(), aliases = character(), factor_levels = list()))
+    return(list(
+      select_exprs = character(), col_names = character(), aliases = character(),
+      factor_levels = list(), level_aliases = data.frame(alias = character(), var = character(), level = character())
+    ))
   }
   
   # Get column types and factor levels from database
   col_info = get_column_info(conn, table, term_labels)
-  
+
+  # SQL-safe aliases for factor dummies, one per (variable, level), computed
+  # once so that every term uses the same alias. They avoid the model's
+  # variable names and each other, and follow the backend's case rules.
+  fold_case = folds_identifier_case(conn)
+  taken = names(col_info[["types"]])
+  level_aliases = list()
+  for (v in names(col_info[["levels"]])) {
+    lvls = c(as.character(col_info[["levels"]][[v]]), "_constant")
+    a = safe_identifiers(paste0(v, lvls), taken = taken, fold_case = fold_case)
+    taken = c(taken, a)
+    level_aliases[[v]] = data.frame(alias = a, var = v, level = lvls)
+  }
+  level_aliases = do.call(rbind, c(list(data.frame(alias = character(), var = character(), level = character())), level_aliases))
+  col_info[["level_aliases"]] = level_aliases
+
   result = list(select_exprs = character(), col_names = character(), aliases = character())
   
   # Without an intercept, the first factor main effect keeps all its levels
@@ -83,6 +103,7 @@ sql_model_matrix = function(
   }
   
   result[["factor_levels"]] = col_info[["levels"]]
+  result[["level_aliases"]] = level_aliases
   result
 }
 
@@ -155,15 +176,17 @@ expand_variable = function(var, col_info, expand, in_interaction, drop_ref = TRU
   # Only expand factors if: expand="all", OR variable is part of interaction
   if (is_factor && (expand == "all" || in_interaction)) {
     lvls = col_info[["levels"]][[var]]
+    la = col_info[["level_aliases"]]
+    la = la[la[["var"]] == var, , drop = FALSE]
+    alias_of = function(lvl) la[["alias"]][match(lvl, la[["level"]])]
     if (length(lvls) < 2) {
-      return(list(list(sql = "1", name = paste0(var, "_constant"), alias = paste0(var, "_constant"))))
+      return(list(list(sql = "1", name = paste0(var, "_constant"), alias = alias_of("_constant"))))
     }
     # Drop first level (reference) only if appropriate
     if (drop_ref) {
       lvls = lvls[-1]
     }
-    # SQL-safe aliases (level text may contain spaces etc.)
-    aliases = safe_identifiers(paste0(var, lvls))
+    aliases = alias_of(lvls)
     lapply(seq_along(lvls), function(i) {
       # Escape single quotes in level names
       lvl_escaped = gsub("'", "''", lvls[i])
