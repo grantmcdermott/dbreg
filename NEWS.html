@@ -230,6 +230,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Variable names that aren’t valid SQL identifiers (e.g., <code>Sepal.Length</code>, names with spaces, or reserved words) and factor levels with spaces or other special characters now work in <code>dbreg()</code>, <code>dbivreg()</code> and <code>dbbinsreg()</code>. Results use the original names. (<a href="https://github.com/grantmcdermott/dbreg/issues/58">#58</a>)</li>
 <li><code>predict()</code> now errors for <code>"demean"</code> models with more than two fixed effects. Previously it silently ignored the third and later fixed effects, returning incorrect predictions. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
 <li><code>sql_model_matrix()</code> (and thus interaction/factor terms) now generates backend-portable schema and factor-level queries, fixing failures on SQL Server and other non-DuckDB backends. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
+<li>Sufficient statistics and HC1/clustered scores are now computed in double precision on all backends. Previously, they were cast to <code>FLOAT</code>, which is single precision on DuckDB, MySQL, Spark and Athena, limiting the <code>"demean"</code> and <code>"mundlak"</code> strategies (and robust SEs) to ~1e-8 accuracy. (<a href="https://github.com/grantmcdermott/dbreg/issues/78">#78</a>)</li>
 </ul>
 <p>Internal</p>
 <ul>
