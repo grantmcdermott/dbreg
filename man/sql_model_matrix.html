@@ -421,7 +421,7 @@ Logical. Whether the model has an intercept. As in [stats::model.matrix()], with
 </section>
 <section id="value" class="level3">
 <h3 class="anchored" data-anchor-id="value">Value</h3>
-<p>List with: - ‘select_exprs’: character vector of SQL expressions - ‘col_names’: corresponding column names - ‘factor_levels’: list of factor levels by variable (for reference)</p>
+<p>List with: - ‘select_exprs’: character vector of SQL expressions - ‘col_names’: corresponding column names - ‘aliases’: SQL-safe versions of ‘col_names’ (identical unless, e.g., factor levels contain spaces or other special characters) - ‘level_aliases’: data frame mapping each factor dummy ‘alias’ to its ‘var’ and ‘level’ - ‘factor_levels’: list of factor levels by variable (for reference)</p>
 </section>
 <section id="examples" class="level3">
 <h3 class="anchored" data-anchor-id="examples">Examples</h3>
@@ -442,9 +442,20 @@ Logical. Whether the model has an intercept. As in [stats::model.matrix()], with
 $col_names
 [1] "x1"  "x2b" "x2c"
 
+$aliases
+[1] "x1"  "x2b" "x2c"
+
 $factor_levels
 $factor_levels$x2
-[1] "a" "b" "c"</code></pre>
+[1] "a" "b" "c"
+
+
+$level_aliases
+           alias var     level
+x2.1         x2a  x2         a
+x2.2         x2b  x2         b
+x2.3         x2c  x2         c
+x2.4 x2_constant  x2 _constant</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sql_model_matrix</span>(<span class="sc">~</span> x1<span class="sc">:</span>x2, con, <span class="st">"test"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
@@ -456,9 +467,20 @@ $factor_levels$x2
 $col_names
 [1] "x1_x_x2a" "x1_x_x2b" "x1_x_x2c"
 
+$aliases
+[1] "x1_x_x2a" "x1_x_x2b" "x1_x_x2c"
+
 $factor_levels
 $factor_levels$x2
-[1] "a" "b" "c"</code></pre>
+[1] "a" "b" "c"
+
+
+$level_aliases
+           alias var     level
+x2.1         x2a  x2         a
+x2.2         x2b  x2         b
+x2.3         x2c  x2         c
+x2.4 x2_constant  x2 _constant</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sql_model_matrix</span>(<span class="sc">~</span> x1<span class="sc">:</span>x2, con, <span class="st">"test"</span>, <span class="at">sep =</span> <span class="st">":"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
@@ -470,9 +492,20 @@ $factor_levels$x2
 $col_names
 [1] "x1:x2a" "x1:x2b" "x1:x2c"
 
+$aliases
+[1] "x1_x_x2a" "x1_x_x2b" "x1_x_x2c"
+
 $factor_levels
 $factor_levels$x2
-[1] "a" "b" "c"</code></pre>
+[1] "a" "b" "c"
+
+
+$level_aliases
+           alias var     level
+x2.1         x2a  x2         a
+x2.2         x2b  x2         b
+x2.3         x2c  x2         c
+x2.4 x2_constant  x2 _constant</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbDisconnect</span>(con)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
