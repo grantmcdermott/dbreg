@@ -143,15 +143,7 @@ predict.dbreg = function(
   # no-intercept models expand exactly as in estimation), then align its
   # columns to the coefficients by name
   terms_rhs = attr(terms(formula(fml, lhs = 0, rhs = 1)), "term.labels")
-  if (strategy == "mundlak") {
-    # Group means of the (numeric) regressors, one set per FE
-    for (v in object[["mundlak_vars"]]) {
-      for (f in fe) {
-        newdata[[paste0(v, "_bar_", f)]] = ave(newdata[[v]], newdata[[f]], FUN = function(y) mean(y, na.rm = TRUE))
-        terms_rhs = c(terms_rhs, paste0(v, "_bar_", f))
-      }
-    }
-  } else if (strategy %in% c("compress", "moments")) {
+  if (strategy %in% c("compress", "moments")) {
     # FE enter as dummies (compress)
     terms_rhs = c(terms_rhs, fe)
   }
@@ -164,6 +156,16 @@ predict.dbreg = function(
     sparse.model.matrix(fml_mm, data = newdata),
     error = function(e) model.matrix(fml_mm, data = newdata)
   )
+  if (strategy == "mundlak") {
+    # Group means of each design column, one set per FE
+    mm_means = mapply(
+      function(term, f) ave(as.numeric(mm[, term]), newdata[[f]], FUN = function(y) mean(y, na.rm = TRUE)),
+      object[["mundlak_means"]][["term"]],
+      object[["mundlak_means"]][["fe"]]
+    )
+    mm_means = matrix(mm_means, nrow = nrow(mm), dimnames = list(NULL, object[["mundlak_means"]][["name"]]))
+    mm = cbind(mm, mm_means)
+  }
   missing_cols = setdiff(names(betas), colnames(mm))
   if (length(missing_cols)) {
     stop(

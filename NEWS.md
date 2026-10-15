@@ -70,6 +70,11 @@ Bug fixes
   precision on all backends. Previously, they were cast to `FLOAT`, which is
   single precision on DuckDB, MySQL, Spark and Athena, limiting the
   `"demean"` and `"mundlak"` strategies (and robust SEs) to ~1e-8 accuracy. (#78)
+- The `"mundlak"` strategy now includes group means of every regressor column,
+  incl. factor dummies and interactions. Previously only raw numeric variables
+  were averaged, so models with factors or interactions didn't match the
+  equivalent fixed effects estimates. Time-invariant regressors now keep their
+  coefficient (dropping their collinear group mean) instead of erroring. (#77)
 
 Internal
 
