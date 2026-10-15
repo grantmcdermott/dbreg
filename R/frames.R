@@ -168,12 +168,12 @@ build_demean_frame = function(inputs, x_sql, x_names, tag = "dbreg") {
 #'
 #' @param frame Result of a `build_*_frame()` function.
 #' @param y,x Outcome and regressor names.
-#' @param conn Database connection (for the Athena FLOAT gotcha).
+#' @param conn Database connection (for the cast type).
 #' @keywords internal
 frame_moments_sql = function(frame, y, x, conn) {
   col = function(v) {
     sql = unname(frame[["cols"]][v])
-    if (frame[["cast"]]) sprintf("CAST(%s AS FLOAT)", sql) else sql
+    if (frame[["cast"]]) sql_cast_double(sql, conn) else sql
   }
   terms = build_weighted_moment_terms(
     y_sql = col(y),
@@ -182,15 +182,9 @@ frame_moments_sql = function(frame, y, x, conn) {
     intercept = frame[["intercept"]],
     prefix_terms = frame[["prefix_terms"]]
   )
-  sql = paste0(
+  paste0(
     frame[["cte_sql"]], ",\nmoments AS (\n  SELECT\n    ",
     paste(terms, collapse = ",\n    "),
     "\n  FROM ", frame[["cte_name"]], "\n)\nSELECT * FROM moments"
   )
-  # Athena FLOAT gotcha
-  # https://github.com/DyfanJones/noctua/issues/228
-  if (inherits(conn, "AthenaConnection")) {
-    sql = gsub("FLOAT", "REAL", sql, fixed = TRUE)
-  }
-  sql
 }

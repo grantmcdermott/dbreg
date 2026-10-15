@@ -133,7 +133,7 @@ Backend detection via `detect_backend()` in `R/utils.R`. Supported dialects:
 - DuckDB (default, with reservoir sampling)
 - SQL Server (COUNT_BIG, TOP N, #temp tables, NEWID)
 - PostgreSQL, SQLite, MySQL/MariaDB
-- Spark, Athena/Presto/Trino (REAL instead of FLOAT for Athena)
+- Spark, Athena/Presto/Trino
 
 ## Testing
 
@@ -181,7 +181,7 @@ make website     # Build docs website (altdoc::render_docs)
 ## Common Pitfalls
 
 - **AP convergence floor**: On large datasets, AP stalls around ~1e-8 due to temp-table float rounding. Use `options(dbreg.ap_tol = 1e-7)` or recommend `strategy = "mundlak"`.
-- **Athena FLOAT gotcha**: AWS Athena doesn't support `CAST(... AS FLOAT)` — use `REAL` instead. Handled by `gsub("FLOAT", "REAL", ...)` checks throughout.
+- **Double-precision casts**: `FLOAT` is 4-byte on DuckDB, MySQL, Spark and Athena (`REAL`), which caps accuracy at ~1e-8. Cast via `sql_cast_double()`, never `CAST(... AS FLOAT)`.
 - **fixest singleton removal**: When comparing dbreg results to fixest, use `fixef.rm = "none"` in `feols()` — otherwise fixest drops FE singletons and nobs won't match.
 - **Column names with dots**: DuckDB can struggle with column names like `Solar.R` in certain SQL contexts (WHERE clauses). Prefer clean column names in test data.
 - **`is_balanced` detection**: Balance check must verify both equal cell counts AND no missing cells (n_observed == n_fe1 × n_fe2).

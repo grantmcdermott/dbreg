@@ -659,6 +659,9 @@ detect_backend = function(conn) {
   if (inherits(conn, "duckdb_connection")) {
     return(list(name = "duckdb", supports_count_big = FALSE))
   }
+  if (inherits(conn, "BigQueryConnection")) {
+    return(list(name = "bigquery", supports_count_big = FALSE))
+  }
 
   
   info = try(dbGetInfo(conn), silent = TRUE)
@@ -689,6 +692,22 @@ detect_backend = function(conn) {
       dbms
     )
   )
+}
+
+#' Cast to double precision
+#'
+#' `FLOAT` is single precision on DuckDB, MySQL, Spark and Athena (`REAL`),
+#' which limits moment accuracy to ~1e-7. Use each backend's 8-byte type.
+#' @keywords internal
+sql_cast_double = function(sql, conn) {
+  type = switch(
+    detect_backend(conn)[["name"]],
+    postgres = "DOUBLE PRECISION",
+    sqlserver = "FLOAT",
+    bigquery = "FLOAT64",
+    "DOUBLE"
+  )
+  sprintf("CAST(%s AS %s)", sql, type)
 }
 
 #' Generate SQL COUNT expression with proper casting
