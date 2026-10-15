@@ -15,6 +15,7 @@ expand_term(
 )
 }
 \description{
-Expand a single term into SQL expressions
+Expansions are lists of parallel character vectors: `sql` (expressions),
+`name` (column names) and `alias` (SQL-safe column names).
 }
 \keyword{internal}
