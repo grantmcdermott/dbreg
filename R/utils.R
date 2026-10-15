@@ -315,6 +315,217 @@ release_db_setup = function(conn, own_conn, registered_table) {
   invisible(NULL)
 }
 
+# ---- SQL-safe identifiers ---------------------------------------------------
+# Internally, all generated SQL uses identifiers that are valid unquoted on any
+# backend. Model variables with other names (e.g. `Sepal.Length`, names with
+# spaces, or reserved words) are renamed once at the source (see
+# safe_source()) and mapped back to their display names in the final result
+# (see restore_result_names()).
+
+# Common reserved words across backends (lower case)
+sql_reserved = c(
+  "all", "and", "as", "asc", "between", "by", "case", "cast", "check",
+  "column", "create", "cross", "default", "delete", "desc", "distinct",
+  "drop", "else", "end", "except", "exists", "false", "for", "foreign", "from",
+  "full", "group", "having", "in", "inner", "insert", "intersect", "into", "is",
+  "join", "left", "like", "limit", "natural", "not", "null", "offset", "on",
+  "or", "order", "outer", "primary", "references", "right", "select", "table",
+  "then", "to", "true", "union", "unique", "update", "user", "using", "values",
+  "when", "where", "window", "with"
+)
+
+#' Is `x` usable as an unquoted SQL identifier?
+#' @keywords internal
+is_safe_identifier = function(x) {
+  grepl("^[A-Za-z_][A-Za-z0-9_]*$", x) & !(tolower(x) %in% sql_reserved)
+}
+
+#' Make SQL-safe identifiers
+#'
+#' Leaves safe names unchanged; otherwise replaces invalid characters with `_`,
+#' prefixes names that would start with a digit or are reserved, and
+#' de-duplicates against each other and against `taken`.
+#' @keywords internal
+safe_identifiers = function(x, taken = character()) {
+  keep = is_safe_identifier(x)
+  out = gsub("[^A-Za-z0-9_]", "_", x)
+  bad_start = !grepl("^[A-Za-z_]", out) | tolower(out) %in% sql_reserved
+  out[bad_start] = paste0("v_", out[bad_start])
+  out[keep] = x[keep]
+  for (i in which(!keep)) {
+    base = out[i]
+    k = 1L
+    while (out[i] %in% c(taken, out[-i])) {
+      k = k + 1L
+      out[i] = paste0(base, "_", k)
+    }
+  }
+  out
+}
+
+# Rename variable symbols in an expression or formula (`map`: display -> safe).
+# Function names (the head of a call) are left alone.
+rename_expr_vars = function(e, map) {
+  if (is.name(e)) {
+    nm = as.character(e)
+    return(if (nm %in% names(map)) as.name(map[[nm]]) else e)
+  }
+  if (is.call(e) && length(e) > 1L) {
+    for (i in seq_along(e)[-1L]) {
+      if (!is.null(e[[i]])) e[[i]] = rename_expr_vars(e[[i]], map)
+    }
+  }
+  e
+}
+
+#' Give model variables SQL-safe names at the source
+#'
+#' Wraps `from_statement` in a subquery that selects `vars`, quoting (via
+#' [glue::glue_sql()]) and aliasing any that are not safe identifiers.
+#' If every variable is already safe, the source is returned unchanged.
+#'
+#' @return List with:
+#'   - `from_statement`: the (possibly wrapped) FROM clause, and `table`, the
+#'     same without the leading `FROM`;
+#'   - `map`: display names indexed by their safe names (empty if nothing was
+#'     renamed);
+#'   - `to_safe()`, `to_display()`: map names (character vectors, `NULL`, or
+#'     formulas for `to_safe()`) between the two. Identity if nothing was
+#'     renamed.
+#' @keywords internal
+safe_source = function(conn, from_statement, vars) {
+  vars = unique(vars[!is.na(vars) & nzchar(vars)])
+  safe = safe_identifiers(vars)
+  renamed = safe != vars
+  map = setNames(vars[renamed], safe[renamed])
+  if (any(renamed)) {
+    sel = vars
+    # Quote the original names for this backend; keep the safe aliases unquoted
+    # (quoting would make them case-sensitive on e.g. Postgres)
+    sel[renamed] = glue_sql("{`vars[renamed]`} AS {DBI::SQL(safe[renamed])}", .con = conn)
+    from_statement = paste0("FROM (SELECT ", paste(sel, collapse = ", "), " ", from_statement, ") AS dbreg_src")
+  }
+  lookup = function(x, from, to) {
+    if (is.null(x) || !length(from)) return(x)
+    i = match(x, from)
+    ifelse(is.na(i), x, to[i])
+  }
+  list(
+    from_statement = from_statement,
+    table = sub("^FROM\\s+", "", from_statement),
+    map = map,
+    to_safe = function(x) {
+      if (inherits(x, "formula")) {
+        if (!length(map)) return(x)
+        return(rename_expr_vars(formula(x), setNames(names(map), map)))
+      }
+      lookup(x, unname(map), names(map))
+    },
+    to_display = function(x) lookup(x, names(map), unname(map))
+  )
+}
+
+#' Register display names for expanded factor columns
+#'
+#' Adds entries to `inputs$name_map` so that factor dummies named after their
+#' (safe) variable and level, either via SQL-safe aliases (e.g.
+#' `grptreated_group`) or R-side model matrix names, map back to the display
+#' variable name plus the original level text (e.g. `grptreated group`).
+#' @param factor_levels Named list of levels by (safe) variable name.
+#' @keywords internal
+register_factor_display = function(inputs, factor_levels) {
+  map = inputs[["name_map"]]
+  if (is.null(map)) map = setNames(character(), character())
+  disp = function(v) coef_var_name(if (v %in% names(map)) map[[v]] else v)
+  new = character()
+  for (f in names(factor_levels)) {
+    lvls = c(as.character(factor_levels[[f]]), "_constant")
+    display = paste0(disp(f), lvls)
+    for (internal in list(safe_identifiers(paste0(f, lvls)), paste0(f, lvls))) {
+      differs = internal != display
+      new = c(new, setNames(display[differs], internal[differs]))
+    }
+  }
+  new = new[!duplicated(names(new)) & !names(new) %in% names(map)]
+  inputs[["name_map"]] = c(map, new)
+  invisible(inputs)
+}
+
+#' Map internal (safe) names back to display names
+#'
+#' Splits each name on the interaction separators (`:` and `_x_`) and maps each
+#' token via `map` (display names indexed by safe names).
+#' @keywords internal
+restore_names = function(x, map) {
+  if (!length(map) || is.null(x) || !length(x)) {
+    return(x)
+  }
+  out = vapply(x, function(s) {
+    if (is.na(s)) return(s)
+    m = gregexpr(":|_x_", s)
+    tokens = regmatches(s, m, invert = TRUE)[[1]]
+    seps = regmatches(s, m)[[1]]
+    tokens = ifelse(tokens %in% names(map), map[tokens], tokens)
+    paste0(c(rbind(tokens, c(seps, ""))), collapse = "")
+  }, character(1), USE.NAMES = FALSE)
+  if (!is.null(names(x))) names(out) = names(x)
+  out
+}
+
+# Variable names as they appear inside coefficient names: like model.matrix(),
+# backtick names that aren't syntactic in R (e.g. `my grp`)
+coef_var_name = function(v) ifelse(make.names(v) == v, v, paste0("`", v, "`"))
+
+#' Map a result's internal names back to display names
+#'
+#' Applies `inputs$name_map` (see [safe_source()] and
+#' [register_factor_display()]) to coefficient, variable and data names, and
+#' restores the user's formula.
+#' @keywords internal
+restore_result_names = function(result, inputs) {
+  map = inputs[["name_map"]]
+  if (!length(map)) {
+    return(result)
+  }
+  # Coefficient names backtick non-syntactic variable names (as in lm())
+  coef_map = map
+  is_var = names(coef_map) %in% names(inputs[["source_map"]])
+  coef_map[is_var] = coef_var_name(coef_map[is_var])
+  if (is.data.frame(result)) {
+    names(result) = restore_names(names(result), map)
+    return(result)
+  }
+  if (!is.null(result[["coeftable"]])) {
+    rownames(result[["coeftable"]]) = restore_names(rownames(result[["coeftable"]]), coef_map)
+  }
+  if (!is.null(result[["vcov"]])) {
+    dimnames(result[["vcov"]]) = lapply(dimnames(result[["vcov"]]), restore_names, map = coef_map)
+  }
+  for (f in c("xvars", "collin.var", "coef_names", "endogenous", "instruments")) {
+    if (!is.null(result[[f]])) result[[f]] = restore_names(result[[f]], coef_map)
+  }
+  for (f in c("yvar", "fe", "weights", "mundlak_vars")) {
+    if (!is.null(result[[f]])) result[[f]] = restore_names(result[[f]], map)
+  }
+  if (!is.null(result[["n_fe_levels"]]) && !is.null(names(result[["n_fe_levels"]]))) {
+    names(result[["n_fe_levels"]]) = restore_names(names(result[["n_fe_levels"]]), map)
+  }
+  if (is.data.frame(result[["data"]])) {
+    names(result[["data"]]) = restore_names(names(result[["data"]]), map)
+  }
+  for (d in c("first_stage_f", "first_stage_wald")) {
+    if (!is.null(names(result[["diagnostics"]][[d]]))) {
+      names(result[["diagnostics"]][[d]]) = restore_names(names(result[["diagnostics"]][[d]]), coef_map)
+    }
+  }
+  # The user's own formula (IV results store the structural formula)
+  if (!is.null(result[["fml"]])) {
+    fml = if (inherits(result[["fml"]], "Formula")) formula(result[["fml"]]) else result[["fml"]]
+    result[["fml"]] = Formula(rename_expr_vars(fml, map))
+  }
+  result
+}
+
 #' Reject formula terms that cannot be expressed in SQL (yet)
 #'
 #' Terms must be plain variables or interactions of them (`a:b`). Anything

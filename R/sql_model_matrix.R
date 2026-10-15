@@ -22,6 +22,8 @@
 #' @return List with:
 #'   - `select_exprs`: character vector of SQL expressions
 #'   - `col_names`: corresponding column names
+#'   - `aliases`: SQL-safe versions of `col_names` (identical unless, e.g.,
+#'     factor levels contain spaces or other special characters)
 #'   - `factor_levels`: list of factor levels by variable (for reference)
 #' @importFrom stats terms
 #' @export
@@ -53,13 +55,13 @@ sql_model_matrix = function(
   term_labels = attr(tt, "term.labels")
   
   if (!length(term_labels)) {
-    return(list(select_exprs = character(), col_names = character(), factor_levels = list()))
+    return(list(select_exprs = character(), col_names = character(), aliases = character(), factor_levels = list()))
   }
   
   # Get column types and factor levels from database
   col_info = get_column_info(conn, table, term_labels)
   
-  result = list(select_exprs = character(), col_names = character())
+  result = list(select_exprs = character(), col_names = character(), aliases = character())
   
   # Without an intercept, the first factor main effect keeps all its levels
   full_factor = if (!intercept) {
@@ -77,6 +79,7 @@ sql_model_matrix = function(
     )
     result[["select_exprs"]] = c(result[["select_exprs"]], vapply(expanded, `[[`, character(1), "sql"))
     result[["col_names"]] = c(result[["col_names"]], vapply(expanded, `[[`, character(1), "name"))
+    result[["aliases"]] = c(result[["aliases"]], vapply(expanded, `[[`, character(1), "alias"))
   }
   
   result[["factor_levels"]] = col_info[["levels"]]
@@ -127,7 +130,7 @@ expand_term = function(term, col_info, expand, sep = "_x_", all_terms = characte
   
   if (!is_interaction && expand == "interactions") {
     # Main effect, only expanding interactions: return as-is
-    return(list(list(sql = term, name = term)))
+    return(list(list(sql = term, name = term, alias = term)))
   }
   
   # Expand each variable
@@ -153,23 +156,26 @@ expand_variable = function(var, col_info, expand, in_interaction, drop_ref = TRU
   if (is_factor && (expand == "all" || in_interaction)) {
     lvls = col_info[["levels"]][[var]]
     if (length(lvls) < 2) {
-      return(list(list(sql = "1", name = paste0(var, "_constant"))))
+      return(list(list(sql = "1", name = paste0(var, "_constant"), alias = paste0(var, "_constant"))))
     }
     # Drop first level (reference) only if appropriate
     if (drop_ref) {
       lvls = lvls[-1]
     }
-    lapply(lvls, function(lvl) {
+    # SQL-safe aliases (level text may contain spaces etc.)
+    aliases = safe_identifiers(paste0(var, lvls))
+    lapply(seq_along(lvls), function(i) {
       # Escape single quotes in level names
-      lvl_escaped = gsub("'", "''", lvl)
+      lvl_escaped = gsub("'", "''", lvls[i])
       list(
         sql = glue("CASE WHEN {var} = '{lvl_escaped}' THEN 1.0 ELSE 0.0 END"),
-        name = paste0(var, lvl)
+        name = paste0(var, lvls[i]),
+        alias = aliases[i]
       )
     })
   } else {
     # Numeric or unexpanded factor: pass through
-    list(list(sql = var, name = var))
+    list(list(sql = var, name = var, alias = var))
   }
 }
 
@@ -188,7 +194,8 @@ cross_product = function(expansions, sep = "_x_") {
       e2_sql = e2[["sql"]]
       result = c(result, list(list(
         sql = glue("({e1_sql}) * ({e2_sql})"),
-        name = paste0(e1[["name"]], sep, e2[["name"]])
+        name = paste0(e1[["name"]], sep, e2[["name"]]),
+        alias = paste0(e1[["alias"]], "_x_", e2[["alias"]])
       )))
     }
   }

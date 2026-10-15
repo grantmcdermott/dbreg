@@ -158,7 +158,12 @@ predict.dbreg = function(
   if (!length(terms_rhs)) {
     terms_rhs = "1"
   }
-  mm = sparse.model.matrix(reformulate(terms_rhs, intercept = intercept), data = newdata)
+  fml_mm = reformulate(terms_rhs, intercept = intercept)
+  # (sparse.model.matrix() can't handle backticked, non-syntactic names)
+  mm = tryCatch(
+    sparse.model.matrix(fml_mm, data = newdata),
+    error = function(e) model.matrix(fml_mm, data = newdata)
+  )
   missing_cols = setdiff(names(betas), colnames(mm))
   if (length(missing_cols)) {
     stop(

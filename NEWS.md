@@ -53,6 +53,10 @@ Bug fixes
 - `predict()` now rebuilds the design matrix from the model formula, fixing
   predictions for models with interactions (e.g., `"mundlak"`), factors, or no
   intercept. (#67, #73)
+- Variable names that aren't valid SQL identifiers (e.g., `Sepal.Length`,
+  names with spaces, or reserved words) and factor levels with spaces or other
+  special characters now work in `dbreg()`, `dbivreg()` and `dbbinsreg()`.
+  Results use the original names. (#58)
 - `predict()` now errors for `"demean"` models with more than two fixed
   effects. Previously it silently ignored the third and later fixed effects,
   returning incorrect predictions. (#66)

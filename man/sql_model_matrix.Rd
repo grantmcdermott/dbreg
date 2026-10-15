@@ -41,6 +41,8 @@ keeps all of its levels (no reference level is dropped).}
 List with:
   - `select_exprs`: character vector of SQL expressions
   - `col_names`: corresponding column names
+  - `aliases`: SQL-safe versions of `col_names` (identical unless, e.g.,
+    factor levels contain spaces or other special characters)
   - `factor_levels`: list of factor levels by variable (for reference)
 }
 \description{

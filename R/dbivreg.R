@@ -161,10 +161,29 @@ process_dbivreg_inputs = function(inputs) {
   # validation below fails
   env2env(environment(), inputs, c("conn", "own_conn", "registered_table"))
 
-  validate_weights(weights, data, conn, from_statement)
   # Raw variables behind X and Z: their distinct tuples define the compress
   # cells, so the "auto" strategy estimates compression over them
   raw_vars = unique(c(parsed_fml[["exog_vars"]], parsed_fml[["endog_vars"]], parsed_fml[["instr_vars"]]))
+  any_continuous = any_continuous_vars(data, raw_vars)
+  weights_display = weights
+
+  # Give model variables SQL-safe names (see safe_source()) and re-parse;
+  # results are mapped back to display names at the end
+  src = safe_source(conn, from_statement, c(all.vars(fml), weights, cluster_var))
+  from_statement = src[["from_statement"]]
+  name_map = src[["map"]]
+  parsed_fml = dbivreg_parse_formula(src[["to_safe"]](fml))
+  yvar = parsed_fml[["yvar"]]
+  fe = parsed_fml[["fe"]]
+  raw_vars = src[["to_safe"]](raw_vars)
+  weights = src[["to_safe"]](weights)
+  cluster_var = src[["to_safe"]](cluster_var)
+  inputs[["name_map"]] = name_map
+  inputs[["source_map"]] = name_map
+
+  # In-memory data are checked by (display) column name; otherwise the database
+  # is probed using the (safe) source names
+  validate_weights(if (is.null(data)) weights else weights_display, data, conn, from_statement)
   from_statement = filter_estimation_sample(
     from_statement,
     vars = c(
@@ -184,6 +203,9 @@ process_dbivreg_inputs = function(inputs) {
   exog_design = dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe, intercept)
   endog_design = dbivreg_expand_block(parsed_fml[["endog_rhs"]], conn, design_source, fe)
   instr_design = dbivreg_expand_block(parsed_fml[["instr_rhs"]], conn, design_source, fe)
+  register_factor_display(inputs, c(
+    exog_design[["factor_levels"]], endog_design[["factor_levels"]], instr_design[["factor_levels"]]
+  ))
   # Without an intercept, factor coding of the endogenous/instrument blocks
   # would depend on the combined X and Z designs; not supported yet
   if (!intercept && length(c(endog_design[["factor_levels"]], instr_design[["factor_levels"]]))) {
@@ -259,7 +281,6 @@ process_dbivreg_inputs = function(inputs) {
   endog_vars = standardize_coef_names(endog_names)
   instr_vars = standardize_coef_names(instr_names)
   xvars = raw_vars
-  any_continuous = any_continuous_vars(data, raw_vars)
   compress_ratio = resolve_compress_ratio(compress_ratio, fe)
   is_balanced = NULL
   caller = "dbivreg"
@@ -269,7 +290,7 @@ process_dbivreg_inputs = function(inputs) {
     "endog_sql", "instr_names", "instr_sql", "endog_vars", "instr_vars",
     "x_all_names", "z_all_names", "union_names", "union_sql", "from_statement",
     "xvars", "any_continuous", "compress_ratio", "is_balanced", "caller",
-    "intercept"
+    "intercept", "weights", "cluster_var"
   ))
   invisible(inputs)
 }
@@ -672,8 +693,8 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(),
     fe_vars = fe_vars,
     intercept = intercept
   )
-  if (anyDuplicated(sql_design$col_names) > 0) {
-    dupes = unique(sql_design$col_names[duplicated(sql_design$col_names)])
+  if (anyDuplicated(sql_design$aliases) > 0) {
+    dupes = unique(sql_design$aliases[duplicated(sql_design$aliases)])
     stop(
       "IV design matrix contains duplicate column names: ",
       paste(standardize_coef_names(dupes), collapse = ", ")
@@ -681,7 +702,7 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(),
   }
   list(
     sql = sql_design$select_exprs,
-    names = sql_design$col_names,
+    names = sql_design$aliases,
     factor_levels = sql_design$factor_levels,
     vars = all.vars(rhs_formula),
     term_labels = attr(terms(rhs_formula), "term.labels")

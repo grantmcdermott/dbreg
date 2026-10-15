@@ -414,6 +414,17 @@ dbbinsreg = function(
   table_name = db_setup[["table_name"]]
   registered_table = db_setup[["registered_table"]]
   is_duckdb = db_setup[["is_duckdb"]]
+
+  # Give model variables SQL-safe names (see safe_source()); mapped back at the end
+  src = safe_source(conn, paste("FROM", table_name), c(y_name, x_name, controls, fe, cluster_var))
+  table_name = src[["table"]]
+  name_map = src[["map"]]
+  to_safe = src[["to_safe"]]
+  y_name = to_safe(y_name)
+  x_name = to_safe(x_name)
+  controls = to_safe(controls)
+  fe = to_safe(fe)
+  cluster_var = to_safe(cluster_var)
   
   # Detect backend for SQL compatibility
   backend_info = detect_backend(conn)
@@ -622,6 +633,16 @@ dbbinsreg = function(
     }
   }
   
+  # Map internal (safe) names back to display names
+  if (length(name_map)) {
+    result[["opt"]][["x_var"]] = restore_names(result[["opt"]][["x_var"]], name_map)
+    result[["opt"]][["y_var"]] = restore_names(result[["opt"]][["y_var"]], name_map)
+    result[["opt"]][["formula"]] = rename_expr_vars(result[["opt"]][["formula"]], name_map)
+    if (is.list(result[["model"]])) {
+      result[["model"]] = restore_result_names(result[["model"]], list(name_map = name_map, source_map = name_map))
+    }
+  }
+
   # Plot if requested
   if (isTRUE(inputs[["plot"]])) {
     plot(result, ...)
