@@ -66,6 +66,10 @@ Bug fixes
 - `sql_model_matrix()` (and thus interaction/factor terms) now generates
   backend-portable schema and factor-level queries, fixing failures on SQL
   Server and other non-DuckDB backends. (#66)
+- Sufficient statistics and HC1/clustered scores are now computed in double
+  precision on all backends. Previously, they were cast to `FLOAT`, which is
+  single precision on DuckDB, MySQL, Spark and Athena, limiting the
+  `"demean"` and `"mundlak"` strategies (and robust SEs) to ~1e-8 accuracy. (#78)
 
 Internal
 
