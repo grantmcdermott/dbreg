@@ -234,3 +234,29 @@ expect_equal(
   tolerance = 1e-6,
   info = "demean predict with interactions matches fixest"
 )
+
+#
+## Plain factor regressors (no interactions) ----
+
+set.seed(70)
+dat_pf = data.frame(fe = factor(sample(1:10, 300, TRUE)), x = rnorm(300), g = sample(c("a", "b", "c"), 300, TRUE))
+dat_pf$y = dat_pf$x + (dat_pf$g == "b") + as.integer(dat_pf$fe) / 5 + rnorm(300)
+for (s_pf in c("moments", "demean")) {
+  f_pf = if (s_pf == "moments") y ~ x + g else y ~ x + g | fe
+  expect_equal(
+    coef(dbreg(f_pf, data = dat_pf, strategy = s_pf)),
+    coef(feols(f_pf, data = dat_pf)),
+    tolerance = 1e-6,
+    info = paste(s_pf, "handles a plain factor regressor")
+  )
+}
+
+#
+## Factor levels come from all rows, not a sample ----
+
+dat_lv = data.frame(x = rnorm(100001), g = c(rep("a", 100000), "z"))
+dat_lv$y = dat_lv$x + rnorm(100001)
+expect_true(
+  "x:gz" %in% names(coef(dbreg(y ~ x:g, data = dat_lv, strategy = "moments"))),
+  info = "a factor level appearing only after row 100,000 is kept"
+)

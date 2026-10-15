@@ -57,6 +57,9 @@ Bug fixes
   names with spaces, or reserved words) and factor levels with spaces or other
   special characters now work in `dbreg()`, `dbivreg()` and `dbbinsreg()`.
   Results use the original names. (#58)
+- Plain factor regressors (without interactions) now work for the
+  `"moments"`, `"demean"` and `"mundlak"` strategies, and factor levels are
+  read from all rows rather than the first 100,000. (#76)
 - `predict()` now errors for `"demean"` models with more than two fixed
   effects. Previously it silently ignored the third and later fixed effects,
   returning incorrect predictions. (#66)

@@ -7,30 +7,27 @@ execute_moments_strategy = function(inputs) {
   env2env(
     inputs,
     environment(), c(
-      "has_interactions", "from_statement", "conn", "sql_only", "verbose",
+      "from_statement", "conn", "sql_only", "verbose",
       "data_only", "vcov_type_req", "fml", "fe", "intercept", "xvars", "yvar",
       "weights", "compression_ratio_est"
     )
   )
   # Get SQL expressions for design matrix terms
   # For interactions/factors, this expands to CASE WHEN expressions
-  if (isTRUE(has_interactions)) {
-    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
-    sql_design = sql_model_matrix(
-      fml,
-      conn,
-      table_ref,
-      expand = "all",
-      fe_vars = fe,
-      intercept = intercept
-    )
-    xvars_sql = sql_design[["select_exprs"]]
-    xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
-  } else {
-    xvars_sql = xvars
-    xvar_names = xvars
-  }
+  # Expand factors and interactions to SQL expressions (numeric terms pass
+  # through unchanged)
+  table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
+  sql_design = sql_model_matrix(
+    fml,
+    conn,
+    table_ref,
+    expand = "all",
+    fe_vars = fe,
+    intercept = intercept
+  )
+  xvars_sql = sql_design[["select_exprs"]]
+  xvar_names = sql_design[["aliases"]]
+  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   
   frame = build_base_frame(inputs, xvars_sql, xvar_names)
   moments_sql = frame_moments_sql(frame, yvar, xvar_names, conn)
@@ -102,29 +99,24 @@ execute_demean_strategy = function(inputs) {
     inputs,
     environment(),
     c(
-      "has_interactions", "from_statement", "conn", "sql_only", "data_only",
+      "from_statement", "conn", "sql_only", "data_only",
       "vcov_type_req", "fml", "fe", "xvars", "yvar", "verbose", "weights",
       "compression_ratio_est", "ssc"
     )
   )
-  # Handle interactions: expand to SQL expressions
-
-  if (isTRUE(has_interactions)) {
-    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
-    sql_design = sql_model_matrix(
-      fml,
-      conn,
-      table_ref,
-      expand = "all",
-      fe_vars = fe
-    )
-    xvars_sql = sql_design[["select_exprs"]]
-    xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
-  } else {
-    xvars_sql = xvars
-    xvar_names = xvars
-  }
+  # Expand factors and interactions to SQL expressions (numeric terms pass
+  # through unchanged)
+  table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
+  sql_design = sql_model_matrix(
+    fml,
+    conn,
+    table_ref,
+    expand = "all",
+    fe_vars = fe
+  )
+  xvars_sql = sql_design[["select_exprs"]]
+  xvar_names = sql_design[["aliases"]]
+  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   
   frame = build_demean_frame(inputs, xvars_sql, xvar_names)
   on.exit(frame[["cleanup"]](), add = TRUE)
@@ -212,7 +204,7 @@ execute_mundlak_strategy = function(inputs) {
   env2env(
     inputs,
     environment(), c(
-      "has_interactions", "from_statement", "conn", "cluster_var", "sql_only",
+      "from_statement", "conn", "cluster_var", "sql_only",
       "verbose", "data_only", "vcov_type_req", "yvar", "fe", "fml", "xvars",
       "weights", "compression_ratio_est"
     )
@@ -223,23 +215,19 @@ execute_mundlak_strategy = function(inputs) {
     stop("mundlak strategy requires at least one fixed effect")
   }
 
-  # Handle interactions: expand to SQL expressions
-  if (isTRUE(has_interactions)) {
-    table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
-    sql_design = sql_model_matrix(
-      fml,
-      conn,
-      table_ref,
-      expand = "all",
-      fe_vars = fe
-    )
-    xvars_sql = sql_design[["select_exprs"]]
-    xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
-  } else {
-    xvars_sql = xvars
-    xvar_names = xvars
-  }
+  # Expand factors and interactions to SQL expressions (numeric terms pass
+  # through unchanged)
+  table_ref = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
+  sql_design = sql_model_matrix(
+    fml,
+    conn,
+    table_ref,
+    expand = "all",
+    fe_vars = fe
+  )
+  xvars_sql = sql_design[["select_exprs"]]
+  xvar_names = sql_design[["aliases"]]
+  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   
   weights_expr_base = sql_weight_expr(weights)
   weights_expr_aug = if (is.null(weights)) NULL else sql_weight_expr("weights")
@@ -269,13 +257,8 @@ execute_mundlak_strategy = function(inputs) {
   # (can't compute AVG on factors; their means are handled via expanded dummies)
   # This follows the Mundlak/CRE approach of controlling for correlation
   # between original covariates and the FE
-  if (isTRUE(has_interactions)) {
-    # Filter to numeric vars only (factors are in sql_design$factor_levels)
-    factor_vars = names(sql_design[["factor_levels"]])
-    numeric_xvars = setdiff(xvars, factor_vars)
-  } else {
-    numeric_xvars = xvars
-  }
+  factor_vars = names(sql_design[["factor_levels"]])
+  numeric_xvars = setdiff(xvars, factor_vars)
   
   for (k in seq_along(fe)) {
     fe_k = fe[k]
