@@ -22,6 +22,10 @@
 #' @return List with:
 #'   - `select_exprs`: character vector of SQL expressions
 #'   - `col_names`: corresponding column names
+#'   - `aliases`: SQL-safe versions of `col_names` (identical unless, e.g.,
+#'     factor levels contain spaces or other special characters)
+#'   - `level_aliases`: data frame mapping each factor dummy `alias` to its
+#'     `var` and `level`
 #'   - `factor_levels`: list of factor levels by variable (for reference)
 #' @importFrom stats terms
 #' @export
@@ -53,13 +57,31 @@ sql_model_matrix = function(
   term_labels = attr(tt, "term.labels")
   
   if (!length(term_labels)) {
-    return(list(select_exprs = character(), col_names = character(), factor_levels = list()))
+    return(list(
+      select_exprs = character(), col_names = character(), aliases = character(),
+      factor_levels = list(), level_aliases = data.frame(alias = character(), var = character(), level = character())
+    ))
   }
   
   # Get column types and factor levels from database
   col_info = get_column_info(conn, table, term_labels)
-  
-  result = list(select_exprs = character(), col_names = character())
+
+  # SQL-safe aliases for factor dummies, one per (variable, level), computed
+  # once so that every term uses the same alias. They avoid the model's
+  # variable names and each other, and follow the backend's case rules.
+  fold_case = folds_identifier_case(conn)
+  taken = names(col_info[["types"]])
+  level_aliases = list()
+  for (v in names(col_info[["levels"]])) {
+    lvls = c(as.character(col_info[["levels"]][[v]]), "_constant")
+    a = safe_identifiers(paste0(v, lvls), taken = taken, fold_case = fold_case)
+    taken = c(taken, a)
+    level_aliases[[v]] = data.frame(alias = a, var = v, level = lvls)
+  }
+  level_aliases = do.call(rbind, c(list(data.frame(alias = character(), var = character(), level = character())), level_aliases))
+  col_info[["level_aliases"]] = level_aliases
+
+  result = list(select_exprs = character(), col_names = character(), aliases = character())
   
   # Without an intercept, the first factor main effect keeps all its levels
   full_factor = if (!intercept) {
@@ -75,11 +97,13 @@ sql_model_matrix = function(
       fe_vars = fe_vars,
       keep_all_levels = identical(term, full_factor)
     )
-    result[["select_exprs"]] = c(result[["select_exprs"]], vapply(expanded, `[[`, character(1), "sql"))
-    result[["col_names"]] = c(result[["col_names"]], vapply(expanded, `[[`, character(1), "name"))
+    result[["select_exprs"]] = c(result[["select_exprs"]], expanded[["sql"]])
+    result[["col_names"]] = c(result[["col_names"]], expanded[["name"]])
+    result[["aliases"]] = c(result[["aliases"]], expanded[["alias"]])
   }
   
   result[["factor_levels"]] = col_info[["levels"]]
+  result[["level_aliases"]] = level_aliases
   result
 }
 
@@ -120,6 +144,9 @@ get_column_info = function(conn, table, term_labels) {
 }
 
 #' Expand a single term into SQL expressions
+#'
+#' Expansions are lists of parallel character vectors: `sql` (expressions),
+#' `name` (column names) and `alias` (SQL-safe column names).
 #' @keywords internal
 expand_term = function(term, col_info, expand, sep = "_x_", all_terms = character(), fe_vars = character(), keep_all_levels = FALSE) {
   vars = strsplit(term, ":")[[1]]
@@ -127,7 +154,7 @@ expand_term = function(term, col_info, expand, sep = "_x_", all_terms = characte
   
   if (!is_interaction && expand == "interactions") {
     # Main effect, only expanding interactions: return as-is
-    return(list(list(sql = term, name = term)))
+    return(list(sql = term, name = term, alias = term))
   }
   
   # Expand each variable
@@ -141,7 +168,7 @@ expand_term = function(term, col_info, expand, sep = "_x_", all_terms = characte
   })
   
   # Cross product for interactions
-  cross_product(expansions, sep)
+  Reduce(function(a, b) cross_product(a, b, sep), expansions, right = TRUE)
 }
 
 #' Expand a single variable into SQL expression(s)
@@ -150,48 +177,38 @@ expand_variable = function(var, col_info, expand, in_interaction, drop_ref = TRU
   is_factor = identical(col_info[["types"]][[var]], "factor")
   
   # Only expand factors if: expand="all", OR variable is part of interaction
-  if (is_factor && (expand == "all" || in_interaction)) {
-    lvls = col_info[["levels"]][[var]]
-    if (length(lvls) < 2) {
-      return(list(list(sql = "1", name = paste0(var, "_constant"))))
-    }
-    # Drop first level (reference) only if appropriate
-    if (drop_ref) {
-      lvls = lvls[-1]
-    }
-    lapply(lvls, function(lvl) {
-      # Escape single quotes in level names
-      lvl_escaped = gsub("'", "''", lvl)
-      list(
-        sql = glue("CASE WHEN {var} = '{lvl_escaped}' THEN 1.0 ELSE 0.0 END"),
-        name = paste0(var, lvl)
-      )
-    })
-  } else {
+  if (!(is_factor && (expand == "all" || in_interaction))) {
     # Numeric or unexpanded factor: pass through
-    list(list(sql = var, name = var))
+    return(list(sql = var, name = var, alias = var))
   }
+  lvls = col_info[["levels"]][[var]]
+  la = col_info[["level_aliases"]]
+  la = la[la[["var"]] == var, , drop = FALSE]
+  if (length(lvls) < 2) {
+    return(list(sql = "1", name = paste0(var, "_constant"), alias = la[["alias"]][la[["level"]] == "_constant"]))
+  }
+  # Drop first level (reference) only if appropriate
+  if (drop_ref) {
+    lvls = lvls[-1]
+  }
+  list(
+    # Escape single quotes in level names
+    sql = paste0("CASE WHEN ", var, " = '", gsub("'", "''", lvls, fixed = TRUE), "' THEN 1.0 ELSE 0.0 END"),
+    name = paste0(var, lvls),
+    alias = la[["alias"]][match(lvls, la[["level"]])]
+  )
 }
 
-#' Cartesian product of term expansions
+#' Cartesian product of two term expansions
+#'
+#' Columns of `a` vary slowest (as in a nested loop over `a`, then `b`).
 #' @keywords internal
-cross_product = function(expansions, sep = "_x_") {
-  if (length(expansions) == 1) return(expansions[[1]])
-  
-  # Recursive: cross first with rest
-  rest = cross_product(expansions[-1], sep)
-  
-  result = list()
-  for (e1 in expansions[[1]]) {
-    for (e2 in rest) {
-      e1_sql = e1[["sql"]]
-      e2_sql = e2[["sql"]]
-      result = c(result, list(list(
-        sql = glue("({e1_sql}) * ({e2_sql})"),
-        name = paste0(e1[["name"]], sep, e2[["name"]])
-      )))
-    }
-  }
-  result
+cross_product = function(a, b, sep = "_x_") {
+  i = rep(seq_along(a[["sql"]]), each = length(b[["sql"]]))
+  j = rep(seq_along(b[["sql"]]), times = length(a[["sql"]]))
+  list(
+    sql = paste0("(", a[["sql"]][i], ") * (", b[["sql"]][j], ")"),
+    name = paste0(a[["name"]][i], sep, b[["name"]][j]),
+    alias = paste0(a[["alias"]][i], "_x_", b[["alias"]][j])
+  )
 }
-

@@ -412,8 +412,20 @@ process_dbreg_inputs = function(inputs) {
   env2env(environment(), inputs, c("conn", "own_conn", "registered_table"))
   from_statement = db_setup[["from_statement"]]
 
-  # Parse formula using shared helper
+  # Parse (and validate) the formula with the user's names
   fml_parsed = parse_regression_formula(fml)
+  any_continuous = any_continuous_vars(data, fml_parsed[["xvars"]])
+  weights_display = weights
+
+  # Give model variables SQL-safe names (see safe_source()) and re-parse;
+  # results are mapped back to display names at the end
+  src = safe_source(conn, from_statement, c(all.vars(fml_parsed[["fml"]]), weights, cluster_var))
+  from_statement = src[["from_statement"]]
+  name_map = src[["map"]]
+  source_map = name_map
+  fml_parsed = parse_regression_formula(src[["to_safe"]](fml))
+  weights = src[["to_safe"]](weights)
+  cluster_var = src[["to_safe"]](cluster_var)
   fml = fml_parsed[["fml"]]
   yvar = fml_parsed[["yvar"]]
   xvars = fml_parsed[["xvars"]]
@@ -423,9 +435,10 @@ process_dbreg_inputs = function(inputs) {
   # With FE the intercept is absorbed, so `- 1` / `0 +` only matters without FE
   intercept = fml_parsed[["has_intercept"]] || length(fe) > 0
 
-  validate_weights(weights, data, conn, from_statement)
+  # In-memory data are checked by (display) column name; otherwise the database
+  # is probed using the (safe) source names
+  validate_weights(if (is.null(data)) weights else weights_display, data, conn, from_statement)
 
-  any_continuous = any_continuous_vars(data, xvars)
   compress_ratio = resolve_compress_ratio(compress_ratio, fe)
 
   from_statement = filter_estimation_sample(
@@ -441,7 +454,8 @@ process_dbreg_inputs = function(inputs) {
     inputs,
     c(
       "fml", "yvar", "xvars", "term_labels", "has_interactions", "intercept", "fe",
-      "from_statement", "compress_ratio", "any_continuous", "is_balanced"
+      "from_statement", "compress_ratio", "any_continuous", "is_balanced",
+      "weights", "cluster_var", "name_map", "source_map"
     )
   )
   invisible(inputs)
@@ -972,6 +986,7 @@ finalize_dbreg_result = function(result, inputs, chosen_strategy, class = "dbreg
     cat(result)
     return(invisible(result))
   }
+  result = restore_result_names(result, inputs)
   if (inputs[["data_only"]]) {
     return(result)
   }

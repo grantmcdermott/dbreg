@@ -2,11 +2,11 @@
 % Please edit documentation in R/sql_model_matrix.R
 \name{cross_product}
 \alias{cross_product}
-\title{Cartesian product of term expansions}
+\title{Cartesian product of two term expansions}
 \usage{
-cross_product(expansions, sep = "_x_")
+cross_product(a, b, sep = "_x_")
 }
 \description{
-Cartesian product of term expansions
+Columns of `a` vary slowest (as in a nested loop over `a`, then `b`).
 }
 \keyword{internal}

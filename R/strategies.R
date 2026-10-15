@@ -25,7 +25,8 @@ execute_moments_strategy = function(inputs) {
       intercept = intercept
     )
     xvars_sql = sql_design[["select_exprs"]]
-    xvar_names = sql_design[["col_names"]]
+    xvar_names = sql_design[["aliases"]]
+    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   } else {
     xvars_sql = xvars
     xvar_names = xvars
@@ -118,7 +119,8 @@ execute_demean_strategy = function(inputs) {
       fe_vars = fe
     )
     xvars_sql = sql_design[["select_exprs"]]
-    xvar_names = sql_design[["col_names"]]
+    xvar_names = sql_design[["aliases"]]
+    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   } else {
     xvars_sql = xvars
     xvar_names = xvars
@@ -232,7 +234,8 @@ execute_mundlak_strategy = function(inputs) {
       fe_vars = fe
     )
     xvars_sql = sql_design[["select_exprs"]]
-    xvar_names = sql_design[["col_names"]]
+    xvar_names = sql_design[["aliases"]]
+    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   } else {
     xvars_sql = xvars
     xvar_names = xvars
@@ -325,6 +328,13 @@ execute_mundlak_strategy = function(inputs) {
 
   # All regressors: expanded X plus group means of numeric xvars
   all_regressors = c(xvar_names, xbar_all)
+  # Group-mean regressors are named after (safe) variables; register display names
+  map = inputs[["name_map"]]
+  if (length(map) && length(xbar_all)) {
+    disp = function(v) ifelse(v %in% names(map), map[v], v)
+    bar_display = unlist(lapply(fe, function(f) paste0(disp(numeric_xvars), "_bar_", disp(f))))
+    inputs[["name_map"]] = c(map, setNames(bar_display, xbar_all)[xbar_all != bar_display])
+  }
 
   frame = list(
     cte_sql = paste0(
@@ -441,9 +451,10 @@ execute_compress_strategy = function(inputs) {
     )
     
     # Build SELECT expressions with aliases
-    select_exprs = paste0(sql_design[["select_exprs"]], " AS ", sql_design[["col_names"]])
+    select_exprs = paste0(sql_design[["select_exprs"]], " AS ", sql_design[["aliases"]])
     xvars_sql = paste(select_exprs, collapse = ", ")
-    xvar_names = sql_design[["col_names"]]
+    xvar_names = sql_design[["aliases"]]
+    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
   } else {
     xvars_sql = paste(xvars, collapse = ", ")
     xvar_names = xvars
@@ -509,6 +520,12 @@ execute_compress_strategy = function(inputs) {
   # Build design matrix
   # Use expanded column names if interactions were present
   design_vars = if (isTRUE(has_interactions)) xvar_names else xvars
+  # Factor dummies (incl. FE) built in R are named after their (safe) variable
+  # and level; register display names for them
+  is_cat = vapply(c(design_vars, fe), function(v) {
+    v %in% names(compressed_dat) && (is.factor(compressed_dat[[v]]) || is.character(compressed_dat[[v]]))
+  }, logical(1))
+  register_factor_display(inputs, lapply(setNames(nm = c(design_vars, fe)[is_cat]), function(v) unique(compressed_dat[[v]])))
   X = sparse.model.matrix(
     reformulate(c(design_vars, fe), intercept = intercept),
     compressed_dat
