@@ -66,7 +66,7 @@ Bug fixes
 - Sufficient statistics and HC1/clustered scores are now computed in double
   precision on all backends. Previously, they were cast to `FLOAT`, which is
   single precision on DuckDB, MySQL, Spark and Athena, limiting the
-  `"demean"` and `"mundlak"` strategies (and robust SEs) to ~1e-8 accuracy.
+  `"demean"` and `"mundlak"` strategies (and robust SEs) to ~1e-8 accuracy. (#78)
 
 Internal
 
