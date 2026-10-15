@@ -659,6 +659,9 @@ detect_backend = function(conn) {
   if (inherits(conn, "duckdb_connection")) {
     return(list(name = "duckdb", supports_count_big = FALSE))
   }
+  if (inherits(conn, "BigQueryConnection")) {
+    return(list(name = "bigquery", supports_count_big = FALSE))
+  }
 
   
   info = try(dbGetInfo(conn), silent = TRUE)
@@ -701,6 +704,7 @@ sql_cast_double = function(sql, conn) {
     detect_backend(conn)[["name"]],
     postgres = "DOUBLE PRECISION",
     sqlserver = "FLOAT",
+    bigquery = "FLOAT64",
     "DOUBLE"
   )
   sprintf("CAST(%s AS %s)", sql, type)
