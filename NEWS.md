@@ -25,6 +25,9 @@ New features
 
 Bug fixes
 
+- Alternating projections no longer fail with an SQL error when a fixed-effect
+  or cluster variable also appears as a regressor. Invalid `dbreg.ap_max_iter`
+  and `dbreg.ap_tol` options now produce a clear error.
 - Fixed a typo in `<dbreg.object>$coeftable` column names that was obscuring
   some downstream functions, e.g. stars in `modelsummary::modelsummary`. (#62) 
 - Fixed `dbreg_is_balanced_panel()` to correctly detect unbalanced panels with

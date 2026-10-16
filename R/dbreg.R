@@ -667,14 +667,22 @@ dbreg_alternating_projections = function(
     "conn", "from_statement", "fe", "yvar", "weights", "cluster_var",
     "verbose"
   ))
+  positive = function(x) is.numeric(x) && length(x) == 1L && is.finite(x) && x > 0
+  if (!positive(max_iter) || max_iter %% 1 != 0) {
+    stop("[dbreg] dbreg.ap_max_iter must be a positive integer.", call. = FALSE)
+  }
+  if (!positive(tol)) {
+    stop("[dbreg] dbreg.ap_tol must be a positive number.", call. = FALSE)
+  }
   backend = detect_backend(conn)[["name"]]
   weights_expr = sql_weight_expr(weights)
   if (is.null(weights_expr)) {
     weights_expr = "1.0"
   }
 
+  # FE and cluster identifiers must survive every AP table, including when
+  # they are also regressors (which are otherwise replaced by `_tilde` columns).
   id_cols = unique(c(fe, cluster_var))
-  id_cols = setdiff(id_cols, c(yvar, xvar_names))
   id_cols = id_cols[!is.na(id_cols) & id_cols != ""]
 
   seed = paste0(
@@ -698,7 +706,7 @@ dbreg_alternating_projections = function(
   }, add = TRUE)
 
   base_select = c(
-    id_cols,
+    setdiff(id_cols, c(yvar, xvar_names)), # overlaps are selected below
     sprintf("%s AS %s", yvar, yvar),
     sprintf("%s AS %s", xvars_sql, xvar_names),
     sprintf("%s AS __w", weights_expr)
