@@ -6,6 +6,9 @@ _This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg
 
 New features
 
+- Alternating projections on Spark/Databricks now use sequential SQL window
+  functions (both unweighted and weighted) and batch three cycles per temporary
+  table write (`options(dbreg.ap_method = "window"/"join", dbreg.ap_batch_size = 3L)`).
 - Added `dbivreg()` for instrumental-variables (2SLS) regression on database
   backends. Uses `fixest`-style IV formulas, e.g. `y ~ x | d ~ z` or
   `y ~ x | fe1 + fe2 | d ~ z`, and supports multiple endogenous regressors,
