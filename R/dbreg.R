@@ -134,7 +134,8 @@
 #'    at the cost of extra passes over the data. AP also generalizes the
 #'    `"demean"` strategy to three or more FE. On Spark/Databricks, AP uses SQL
 #'    window functions and writes one table per three cycles
-#'    (`options(dbreg.ap_method = "window"/"join", dbreg.ap_batch_size = 3L)`).
+#'    (`options(dbreg.ap_method = "window", dbreg.ap_batch_size = 3L)`).
+#'    Use `options(dbreg.ap_method = "join")` to select the join implementation.
 #' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects
 #'    (CRE) estimator that regresses Y on X plus group means of X:
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
