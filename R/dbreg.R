@@ -826,28 +826,20 @@ dbreg_alternating_projections = function(
       alt_table = tmp
     }
 
-    # Convergence check: max absolute weighted group mean across all FEs
-    max_abs = 0
-    for (fe_k in fe) {
-      mean_cols = vapply(vars_all, function(v) {
-        sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", v, v)
-      }, character(1))
-      inner_sql = paste0(
-        "SELECT ",
-        paste(mean_cols, collapse = ", "),
-        " FROM ",
-        cur_table,
-        " GROUP BY ",
-        fe_k
-      )
-      outer_cols = paste(
-        sprintf("MAX(ABS(%s)) AS max_%s", mean_names, vars_all),
-        collapse = ", "
-      )
-      outer_sql = paste0("SELECT ", outer_cols, " FROM (", inner_sql, ") t")
-      res = dbGetQuery(conn, outer_sql)
-      max_abs = max(max_abs, max(res[1, ], na.rm = TRUE))
-    }
+    # Convergence check: max absolute weighted group mean across FEs.
+    # The last FE swept just had its group mean subtracted, so skip fe[length(fe)]
+    # and check the remaining FEs in a single UNION ALL query.
+    mean_cols = paste(
+      sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", vars_all, vars_all),
+      collapse = ", "
+    )
+    inner_sql = paste(
+      sprintf("SELECT %s FROM %s GROUP BY %s", mean_cols, cur_table, fe[-length(fe)]),
+      collapse = " UNION ALL "
+    )
+    outer_cols = paste(sprintf("MAX(ABS(%s)) AS max_%s", mean_names, vars_all), collapse = ", ")
+    res = dbGetQuery(conn, paste0("SELECT ", outer_cols, " FROM (", inner_sql, ") t"))
+    max_abs = max(0, max(res[1, ], na.rm = TRUE))
 
     if (isTRUE(verbose)) {
       message("[AP] iter ", iter, ": max abs mean = ", sprintf("%.4e", max_abs))
