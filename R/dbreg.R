@@ -826,15 +826,14 @@ dbreg_alternating_projections = function(
       alt_table = tmp
     }
 
-    # Convergence check: max absolute weighted group mean across FEs.
-    # The last FE swept just had its group mean subtracted, so skip fe[length(fe)]
-    # and check the remaining FEs in a single UNION ALL query.
+    # Convergence check: max absolute weighted group mean across all FEs
+    # in a single UNION ALL query.
     mean_cols = paste(
       sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", vars_all, vars_all),
       collapse = ", "
     )
     inner_sql = paste(
-      sprintf("SELECT %s FROM %s GROUP BY %s", mean_cols, cur_table, fe[-length(fe)]),
+      sprintf("SELECT %s FROM %s GROUP BY %s", mean_cols, cur_table, fe),
       collapse = " UNION ALL "
     )
     outer_cols = paste(sprintf("MAX(ABS(%s)) AS max_%s", mean_names, vars_all), collapse = ", ")
