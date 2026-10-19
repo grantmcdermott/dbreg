@@ -219,6 +219,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
 <p>Bug fixes</p>
 <ul>
+<li>Alternating projections no longer fail with an SQL error when a fixed-effect or cluster variable also appears as a regressor. Invalid <code>dbreg.ap_max_iter</code> and <code>dbreg.ap_tol</code> options now produce a clear error.</li>
 <li>Fixed a typo in <code>&lt;dbreg.object&gt;$coeftable</code> column names that was obscuring some downstream functions, e.g.&nbsp;stars in <code>modelsummary::modelsummary</code>. (<a href="https://github.com/grantmcdermott/dbreg/issues/62">#62</a>)</li>
 <li>Fixed <code>dbreg_is_balanced_panel()</code> to correctly detect unbalanced panels with missing cells (previously only checked for unequal cell counts).</li>
 <li>The CR1 small-sample correction for clustered SEs now uses <code>(G/(G-1)) * ((N-1)/(N-K))</code>, matching <code>fixest</code>, instead of <code>(G/(G-1)) * (N/(N-K))</code>. Similarly, <code>ssc = "nested"</code> now excludes <code>G-1</code> (not <code>G</code>) parameters for each fixed effect nested within the cluster variable. In practice, clustered SEs shift by a relative factor of roughly <code>1/(2N)</code> under the default <code>ssc = "full"</code> (and are essentially unchanged under <code>"nested"</code>), which is negligible for large datasets. But it does mean that <code>dbreg</code> now matches <code>fixest</code> to numerical precision in small samples too. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
