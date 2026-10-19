@@ -40,7 +40,10 @@ DBI::dbExecute(con, paste(
   "CAST(y AS DECIMAL(30,12)) AS y, CAST(x1 AS DECIMAL(30,12)) AS x1 FROM fixture"
 ))
 dat_decimal = DBI::dbGetQuery(con, "SELECT * FROM decimal_fixture")
-old = options(dbreg.ap_tol = 1e-11, dbreg.ap_max_iter = 1000L)
+old = options(
+  dbreg.ap_method = NULL, dbreg.ap_batch_size = NULL,
+  dbreg.ap_tol = 1e-11, dbreg.ap_max_iter = 1000L
+)
 ssc_full = fixest::ssc(K.fixef = "full")
 
 fit_with = function(method, batch, f, table, vcov, weights = NULL, ivreg = FALSE) {
