@@ -14,8 +14,8 @@ check_simple_terms(term_labels, what = "regressors", allow_interactions = TRUE)
 \item{allow_interactions}{Logical. Allow `a:b` terms.}
 }
 \description{
-Terms must be plain variables or interactions of them (`a:b`). Anything
-else, e.g. `log(x)`, `I(x^2)` or `factor(x)`, would otherwise be silently
+Terms must be plain variables, interactions of them (`a:b`) or (where
+interactions are allowed) `i()` terms. Anything else, e.g. `log(x)`, `I(x^2)` or `factor(x)`, would otherwise be silently
 reduced to its underlying variable by `all.vars()`.
 }
 \keyword{internal}

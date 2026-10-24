@@ -11,7 +11,10 @@
 #' estimated. Fixed effects should be included after a pipe, e.g
 #' `fml = y ~ x1 + x2 | fe1 + f2`. Interaction terms are supported using
 #' standard R syntax (`:` for interactions, `*` for main effects plus
-#' interaction). Transformations and literals are not yet supported.
+#' interaction). `fixest`-style `i()` terms are also supported, e.g.
+#' `i(period, treat, ref = 5)` for event studies; see
+#' [sql_model_matrix()] for details. Transformations and literals are not yet
+#' supported.
 #' @param conn Database connection, e.g. created with
 #' \code{\link[DBI]{dbConnect}}. Can be either persistent (disk-backed) or
 #' ephemeral (in-memory). If no connection is provided, then an ephemeral
@@ -259,6 +262,12 @@
 #' # (Diet main effects are collinear with Chick FE, so these drop out)
 #' dbreg(weight ~ Time * Diet | Chick, data = ChickWeight)
 #' 
+#' # Event study with fixest-style i() terms (reference period 5)
+#' if (requireNamespace("fixest", quietly = TRUE)) {
+#'   data("base_did", package = "fixest")
+#'   dbreg(y ~ x1 + i(period, treat, ref = 5) | id + period, data = base_did)
+#' }
+#' 
 #' #
 #' ## DBI connection ----
 #' 
@@ -419,7 +428,7 @@ process_dbreg_inputs = function(inputs) {
 
   # Give model variables SQL-safe names (see safe_source()) and re-parse;
   # results are mapped back to display names at the end
-  src = safe_source(conn, from_statement, c(all.vars(fml_parsed[["fml"]]), weights, cluster_var))
+  src = safe_source(conn, from_statement, c(model_vars(fml_parsed[["fml"]]), weights, cluster_var))
   from_statement = src[["from_statement"]]
   name_map = src[["map"]]
   source_map = name_map
@@ -999,6 +1008,8 @@ finalize_dbreg_result = function(result, inputs, chosen_strategy, class = "dbreg
     return(result)
   }
   result[["strategy"]] = chosen_strategy
+  # i() columns (display names), for predict()
+  result[["i_columns"]] = inputs[["i_columns"]]
   class(result) = c(class, class(result))
   result
 }

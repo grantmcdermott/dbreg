@@ -16,7 +16,8 @@
 #' @param fml A fixest-style IV formula. Use `y ~ x1 + x2 | d ~ z` for models
 #'   without absorbed fixed effects, and `y ~ x1 + x2 | fe1 + fe2 + fe3 | d ~ z`
 #'   when fixed effects are present. The IV block must always be the final
-#'   pipe-separated block.
+#'   pipe-separated block. Regressors and instruments can include interactions
+#'   and `fixest`-style `i()` terms (see [sql_model_matrix()]).
 #' @param conn Database connection, or `NULL` to create an ephemeral DuckDB
 #'   connection.
 #' @param table,data,path Mutually exclusive data source arguments with
@@ -169,7 +170,7 @@ process_dbivreg_inputs = function(inputs) {
 
   # Give model variables SQL-safe names (see safe_source()) and re-parse;
   # results are mapped back to display names at the end
-  src = safe_source(conn, from_statement, c(all.vars(fml), weights, cluster_var))
+  src = safe_source(conn, from_statement, c(model_vars(fml), weights, cluster_var))
   from_statement = src[["from_statement"]]
   name_map = src[["map"]]
   parsed_fml = dbivreg_parse_formula(src[["to_safe"]](fml))
@@ -200,13 +201,14 @@ process_dbivreg_inputs = function(inputs) {
 
   design_source = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
   intercept = parsed_fml[["intercept"]]
-  exog_design = dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe, intercept)
-  endog_design = dbivreg_expand_block(parsed_fml[["endog_rhs"]], conn, design_source, fe)
-  instr_design = dbivreg_expand_block(parsed_fml[["instr_rhs"]], conn, design_source, fe)
+  exog_design = dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe, intercept, block = "x")
+  endog_design = dbivreg_expand_block(parsed_fml[["endog_rhs"]], conn, design_source, fe, block = "d")
+  instr_design = dbivreg_expand_block(parsed_fml[["instr_rhs"]], conn, design_source, fe, block = "z")
   register_factor_display(
     inputs,
     c(exog_design[["factor_levels"]], endog_design[["factor_levels"]], instr_design[["factor_levels"]]),
-    rbind(exog_design[["level_aliases"]], endog_design[["level_aliases"]], instr_design[["level_aliases"]])
+    rbind(exog_design[["level_aliases"]], endog_design[["level_aliases"]], instr_design[["level_aliases"]]),
+    rbind(exog_design[["i_columns"]], endog_design[["i_columns"]], instr_design[["i_columns"]])
   )
   # Without an intercept, factor coding of the endogenous/instrument blocks
   # would depend on the combined X and Z designs; not supported yet
@@ -668,13 +670,13 @@ dbivreg_parse_formula = function(fml) {
     yvar = yvar,
     exog_rhs = rhs(exog_expr),
     exog_rhs_text = text(exog_expr),
-    exog_vars = all.vars(exog_expr),
+    exog_vars = model_vars(exog_expr),
     endog_rhs = rhs(endog_expr),
     endog_rhs_text = text(endog_expr),
-    endog_vars = all.vars(endog_expr),
+    endog_vars = model_vars(endog_expr),
     instr_rhs = rhs(instr_expr),
     instr_rhs_text = text(instr_expr),
-    instr_vars = all.vars(instr_expr),
+    instr_vars = model_vars(instr_expr),
     fe = fe,
     fe_rhs_text = fe_rhs_text,
     intercept = intercept
@@ -683,7 +685,7 @@ dbivreg_parse_formula = function(fml) {
 
 #' @keywords internal
 #' Expands the right-hand side of the structural formula into SQL expressions for the design matrix, including fixed effects if specified.
-dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(), intercept = TRUE) {
+dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(), intercept = TRUE, block = "") {
   if (is.null(fe_vars)) {
     fe_vars = character()
   }
@@ -695,6 +697,10 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(),
     fe_vars = fe_vars,
     intercept = intercept
   )
+  # i() aliases are numbered per block; tag them so blocks can't collide
+  is_i = sql_design[["aliases"]] %in% sql_design[["i_columns"]][["alias"]]
+  sql_design[["aliases"]][is_i] = sub("^dbreg_i", paste0("dbreg_i", block), sql_design[["aliases"]][is_i])
+  sql_design[["i_columns"]][["alias"]] = sub("^dbreg_i", paste0("dbreg_i", block), sql_design[["i_columns"]][["alias"]])
   if (anyDuplicated(sql_design$aliases) > 0) {
     dupes = unique(sql_design$aliases[duplicated(sql_design$aliases)])
     stop(
@@ -707,7 +713,8 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(),
     names = sql_design$aliases,
     factor_levels = sql_design$factor_levels,
     level_aliases = sql_design$level_aliases,
-    vars = all.vars(rhs_formula),
+    i_columns = sql_design[["i_columns"]],
+    vars = model_vars(rhs_formula),
     term_labels = attr(terms(rhs_formula), "term.labels")
   )
 }

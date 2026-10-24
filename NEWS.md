@@ -22,6 +22,11 @@ New features
 - For unbalanced two-way panels, `strategy = "auto"` now routes to `"demean"`
   via alternating projections instead of erroring. Users no longer need to
   explicitly choose between `"compress"` and `"mundlak"` for these cases.
+- Formulas now support `fixest`-style `i()` terms, e.g.
+  `dbreg(y ~ i(period, treat, ref = 5) | id + period, ...)` for event studies,
+  in `dbreg()` and `dbivreg()` and across all strategies. Supports `i(f)`,
+  `i(f, x)` with numeric or logical `x`, and the `ref` and `keep` arguments.
+  Coefficients are named as in `fixest` (e.g. `period::1:treat`). (#56)
 
 Bug fixes
 
@@ -78,6 +83,8 @@ Bug fixes
   were averaged, so models with factors or interactions didn't match the
   equivalent fixed effects estimates. Time-invariant regressors now keep their
   coefficient (dropping their collinear group mean) instead of erroring. (#77)
+- Clustered SEs for the `"compress"` strategy no longer error for models with
+  interaction terms.
 
 Internal
 

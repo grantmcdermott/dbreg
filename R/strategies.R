@@ -27,7 +27,7 @@ execute_moments_strategy = function(inputs) {
   )
   xvars_sql = sql_design[["select_exprs"]]
   xvar_names = sql_design[["aliases"]]
-  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
+  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]], sql_design[["i_columns"]])
   
   frame = build_base_frame(inputs, xvars_sql, xvar_names)
   moments_sql = frame_moments_sql(frame, yvar, xvar_names, conn)
@@ -117,7 +117,7 @@ execute_demean_strategy = function(inputs) {
   )
   xvars_sql = sql_design[["select_exprs"]]
   xvar_names = sql_design[["aliases"]]
-  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
+  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]], sql_design[["i_columns"]])
   
   frame = build_demean_frame(inputs, xvars_sql, xvar_names)
   on.exit(frame[["cleanup"]](), add = TRUE)
@@ -228,7 +228,7 @@ execute_mundlak_strategy = function(inputs) {
   )
   xvars_sql = sql_design[["select_exprs"]]
   xvar_names = sql_design[["aliases"]]
-  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
+  register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]], sql_design[["i_columns"]])
   
   weights_expr_base = sql_weight_expr(weights)
   weights_expr_aug = if (is.null(weights)) NULL else sql_weight_expr("weights")
@@ -415,14 +415,15 @@ execute_compress_strategy = function(inputs) {
       conn,
       table_ref,
       expand = "interactions",
-      fe_vars = fe
+      fe_vars = fe,
+      intercept = intercept
     )
     
     # Build SELECT expressions with aliases
     select_exprs = paste0(sql_design[["select_exprs"]], " AS ", sql_design[["aliases"]])
     xvars_sql = paste(select_exprs, collapse = ", ")
     xvar_names = sql_design[["aliases"]]
-    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]])
+    register_factor_display(inputs, sql_design[["factor_levels"]], sql_design[["level_aliases"]], sql_design[["i_columns"]])
   } else {
     xvars_sql = paste(xvars, collapse = ", ")
     xvar_names = xvars
@@ -551,7 +552,13 @@ execute_compress_strategy = function(inputs) {
     meat = crossprod(X, Diagonal(x = as.numeric(rss_g_w2)) %*% X)
   }
   if (vcov_type_req == "cluster") {
-    meat = compute_meat_cluster_compress(inputs, from_statement, group_cols, compressed_dat, X, yhat)
+    # Cells are keyed on the expanded columns, so expose them to the query
+    cells_from = if (isTRUE(has_interactions)) {
+      paste0("FROM (SELECT *, ", xvars_sql, " ", from_statement, ") AS dbreg_cells")
+    } else {
+      from_statement
+    }
+    meat = compute_meat_cluster_compress(inputs, cells_from, group_cols, compressed_dat, X, yhat)
     # For ssc = "nested", exclude nested FE levels from K
     if (ssc == "nested") {
       n_params_cluster = ncol(X) - nested_fe_df(inputs, from_statement)
