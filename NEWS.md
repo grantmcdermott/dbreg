@@ -26,7 +26,7 @@ New features
   `dbreg(y ~ i(period, treat, ref = 5) | id + period, ...)` for event studies,
   in `dbreg()` and `dbivreg()` and across all strategies. Supports `i(f)`,
   `i(f, x)` with numeric or logical `x`, and the `ref` and `keep` arguments.
-  Coefficients are named as in `fixest` (e.g. `period::1:treat`). (#56)
+  Coefficients are named as in `fixest` (e.g. `period::1:treat`). (#82)
 
 Bug fixes
 
