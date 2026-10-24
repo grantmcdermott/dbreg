@@ -552,9 +552,11 @@ execute_compress_strategy = function(inputs) {
     meat = crossprod(X, Diagonal(x = as.numeric(rss_g_w2)) %*% X)
   }
   if (vcov_type_req == "cluster") {
-    # Cells are keyed on the expanded columns, so expose them to the query
+    # Cells are keyed on the expanded columns, so expose them (and only the
+    # other columns the query needs) to it
     cells_from = if (isTRUE(has_interactions)) {
-      paste0("FROM (SELECT *, ", xvars_sql, " ", from_statement, ") AS dbreg_cells")
+      cols = setdiff(unique(c(inputs[["cluster_var"]], yvar, weights, fe)), xvar_names)
+      paste0("FROM (SELECT ", paste(c(cols, xvars_sql), collapse = ", "), " ", from_statement, ") AS dbreg_cells")
     } else {
       from_statement
     }

@@ -123,6 +123,17 @@ for (fml_iv in iv_fmls) {
   expect_equal(db_iv[names(fx_iv)], fx_iv, tolerance = 1e-10, info = paste("dbivreg i():", deparse(fml_iv)))
 }
 
+# The same i() column across IV blocks is recognised as such
+fml_dup = y2 ~ i(period, x1, ref = 1) | id | xe ~ z + i(period, x1, ref = 1)
+expect_warning(db_dup <- dbivreg(fml_dup, data = base_did, strategy = "demean"), "period::2:x1")
+fx_dup = coef(feols(y2 ~ i(period, x1, ref = 1) | id | xe ~ z, data = base_did))
+names(fx_dup) = sub("^fit_", "", names(fx_dup))
+expect_equal(coef(db_dup)[names(fx_dup)], fx_dup, tolerance = 1e-10, info = "i() instrument duplicating a regressor is dropped")
+expect_error(
+  dbivreg(y2 ~ i(period, x1, ref = 1) | id | i(period, x1, ref = 1) ~ i(period, z, ref = 1), data = base_did),
+  "cannot also appear"
+)
+
 # ref/keep are evaluated in the formula's environment
 fit_ref = function() {
   my_ref = 5

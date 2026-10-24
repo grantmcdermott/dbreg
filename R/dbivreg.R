@@ -201,9 +201,14 @@ process_dbivreg_inputs = function(inputs) {
 
   design_source = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
   intercept = parsed_fml[["intercept"]]
-  exog_design = dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe, intercept, block = "x")
-  endog_design = dbivreg_expand_block(parsed_fml[["endog_rhs"]], conn, design_source, fe, block = "d")
-  instr_design = dbivreg_expand_block(parsed_fml[["instr_rhs"]], conn, design_source, fe, block = "z")
+  designs = dbivreg_shared_i_aliases(list(
+    dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe, intercept),
+    dbivreg_expand_block(parsed_fml[["endog_rhs"]], conn, design_source, fe),
+    dbivreg_expand_block(parsed_fml[["instr_rhs"]], conn, design_source, fe)
+  ))
+  exog_design = designs[[1]]
+  endog_design = designs[[2]]
+  instr_design = designs[[3]]
   register_factor_display(
     inputs,
     c(exog_design[["factor_levels"]], endog_design[["factor_levels"]], instr_design[["factor_levels"]]),
@@ -226,12 +231,13 @@ process_dbivreg_inputs = function(inputs) {
     stop("At least one excluded instrument is required in the IV block.")
   }
 
+  display = function(x) paste(standardize_coef_names(restore_names(x, inputs[["name_map"]])), collapse = ", ")
   overlap_x_endog = intersect(exog_design[["names"]], endog_design[["names"]])
   if (length(overlap_x_endog) > 0) {
     stop(
       "Endogenous regressors cannot also appear as included exogenous regressors. ",
       "Overlapping term(s): ",
-      paste(standardize_coef_names(overlap_x_endog), collapse = ", ")
+      display(overlap_x_endog)
     )
   }
   overlap_endog_iv = intersect(endog_design[["names"]], instr_design[["names"]])
@@ -239,7 +245,7 @@ process_dbivreg_inputs = function(inputs) {
     stop(
       "Excluded instruments cannot also appear as endogenous regressors. ",
       "Overlapping term(s): ",
-      paste(standardize_coef_names(overlap_endog_iv), collapse = ", ")
+      display(overlap_endog_iv)
     )
   }
   overlap_exog_iv = intersect(exog_design[["names"]], instr_design[["names"]])
@@ -247,7 +253,7 @@ process_dbivreg_inputs = function(inputs) {
     warning(
       "Included exogenous regressors are already valid instruments. ",
       "Dropping duplicate entries from the excluded-instrument block: ",
-      paste(standardize_coef_names(overlap_exog_iv), collapse = ", ")
+      display(overlap_exog_iv)
     )
     keep_iv = !instr_design[["names"]] %in% overlap_exog_iv
     instr_design[["sql"]] = instr_design[["sql"]][keep_iv]
@@ -685,7 +691,7 @@ dbivreg_parse_formula = function(fml) {
 
 #' @keywords internal
 #' Expands the right-hand side of the structural formula into SQL expressions for the design matrix, including fixed effects if specified.
-dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(), intercept = TRUE, block = "") {
+dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(), intercept = TRUE) {
   if (is.null(fe_vars)) {
     fe_vars = character()
   }
@@ -697,10 +703,6 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(),
     fe_vars = fe_vars,
     intercept = intercept
   )
-  # i() aliases are numbered per block; tag them so blocks can't collide
-  is_i = sql_design[["aliases"]] %in% sql_design[["i_columns"]][["alias"]]
-  sql_design[["aliases"]][is_i] = sub("^dbreg_i", paste0("dbreg_i", block), sql_design[["aliases"]][is_i])
-  sql_design[["i_columns"]][["alias"]] = sub("^dbreg_i", paste0("dbreg_i", block), sql_design[["i_columns"]][["alias"]])
   if (anyDuplicated(sql_design$aliases) > 0) {
     dupes = unique(sql_design$aliases[duplicated(sql_design$aliases)])
     stop(
@@ -717,6 +719,26 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(),
     vars = model_vars(rhs_formula),
     term_labels = attr(terms(rhs_formula), "term.labels")
   )
+}
+
+#' Give `i()` columns the same alias in every IV block
+#'
+#' [sql_model_matrix()] numbers `i()` aliases per call, so blocks expanded
+#' separately could reuse an alias for different columns. Re-alias them by
+#' their SQL instead: identical columns share an alias, which keeps the
+#' name-based overlap checks between blocks working.
+#' @param designs List of [dbivreg_expand_block()] results.
+#' @keywords internal
+dbivreg_shared_i_aliases = function(designs) {
+  is_i = lapply(designs, function(d) d[["names"]] %in% d[["i_columns"]][["alias"]])
+  i_sql = unique(unlist(Map(function(d, i) d[["sql"]][i], designs, is_i)))
+  Map(function(d, i) {
+    old = d[["names"]][i]
+    new = paste0("dbreg_i", match(d[["sql"]][i], i_sql))
+    d[["names"]][i] = new
+    d[["i_columns"]][["alias"]] = new[match(d[["i_columns"]][["alias"]], old)]
+    d
+  }, designs, is_i)
 }
 
 #' @keywords internal
