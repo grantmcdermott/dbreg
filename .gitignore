@@ -77,7 +77,7 @@ SCRATCH/
 
 .DS_Store
 
-nyc-taxi/
+/nyc-taxi
 nyc.db
 /.quarto/
 
