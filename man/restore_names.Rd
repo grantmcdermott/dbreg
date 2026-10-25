@@ -7,7 +7,7 @@
 restore_names(x, map)
 }
 \description{
-Splits each name on the interaction separators (`:` and `_x_`) and maps each
-token via `map` (display names indexed by safe names).
+Maps each name via `map` (display names indexed by safe names), or else
+splits it on the interaction separators (`:` and `_x_`) and maps each token.
 }
 \keyword{internal}

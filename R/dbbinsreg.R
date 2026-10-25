@@ -393,7 +393,7 @@ dbbinsreg = function(
   
   # Check for interactions - dbbinsreg does not support them
   if (fml_parsed[["has_interactions"]]) {
-    stop("dbbinsreg does not support interaction terms (e.g., x * z or x:z). ",
+    stop("dbbinsreg does not support interaction or i() terms (e.g., x * z, x:z or i(f)). ",
          "Please specify controls as separate additive terms (e.g., y ~ x + z).")
   }
   

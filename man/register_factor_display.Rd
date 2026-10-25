@@ -4,13 +4,23 @@
 \alias{register_factor_display}
 \title{Register display names for expanded factor columns}
 \usage{
-register_factor_display(inputs, factor_levels = list(), level_aliases = NULL)
+register_factor_display(
+  inputs,
+  factor_levels = list(),
+  level_aliases = NULL,
+  i_columns = NULL
+)
 }
 \arguments{
 \item{factor_levels}{Named list of levels by (safe) variable name.}
 
 \item{level_aliases}{Optional data frame of SQL aliases with their `var`
 and `level` (the `level_aliases` element of [sql_model_matrix()]).}
+
+\item{i_columns}{Optional data frame of `i()` column aliases (the
+`i_columns` element of [sql_model_matrix()]). Their display names, e.g.
+`period::5:treat`, are also recorded in `inputs$i_columns` for
+`predict()`.}
 }
 \description{
 Adds entries to `inputs$name_map` so that factor dummies named after their

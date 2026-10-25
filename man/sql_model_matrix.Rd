@@ -46,11 +46,22 @@ List with:
   - `level_aliases`: data frame mapping each factor dummy `alias` to its
     `var` and `level`
   - `factor_levels`: list of factor levels by variable (for reference)
+  - `i_columns`: data frame mapping each `i()` column `alias` to its factor
+    `var`, `level` and interacted variable `by` (`NA` if none)
 }
 \description{
 Expands formula terms into SQL SELECT expressions, handling factor one-hot
 encoding and interaction terms. Only the right-hand side of the formula is
 processed; the response variable (LHS) is ignored.
+}
+\details{
+Terms can also use `fixest`-style `i()` syntax: `i(f)` expands `f` like a
+factor (numeric `f` included), and `i(f, x)` interacts each level of `f`
+with a numeric or logical `x`. `ref` drops the given level(s) and `keep`
+keeps only the given levels. Columns are named as in `fixest`, e.g.
+`period::5:treat`. One difference: in a model without an intercept, a plain
+`i(f)` drops its first level if another factor comes first, whereas
+`fixest` drops its last level (via collinearity) instead.
 }
 \examples{
 library(DBI)
@@ -60,5 +71,6 @@ duckdb_register(con, "test", data.frame(x1 = 1:3, x2 = c("a", "b", "c")))
 sql_model_matrix(~ x1 + x2, con, "test")
 sql_model_matrix(~ x1:x2, con, "test")
 sql_model_matrix(~ x1:x2, con, "test", sep = ":")
+sql_model_matrix(~ i(x2, x1, ref = "a"), con, "test")
 dbDisconnect(con)
 }

@@ -29,7 +29,10 @@ dbreg(
 estimated. Fixed effects should be included after a pipe, e.g
 \code{fml = y ~ x1 + x2 | fe1 + f2}. Interaction terms are supported using
 standard R syntax (\code{:} for interactions, \code{*} for main effects plus
-interaction). Transformations and literals are not yet supported.}
+interaction). \code{fixest}-style \code{i()} terms are also supported, e.g.
+\code{i(period, treat, ref = 5)} for event studies; see
+\code{\link[=sql_model_matrix]{sql_model_matrix()}} for details. Transformations and literals are not yet
+supported.}
 
 \item{conn}{Database connection, e.g. created with
 \code{\link[DBI]{dbConnect}}. Can be either persistent (disk-backed) or
@@ -274,6 +277,12 @@ dbreg(weight ~ Time, data = ChickWeight, strategy = "moments") # no FEs
 # Interactions: does the effect of Time vary by Diet?
 # (Diet main effects are collinear with Chick FE, so these drop out)
 dbreg(weight ~ Time * Diet | Chick, data = ChickWeight)
+
+# Event study with fixest-style i() terms (reference period 5)
+if (requireNamespace("fixest", quietly = TRUE)) {
+  data("base_did", package = "fixest")
+  dbreg(y ~ x1 + i(period, treat, ref = 5) | id + period, data = base_did)
+}
 
 #
 ## DBI connection ----
