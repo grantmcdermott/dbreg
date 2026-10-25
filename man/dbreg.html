@@ -242,6 +242,12 @@ window.Quarto = {
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
+  <a href="../man/dbivreg.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">dbivreg</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
   <a href="../man/dbbinsreg.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">dbbinsreg</span></a>
   </div>
@@ -251,7 +257,7 @@ window.Quarto = {
         <li class="sidebar-item sidebar-item-section">
       <div class="sidebar-item-container"> 
             <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true">
- <span class="menu-text">utilities</span></a>
+ <span class="menu-text">Utilities</span></a>
           <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Toggle section">
             <i class="bi bi-chevron-right ms-2"></i>
           </a> 
@@ -267,6 +273,12 @@ window.Quarto = {
   <div class="sidebar-item-container"> 
   <a href="../man/sql_model_matrix.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">sql_model_matrix</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/dbreg-options.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">dbreg-options</span></a>
   </div>
 </li>
       </ul>
@@ -302,6 +314,18 @@ window.Quarto = {
   <div class="sidebar-item-container"> 
   <a href="../man/print.dbreg.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">print.dbreg</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/print.dbivreg.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">print.dbivreg</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../man/print.dbbinsreg.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">print.dbbinsreg</span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -558,7 +582,7 @@ Additional arguments. Currently ignored, except to handle superseded arguments f
 <p><code>“demean”</code> (alias <code>“within”</code>): subtracts group-level means from both Y and X before computing sufficient statistics (per the <code>“moments”</code> strategy). For example, given unit <span class="math inline">\(i\)</span> and time <span class="math inline">\(t\)</span> FE, we apply double demeaning:</p>
 <p style="text-align: center;">
 </p><p><span class="math inline">\(\ddot{Y}_{it} = \beta \ddot{X}_{it} + \varepsilon_{it}\)</span></p>
-<p>where <span class="math inline">\(\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}\)</span>. This (single-pass) within transformation is algebraically equivalent to the fixed effects projection—i.e., Frisch-Waugh-Lovell partialling out—in the presence of a single FE. It is also identical for the two-way FE (TWFE) case if your panel is balanced. For unbalanced two-way panels, however, the double demeaning strategy is not algebraically equivalent to the fixed effects projection and therefore does not recover the exact TWFE coefficients. In such cases, and also for weighted two-way FE, <code>dbreg</code> uses alternating projections (AP) to recover the exact FE coefficients, at the cost of extra passes over the data. AP also generalizes the <code>“demean”</code> strategy to three or more FE.</p>
+<p>where <span class="math inline">\(\ddot{X} = X - \bar{X}_i - \bar{X}_t + \bar{X}\)</span>. This (single-pass) within transformation is algebraically equivalent to the fixed effects projection—i.e., Frisch-Waugh-Lovell partialling out—in the presence of a single FE. It is also identical for the two-way FE (TWFE) case if your panel is balanced. For unbalanced two-way panels, however, the double demeaning strategy is not algebraically equivalent to the fixed effects projection and therefore does not recover the exact TWFE coefficients. In such cases, and also for weighted two-way FE, <code>dbreg</code> uses alternating projections (AP) to recover the exact FE coefficients, at the cost of extra passes over the data. AP also generalizes the <code>“demean”</code> strategy to three or more FE. See dbreg-options for AP tuning options.</p>
 </li>
 <li>
 <p><code>“mundlak”</code>: a generalized Mundlak (1978), or correlated random effects (CRE) estimator that regresses Y on X plus group means of X:</p>

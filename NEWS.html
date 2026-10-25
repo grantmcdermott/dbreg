@@ -212,6 +212,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="development">Development</h2>
 <p>New features</p>
 <ul>
+<li>Alternating projections on Spark/Databricks now use sequential SQL window functions (both unweighted and weighted) and batch three cycles per temporary table write, controlled by the new <code>dbreg.ap_method</code> and <code>dbreg.ap_batch_size</code> options.</li>
+<li>New <code>?dbreg-options</code> help page documenting all global options.</li>
 <li>Added <code>dbivreg()</code> for instrumental-variables (2SLS) regression on database backends. Uses <code>fixest</code>-style IV formulas, e.g.&nbsp;<code>y ~ x | d ~ z</code> or <code>y ~ x | fe1 + fe2 | d ~ z</code>, and supports multiple endogenous regressors, factors/interactions, weights, and iid, HC1, or clustered SEs (incl. <code>ssc</code>). Estimation is exact via the <code>"moments"</code>, <code>"demean"</code> (any number of FE), and <code>"compress"</code> (no FE) strategies. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
 <li>Added support for weighted regression via the new <code>weights</code> argument. Accepts a column name string and is compatible with all strategies and SE types (iid, HC1, clustered). (<a href="https://github.com/grantmcdermott/dbreg/issues/12">#12</a>)</li>
 <li>The <code>"demean"</code> strategy now supports three or more fixed effects via alternating projections (AP). Previously this was limited to at most two FE. The <code>"auto"</code> heuristic will select <code>"demean"</code> (AP) for 3+ FE when compression is not viable. (<a href="https://github.com/grantmcdermott/dbreg/issues/12">#12</a>)</li>
