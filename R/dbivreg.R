@@ -424,7 +424,9 @@ execute_iv_compress_strategy = function(inputs) {
   )
   compress_sql = paste0(
     frame[["cte_sql"]],
-    "\nSELECT ", group_cols_sql, ",\n  ", paste(moment_terms, collapse = ",\n  "),
+    "\nSELECT ", group_cols_sql, ",\n  ", paste(moment_terms, collapse = ",\n  "), ",\n",
+    # Cell ids, reproducible in later queries (see compute_meat_cluster_compress_sql())
+    "  ROW_NUMBER() OVER (ORDER BY ", group_cols_sql, ") AS dbreg_cell",
     "\nFROM base\nGROUP BY ", group_cols_sql
   )
   if (sql_only) {
@@ -435,6 +437,7 @@ execute_iv_compress_strategy = function(inputs) {
   }
   dat = dbGetQuery(conn, compress_sql)
   if (data_only) {
+    dat[["dbreg_cell"]] = NULL
     return(dat)
   }
 
@@ -463,12 +466,25 @@ execute_iv_compress_strategy = function(inputs) {
   # clustered from cluster-by-cell residual sums (one query, shared by the
   # 2SLS fit and its first stages, whose outcomes are cell columns)
   vcov_type = vcov_type_req
-  cells = if (vcov_type == "cluster") {
-    query_cluster_cells(inputs, paste0("FROM (", frame[["base_sql"]], ") AS base"), union_names)
+  cells_from = paste0("FROM (", frame[["base_sql"]], ") AS base")
+  # Many clusters but few cells: sum the scores by cluster in the database
+  cluster_sql = vcov_type == "cluster" && nrow(dat) <= 5000 && length(union_names) < 100 && isTRUE(inputs[["drop_missings"]])
+  cells = if (vcov_type == "cluster" && !cluster_sql) {
+    query_cluster_cells(inputs, cells_from, union_names)
   }
   meats_fn = function(fits, ys) {
     if (!vcov_type %in% c("hc1", "cluster")) {
       return(vector("list", length(fits)))
+    }
+    scores = unique(lapply(fits, `[[`, "scores"))
+    if (cluster_sql && length(scores) == 1) {
+      # One query for the 2SLS fit and its first stages (shared instruments)
+      yhats = lapply(fits, function(fit) as.numeric(U[, fit[["x"]], drop = FALSE] %*% fit[["coef"]]))
+      y_cells = lapply(ys, function(y) if (y != yvar) dat[[y]])
+      return(compute_meat_cluster_compress_sql(inputs, cells_from, union_names, dat[["dbreg_cell"]], U[, scores[[1]], drop = FALSE], yhats, y_cells))
+    }
+    if (vcov_type == "cluster" && is.null(cells)) {
+      cells = query_cluster_cells(inputs, cells_from, union_names)
     }
     Map(function(fit, y) {
       Z = U[, fit[["scores"]], drop = FALSE]

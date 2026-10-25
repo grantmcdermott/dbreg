@@ -186,54 +186,76 @@ compute_meat_cluster_compress = function(inputs, from_statement, group_cols, com
   cluster_meat_from_cells(cells, compressed_dat, group_cols, inputs[["cluster_var"]], X, yhat)
 }
 
-#' Compressed cluster meat via a score pass in the database
+#' Compressed cluster meats via a score pass in the database
 #'
-#' Pushes each cell's fitted value and design row to the database, forms each
-#' row's score `x * w * (y - yhat)`, sums the scores by cluster and returns
-#' their cross-products, i.e. the cluster meat. Only one group per cluster is
-#' formed and only the meat's entries are returned, which beats fetching one
-#' row per (cluster, cell) when there are many clusters but few cells.
+#' Pushes each cell's score columns and fitted values to the database, forms
+#' each row's scores `z * w * e` (one set per fit), sums them by cluster and
+#' returns their cross-products, i.e. the cluster meats. Only one group per
+#' cluster is formed and only the meats' entries are returned, which beats
+#' fetching one row per (cluster, cell) when there are many clusters but few
+#' cells.
 #' @param cells_from FROM clause exposing the cell columns (`group_cols`).
-#' @param cell Cell ids of the rows of `X` (`ROW_NUMBER()` over the cells,
+#' @param cell Cell ids of the rows of `Z` (`ROW_NUMBER()` over the cells,
 #'   ordered by `group_cols`, as in the compress query).
+#' @param Z Cell-level score columns, shared by all fits (the regressors for
+#'   OLS; the instruments for IV and its first stages).
+#' @param yhat List of cell-level fitted values, one per fit.
+#' @param y_cell List of cell-level outcomes, one per fit: `NULL` for the
+#'   model outcome (residuals are formed row by row), or a cell column (e.g. a
+#'   first-stage outcome in compressed IV), whose residuals are constant
+#'   within cells.
+#' @return List of meat matrices, one per fit.
 #' @keywords internal
-compute_meat_cluster_compress_sql = function(inputs, cells_from, group_cols, cell, X, yhat) {
+compute_meat_cluster_compress_sql = function(inputs, cells_from, group_cols, cell, Z, yhat, y_cell = vector("list", length(yhat))) {
   env2env(inputs, environment(), c("conn", "yvar", "cluster_var", "weights"))
-  num = function(x) sprintf("%.17g", x)
-  X = as.matrix(X)
-  k = seq_len(ncol(X))
+  # Explicitly double: some backends read decimal literals as exact DECIMALs,
+  # whose products can overflow
+  num = function(x) sql_cast_double(sprintf("%.17g", x), conn)
+  Z = as.matrix(Z)
+  k = seq_len(ncol(Z))
+  fits = seq_along(yhat)
+  # Per cell: score columns and, per fit, the fitted value (row-level
+  # residuals) or the cell residual itself
+  offsets = Map(function(yh, yc) if (is.null(yc)) yh else yc - yh, yhat, y_cell)
+  cols = c(
+    lapply(k, function(j) sprintf("%s AS dbreg_z%d", num(Z[, j]), j)),
+    lapply(fits, function(f) sprintf("%s AS dbreg_a%d", num(offsets[[f]]), f))
+  )
   fitted_sql = paste(
-    sprintf(
-      "SELECT %d AS dbreg_cell, %s AS dbreg_yhat, %s",
-      cell, num(yhat),
-      do.call(paste, c(lapply(k, function(j) sprintf("%s AS dbreg_x%d", num(X[, j]), j)), sep = ", "))
-    ),
+    sprintf("SELECT %d AS dbreg_cell, %s", cell, do.call(paste, c(cols, sep = ", "))),
     collapse = " UNION ALL\n"
   )
-  weights_expr = sql_weight_expr(weights)
-  e = if (is.null(weights_expr)) sprintf("(s.%s - f.dbreg_yhat)", yvar) else sprintf("(%s) * (s.%s - f.dbreg_yhat)", gsub(weights, paste0("s.", weights), weights_expr, fixed = TRUE), yvar)
-  gc = paste(group_cols, collapse = ", ")
+  w = if (is.null(weights)) NULL else gsub(weights, paste0("s.", weights), sql_weight_expr(weights), fixed = TRUE)
+  e = vapply(fits, function(f) {
+    r = if (is.null(y_cell[[f]])) sprintf("(s.%s - f.dbreg_a%d)", yvar, f) else sprintf("f.dbreg_a%d", f)
+    if (is.null(w)) r else sprintf("(%s) * %s", w, r)
+  }, character(1))
+  fk = expand.grid(k = k, f = fits)
   ij = which(upper.tri(diag(length(k)), diag = TRUE), arr.ind = TRUE)
+  fij = data.frame(f = rep(fits, each = nrow(ij)), i = ij[, 1], j = ij[, 2])
+  gc = paste(group_cols, collapse = ", ")
   sql = paste0(
     "WITH fitted AS (\n", fitted_sql, "\n),\n",
     "cells AS (\n  SELECT ", gc, ", ROW_NUMBER() OVER (ORDER BY ", gc, ") AS dbreg_cell\n",
     "  FROM (SELECT ", gc, " ", cells_from, " GROUP BY ", gc, ") dbreg_d\n),\n",
     "scores AS (\n  SELECT s.", cluster_var, " AS dbreg_cl, ",
-    paste(sprintf("SUM(f.dbreg_x%d * %s) AS u%d", k, e, k), collapse = ", "), "\n",
+    paste(sprintf("SUM(f.dbreg_z%d * %s) AS u%d_%d", fk[["k"]], e[fk[["f"]]], fk[["f"]], fk[["k"]]), collapse = ", "), "\n",
     "  FROM (SELECT * ", cells_from, ") s\n",
     "  JOIN cells c ON ", paste(sprintf("s.%s = c.%s", group_cols, group_cols), collapse = " AND "), "\n",
     "  JOIN fitted f ON c.dbreg_cell = f.dbreg_cell\n",
     "  GROUP BY s.", cluster_var, "\n)\n",
     "SELECT COUNT(*) AS n_clusters, ",
-    paste(sprintf("SUM(u%d * u%d) AS m_%d_%d", ij[, 1], ij[, 2], ij[, 1], ij[, 2]), collapse = ", "),
+    paste(sprintf("SUM(u%d_%d * u%d_%d) AS m%d_%d_%d", fij[["f"]], fij[["i"]], fij[["f"]], fij[["j"]], fij[["f"]], fij[["i"]], fij[["j"]]), collapse = ", "),
     "\nFROM scores"
   )
   res = dbGetQuery(conn, sql)
-  meat = matrix(0, ncol(X), ncol(X), dimnames = list(colnames(X), colnames(X)))
-  meat[ij] = unlist(res[1, sprintf("m_%d_%d", ij[, 1], ij[, 2])], use.names = FALSE)
-  meat[ij[, 2:1]] = meat[ij]
-  attr(meat, "n_clusters") = res[["n_clusters"]]
-  meat
+  lapply(fits, function(f) {
+    meat = matrix(0, ncol(Z), ncol(Z), dimnames = list(colnames(Z), colnames(Z)))
+    meat[ij] = unlist(res[1, sprintf("m%d_%d_%d", f, ij[, 1], ij[, 2])], use.names = FALSE)
+    meat[ij[, 2:1]] = meat[ij]
+    attr(meat, "n_clusters") = res[["n_clusters"]]
+    meat
+  })
 }
 
 #' Cluster-by-cell sufficient statistics for compressed cluster meats

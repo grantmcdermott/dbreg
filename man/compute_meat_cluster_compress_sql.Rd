@@ -2,28 +2,43 @@
 % Please edit documentation in R/vcov.R
 \name{compute_meat_cluster_compress_sql}
 \alias{compute_meat_cluster_compress_sql}
-\title{Compressed cluster meat via a score pass in the database}
+\title{Compressed cluster meats via a score pass in the database}
 \usage{
 compute_meat_cluster_compress_sql(
   inputs,
   cells_from,
   group_cols,
   cell,
-  X,
-  yhat
+  Z,
+  yhat,
+  y_cell = vector("list", length(yhat))
 )
 }
 \arguments{
 \item{cells_from}{FROM clause exposing the cell columns (`group_cols`).}
 
-\item{cell}{Cell ids of the rows of `X` (`ROW_NUMBER()` over the cells,
+\item{cell}{Cell ids of the rows of `Z` (`ROW_NUMBER()` over the cells,
 ordered by `group_cols`, as in the compress query).}
+
+\item{Z}{Cell-level score columns, shared by all fits (the regressors for
+OLS; the instruments for IV and its first stages).}
+
+\item{yhat}{List of cell-level fitted values, one per fit.}
+
+\item{y_cell}{List of cell-level outcomes, one per fit: `NULL` for the
+model outcome (residuals are formed row by row), or a cell column (e.g. a
+first-stage outcome in compressed IV), whose residuals are constant
+within cells.}
+}
+\value{
+List of meat matrices, one per fit.
 }
 \description{
-Pushes each cell's fitted value and design row to the database, forms each
-row's score `x * w * (y - yhat)`, sums the scores by cluster and returns
-their cross-products, i.e. the cluster meat. Only one group per cluster is
-formed and only the meat's entries are returned, which beats fetching one
-row per (cluster, cell) when there are many clusters but few cells.
+Pushes each cell's score columns and fitted values to the database, forms
+each row's scores `z * w * e` (one set per fit), sums them by cluster and
+returns their cross-products, i.e. the cluster meats. Only one group per
+cluster is formed and only the meats' entries are returned, which beats
+fetching one row per (cluster, cell) when there are many clusters but few
+cells.
 }
 \keyword{internal}

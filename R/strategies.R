@@ -566,7 +566,7 @@ execute_compress_strategy = function(inputs) {
     # Many clusters but few cells: sum the scores by cluster in the database
     # instead of fetching one row per cluster and cell
     meat = if (nrow(compressed_dat) <= 5000 && ncol(X) <= 100 && isTRUE(inputs[["drop_missings"]])) {
-      compute_meat_cluster_compress_sql(inputs, cells_from, group_cols, compressed_dat[["dbreg_cell"]], X, yhat)
+      compute_meat_cluster_compress_sql(inputs, cells_from, group_cols, compressed_dat[["dbreg_cell"]], X, list(yhat))[[1]]
     } else {
       compute_meat_cluster_compress(inputs, cells_from, group_cols, compressed_dat, X, yhat)
     }
