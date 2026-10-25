@@ -377,11 +377,16 @@ fit_dbetwfe = function(inputs) {
 #' Computes, in SQL, the cross-products of the per-cluster scores (`u`) and
 #' cell row counts (`n`) that the clustered (and unconditional) standard
 #' errors need: `Suu` (the cluster meat), `Sun` and `Snn`. Each cluster's
-#' residual sum in each cell (`e`) is formed from the cells' fitted values, and
-#' a self-join on the cluster pairs up every two cells that share a cluster
-#' (each pair once), so only one row per pair of cells is returned (rather
-#' than one per cluster and cell). Then `Suu = X' E X` and `Sun = X' F`, where `E` and `F` hold the
+#' residual sum in each cell (`e`) is formed from the cells' fitted values,
+#' then summed over every pair of cells that share a cluster, so only one row
+#' per pair of cells (or per cohort) is returned rather than one per cluster
+#' and cell. Then `Suu = X' E X` and `Sun = X' F`, where `E` and `F` hold the
 #' pairwise sums of `e * e` and `e * n`.
+#'
+#' When each cluster lies within one cohort (e.g. clustering by unit), the
+#' pairs are formed by pivoting each cluster's periods into columns straight
+#' from the rows, with one group per cluster; otherwise by a self-join on the
+#' cluster.
 #' @param est Estimation cells (rows aligned with `X` and `yhat`).
 #' @keywords internal
 etwfe_cluster_moments = function(inputs, est, X, yhat) {
@@ -391,44 +396,114 @@ etwfe_cluster_moments = function(inputs, est, X, yhat) {
   na_code = est[[".g"]][is.na(est[[gvar]])][1]
   g_sql = if (is.na(na_code)) gvar else sprintf("COALESCE(%s, %s)", gvar, num(na_code))
   fitted_sql = paste(
-    sprintf("SELECT %d AS cell, %s AS g, %s AS t, %s AS yhat", seq_len(nrow(est)), num(est[[".g"]]), num(est[[".t"]]), num(yhat)),
+    sprintf(
+      "SELECT %d AS dbreg_cell, %s AS dbreg_fg, %s AS dbreg_ft, %s AS dbreg_yhat",
+      seq_len(nrow(est)), num(est[[".g"]]), num(est[[".t"]]), num(yhat)
+    ),
     collapse = " UNION ALL\n"
   )
   weights_expr = sql_weight_expr(weights)
-  sql = paste0(
-    "WITH fitted AS (\n", fitted_sql, "\n),\n",
-    "cells AS (\n",
-    "  SELECT ", cluster_var, " AS dbreg_cl, ", g_sql, " AS dbreg_g, ", tvar, " AS dbreg_t,\n",
-    "    COUNT(*) AS n, ",
-    if (is.null(weights_expr)) "COUNT(*)" else paste0("SUM(", weights_expr, ")"), " AS w, ",
-    sql_weighted_sum(yvar, weights_expr, "a"), "\n",
-    "  ", from_statement, "\n",
-    "  GROUP BY ", cluster_var, ", ", g_sql, ", ", tvar, "\n",
-    "),\n",
-    "resid AS (\n",
-    "  SELECT c.dbreg_cl, f.cell, 1.0 * c.n AS n, c.a - c.w * f.yhat AS e\n",
-    "  FROM cells c JOIN fitted f ON c.dbreg_g = f.g AND c.dbreg_t = f.t\n",
-    ")\n",
-    "SELECT l.cell AS c1, r.cell AS c2, SUM(l.e * r.e) AS ee, SUM(l.e * r.n) AS en, SUM(l.n * r.e) AS ne, SUM(l.n * r.n) AS nn,\n",
-    "  (SELECT COUNT(DISTINCT dbreg_cl) FROM resid) AS n_clusters\n",
-    "FROM resid l JOIN resid r ON l.dbreg_cl = r.dbreg_cl AND l.cell <= r.cell\n",
-    "GROUP BY l.cell, r.cell"
+  periods = sort(unique(est[[".t"]]))
+  sql = list(
+    fitted = fitted_sql, g = g_sql, t = tvar, y = yvar, cluster = cluster_var,
+    weights = weights_expr, from = from_statement
   )
-  res = dbGetQuery(conn, sql)
-  # Only pairs with c1 <= c2 are queried; `ee` and `nn` are symmetric, while
-  # `en` needs both orders (e from one cell, n from the other)
+  pairs = if (length(periods) <= 50) etwfe_pairs_pivot(conn, sql, est, periods)
+  if (is.null(pairs)) {
+    pairs = etwfe_pairs_join(conn, sql)
+  }
   pair = function(v, v_rev = v) {
     m = matrix(0, nrow(est), nrow(est))
-    m[cbind(res[["c1"]], res[["c2"]])] = res[[v]]
-    m[cbind(res[["c2"]], res[["c1"]])] = res[[v_rev]]
+    m[cbind(pairs[["c1"]], pairs[["c2"]])] = pairs[[v]]
+    m[cbind(pairs[["c2"]], pairs[["c1"]])] = pairs[[v_rev]]
     m
   }
   list(
     Suu = crossprod(X, pair("ee") %*% X),
     Sun = crossprod(X, pair("en", "ne")),
     Snn = pair("nn"),
-    n_clusters = res[["n_clusters"]][1]
+    n_clusters = attr(pairs, "n_clusters")
   )
+}
+
+# Pairwise cluster sums via a self-join on the cluster: each cluster's
+# residual sum (e) and row count (n) per cell, then every pair of cells (once,
+# c1 <= c2) that share a cluster
+etwfe_pairs_join = function(conn, sql) {
+  res = dbGetQuery(conn, paste0(
+    "WITH fitted AS (\n", sql[["fitted"]], "\n),\n",
+    "cells AS (\n",
+    "  SELECT ", sql[["cluster"]], " AS dbreg_cl, ", sql[["g"]], " AS dbreg_g, ", sql[["t"]], " AS dbreg_t,\n",
+    "    COUNT(*) AS n, ",
+    if (is.null(sql[["weights"]])) "COUNT(*)" else paste0("SUM(", sql[["weights"]], ")"), " AS w, ",
+    sql_weighted_sum(sql[["y"]], sql[["weights"]], "a"), "\n",
+    "  ", sql[["from"]], "\n",
+    "  GROUP BY ", sql[["cluster"]], ", ", sql[["g"]], ", ", sql[["t"]], "\n",
+    "),\n",
+    "resid AS (\n",
+    "  SELECT c.dbreg_cl, f.dbreg_cell AS cell, 1.0 * c.n AS n, c.a - c.w * f.dbreg_yhat AS e\n",
+    "  FROM cells c JOIN fitted f ON c.dbreg_g = f.dbreg_fg AND c.dbreg_t = f.dbreg_ft\n",
+    ")\n",
+    "SELECT l.cell AS c1, r.cell AS c2, SUM(l.e * r.e) AS ee, SUM(l.e * r.n) AS en, SUM(l.n * r.e) AS ne, SUM(l.n * r.n) AS nn,\n",
+    "  (SELECT COUNT(DISTINCT dbreg_cl) FROM resid) AS n_clusters\n",
+    "FROM resid l JOIN resid r ON l.dbreg_cl = r.dbreg_cl AND l.cell <= r.cell\n",
+    "GROUP BY l.cell, r.cell"
+  ))
+  structure(res, n_clusters = res[["n_clusters"]][1])
+}
+
+# Pairwise cluster sums when every cluster lies within one cohort: subtract
+# each row's fitted value, pivot each cluster's periods into columns (one
+# group per cluster, in a single scan), then sum products by cohort. Returns
+# NULL if some cluster spans cohorts.
+etwfe_pairs_pivot = function(conn, sql, est, periods) {
+  num = function(x) sprintf("%.17g", x)
+  k = seq_along(periods)
+  e_row = if (is.null(sql[["weights"]])) {
+    sprintf("(%s - f.dbreg_yhat)", sql[["y"]])
+  } else {
+    sprintf("(%s) * (%s - f.dbreg_yhat)", sql[["weights"]], sql[["y"]])
+  }
+  pivot_cols = c(
+    sprintf("SUM(CASE WHEN dbreg_t = %s THEN e END) AS e%d", num(periods), k),
+    sprintf("SUM(CASE WHEN dbreg_t = %s THEN 1.0 END) AS n%d", num(periods), k)
+  )
+  ij = which(upper.tri(diag(length(k)), diag = TRUE), arr.ind = TRUE)
+  i = ij[, 1]
+  j = ij[, 2]
+  sum_cols = c(
+    sprintf("SUM(e%d * e%d) AS ee_%d_%d", i, j, i, j),
+    sprintf("SUM(e%d * n%d) AS en_%d_%d", i, j, i, j),
+    sprintf("SUM(n%d * e%d) AS ne_%d_%d", i, j, i, j),
+    sprintf("SUM(n%d * n%d) AS nn_%d_%d", i, j, i, j)
+  )
+  res = dbGetQuery(conn, paste0(
+    "WITH fitted AS (\n", sql[["fitted"]], "\n),\n",
+    "obs AS (\n",
+    "  SELECT ", sql[["cluster"]], " AS dbreg_cl, f.dbreg_fg AS dbreg_g, f.dbreg_ft AS dbreg_t, ", e_row, " AS e\n",
+    "  FROM (SELECT * ", sql[["from"]], ") src\n",
+    "  JOIN fitted f ON ", sql[["g"]], " = f.dbreg_fg AND ", sql[["t"]], " = f.dbreg_ft\n",
+    "),\n",
+    "pivoted AS (\n  SELECT dbreg_cl, dbreg_g, ", paste(pivot_cols, collapse = ", "), "\n",
+    "  FROM obs GROUP BY dbreg_cl, dbreg_g\n)\n",
+    "SELECT dbreg_g, COUNT(*) AS n_clusters, ", paste(sum_cols, collapse = ", "), ",\n",
+    "  (SELECT COUNT(*) FROM (SELECT dbreg_cl FROM pivoted GROUP BY dbreg_cl HAVING COUNT(*) > 1) split) AS n_split\n",
+    "FROM pivoted GROUP BY dbreg_g"
+  ))
+  if (any(res[["n_split"]] > 0)) {
+    return(NULL)
+  }
+  # Cohort-by-period sums -> cell pairs
+  cell = setNames(seq_len(nrow(est)), paste(est[[".g"]], est[[".t"]]))
+  out = do.call(rbind, lapply(seq_len(nrow(res)), function(r) {
+    c1 = cell[paste(res[["dbreg_g"]][r], periods[i])]
+    c2 = cell[paste(res[["dbreg_g"]][r], periods[j])]
+    ok = !is.na(c1) & !is.na(c2)
+    get = function(v) unlist(res[r, sprintf("%s_%d_%d", v, i, j)], use.names = FALSE)[ok]
+    data.frame(c1 = c1[ok], c2 = c2[ok], ee = get("ee"), en = get("en"), ne = get("ne"), nn = get("nn"))
+  }))
+  out[is.na(out)] = 0
+  structure(out, n_clusters = sum(res[["n_clusters"]]))
 }
 
 #' Aggregate ETWFE treatment effects

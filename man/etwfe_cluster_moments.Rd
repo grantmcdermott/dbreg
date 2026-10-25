@@ -13,10 +13,16 @@ etwfe_cluster_moments(inputs, est, X, yhat)
 Computes, in SQL, the cross-products of the per-cluster scores (`u`) and
 cell row counts (`n`) that the clustered (and unconditional) standard
 errors need: `Suu` (the cluster meat), `Sun` and `Snn`. Each cluster's
-residual sum in each cell (`e`) is formed from the cells' fitted values, and
-a self-join on the cluster pairs up every two cells that share a cluster,
-so only one row per pair of cells is returned (rather than one per cluster
-and cell). Then `Suu = X' E X` and `Sun = X' F`, where `E` and `F` hold the
+residual sum in each cell (`e`) is formed from the cells' fitted values,
+then summed over every pair of cells that share a cluster, so only one row
+per pair of cells (or per cohort) is returned rather than one per cluster
+and cell. Then `Suu = X' E X` and `Sun = X' F`, where `E` and `F` hold the
 pairwise sums of `e * e` and `e * n`.
+}
+\details{
+When each cluster lies within one cohort (e.g. clustering by unit), the
+pairs are formed by pivoting each cluster's periods into columns straight
+from the rows, with one group per cluster; otherwise by a self-join on the
+cluster.
 }
 \keyword{internal}

@@ -57,6 +57,11 @@ for (cgroup in c("notyet", "never")) {
   }
 }
 
+# Clusters that span cohorts (not nested in them) take a different code path
+base_stagg$cl = base_stagg$id %% 10
+m = etwfe(y ~ 0, tvar = year, gvar = year_treated, data = base_stagg, vcov = ~cl)
+expect_aggregates(m, dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = base_stagg, vcov = ~cl), "clusters spanning cohorts")
+
 # Event-time options
 m = etwfe(y ~ 0, tvar = year, gvar = year_treated, data = base_stagg, vcov = ~id)
 db = dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = base_stagg, vcov = ~id)
