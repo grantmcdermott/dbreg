@@ -28,7 +28,8 @@ dbivreg(
 \item{fml}{A fixest-style IV formula. Use \code{y ~ x1 + x2 | d ~ z} for models
 without absorbed fixed effects, and \code{y ~ x1 + x2 | fe1 + fe2 + fe3 | d ~ z}
 when fixed effects are present. The IV block must always be the final
-pipe-separated block.}
+pipe-separated block. Regressors and instruments can include interactions
+and \code{fixest}-style \code{i()} terms (see \code{\link[=sql_model_matrix]{sql_model_matrix()}}).}
 
 \item{conn}{Database connection, or \code{NULL} to create an ephemeral DuckDB
 connection.}

@@ -11,7 +11,10 @@
 #' estimated. Fixed effects should be included after a pipe, e.g
 #' `fml = y ~ x1 + x2 | fe1 + f2`. Interaction terms are supported using
 #' standard R syntax (`:` for interactions, `*` for main effects plus
-#' interaction). Transformations and literals are not yet supported.
+#' interaction). `fixest`-style `i()` terms are also supported, e.g.
+#' `i(period, treat, ref = 5)` for event studies; see
+#' [sql_model_matrix()] for details. Transformations and literals are not yet
+#' supported.
 #' @param conn Database connection, e.g. created with
 #' \code{\link[DBI]{dbConnect}}. Can be either persistent (disk-backed) or
 #' ephemeral (in-memory). If no connection is provided, then an ephemeral
@@ -259,6 +262,12 @@
 #' # (Diet main effects are collinear with Chick FE, so these drop out)
 #' dbreg(weight ~ Time * Diet | Chick, data = ChickWeight)
 #' 
+#' # Event study with fixest-style i() terms (reference period 5)
+#' if (requireNamespace("fixest", quietly = TRUE)) {
+#'   data("base_did", package = "fixest")
+#'   dbreg(y ~ x1 + i(period, treat, ref = 5) | id + period, data = base_did)
+#' }
+#' 
 #' #
 #' ## DBI connection ----
 #' 
@@ -419,7 +428,7 @@ process_dbreg_inputs = function(inputs) {
 
   # Give model variables SQL-safe names (see safe_source()) and re-parse;
   # results are mapped back to display names at the end
-  src = safe_source(conn, from_statement, c(all.vars(fml_parsed[["fml"]]), weights, cluster_var))
+  src = safe_source(conn, from_statement, c(model_vars(fml_parsed[["fml"]]), weights, cluster_var))
   from_statement = src[["from_statement"]]
   name_map = src[["map"]]
   source_map = name_map
@@ -667,14 +676,22 @@ dbreg_alternating_projections = function(
     "conn", "from_statement", "fe", "yvar", "weights", "cluster_var",
     "verbose"
   ))
+  positive = function(x) is.numeric(x) && length(x) == 1L && is.finite(x) && x > 0
+  if (!positive(max_iter) || max_iter %% 1 != 0) {
+    stop("[dbreg] dbreg.ap_max_iter must be a positive integer.", call. = FALSE)
+  }
+  if (!positive(tol)) {
+    stop("[dbreg] dbreg.ap_tol must be a positive number.", call. = FALSE)
+  }
   backend = detect_backend(conn)[["name"]]
   weights_expr = sql_weight_expr(weights)
   if (is.null(weights_expr)) {
     weights_expr = "1.0"
   }
 
+  # FE and cluster identifiers must survive every AP table, including when
+  # they are also regressors (which are otherwise replaced by `_tilde` columns).
   id_cols = unique(c(fe, cluster_var))
-  id_cols = setdiff(id_cols, c(yvar, xvar_names))
   id_cols = id_cols[!is.na(id_cols) & id_cols != ""]
 
   seed = paste0(
@@ -698,7 +715,7 @@ dbreg_alternating_projections = function(
   }, add = TRUE)
 
   base_select = c(
-    id_cols,
+    setdiff(id_cols, c(yvar, xvar_names)), # overlaps are selected below
     sprintf("%s AS %s", yvar, yvar),
     sprintf("%s AS %s", xvars_sql, xvar_names),
     sprintf("%s AS __w", weights_expr)
@@ -991,6 +1008,8 @@ finalize_dbreg_result = function(result, inputs, chosen_strategy, class = "dbreg
     return(result)
   }
   result[["strategy"]] = chosen_strategy
+  # i() columns (display names), for predict()
+  result[["i_columns"]] = inputs[["i_columns"]]
   class(result) = c(class, class(result))
   result
 }

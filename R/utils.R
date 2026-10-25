@@ -232,6 +232,26 @@ setup_db_connection = function(conn, table, data, path, caller = "dbreg") {
 }
 
 
+#' Variables used by a formula
+#'
+#' Like [all.vars()], but only the variable arguments of `i()` terms count
+#' (not, e.g., a `ref` value held in a variable).
+#' @keywords internal
+model_vars = function(x) {
+  if (inherits(x, "Formula")) x = formula(x)
+  walk = function(e) {
+    if (is.name(e)) return(as.character(e))
+    if (!is.call(e)) return(character())
+    args = if (identical(e[[1]], as.name("i"))) {
+      as.list(match.call(i_template, e))[c("factor_var", "var")]
+    } else {
+      as.list(e)[-1]
+    }
+    unlist(lapply(args, walk))
+  }
+  unique(walk(x))
+}
+
 #' Parse regression formula
 #'
 #' Parses a formula using the Formula package and extracts components needed
@@ -264,8 +284,10 @@ parse_regression_formula = function(fml) {
   term_labels = attr(tt, "term.labels")
   check_simple_terms(term_labels, "regressors")
   has_intercept = attr(tt, "intercept") == 1L
-  xvars = all.vars(rhs1)  # unique variable names
-  has_interactions = any(grepl(":", term_labels))
+  xvars = model_vars(rhs1)  # unique variable names
+  # i() terms need SQL expansion, like interactions
+  has_i = vapply(term_labels, function(t) !is.null(parse_i_term(t)), logical(1))
+  has_interactions = any(grepl(":", term_labels)) || any(has_i)
   
   if (!length(xvars)) {
     stop("No regressors on RHS.")
@@ -453,8 +475,12 @@ safe_source = function(conn, from_statement, vars) {
 #' @param factor_levels Named list of levels by (safe) variable name.
 #' @param level_aliases Optional data frame of SQL aliases with their `var`
 #'   and `level` (the `level_aliases` element of [sql_model_matrix()]).
+#' @param i_columns Optional data frame of `i()` column aliases (the
+#'   `i_columns` element of [sql_model_matrix()]). Their display names, e.g.
+#'   `period::5:treat`, are also recorded in `inputs$i_columns` for
+#'   `predict()`.
 #' @keywords internal
-register_factor_display = function(inputs, factor_levels = list(), level_aliases = NULL) {
+register_factor_display = function(inputs, factor_levels = list(), level_aliases = NULL, i_columns = NULL) {
   map = inputs[["name_map"]]
   if (is.null(map)) map = setNames(character(), character())
   disp = function(v) coef_var_name(ifelse(v %in% names(map), map[v], v))
@@ -464,14 +490,26 @@ register_factor_display = function(inputs, factor_levels = list(), level_aliases
   display = c(paste0(disp(vars), lvls), paste0(disp(level_aliases[["var"]]), level_aliases[["level"]]))
   new = setNames(display, internal)[internal != display]
   new = new[!duplicated(names(new)) & !names(new) %in% names(map)]
+  if (NROW(i_columns)) {
+    raw = function(v) ifelse(is.na(v), NA_character_, ifelse(v %in% names(map), map[v], v))
+    i_display = data.frame(
+      name = paste0(raw(i_columns[["var"]]), "::", i_columns[["level"]], ifelse(is.na(i_columns[["by"]]), "", paste0(":", raw(i_columns[["by"]])))),
+      var = raw(i_columns[["var"]]),
+      level = i_columns[["level"]],
+      by = raw(i_columns[["by"]])
+    )
+    new = c(new, setNames(i_display[["name"]], i_columns[["alias"]]))
+    i_display = rbind(inputs[["i_columns"]], i_display)
+    inputs[["i_columns"]] = i_display[!duplicated(i_display[["name"]]), , drop = FALSE]
+  }
   inputs[["name_map"]] = c(map, new)
   invisible(inputs)
 }
 
 #' Map internal (safe) names back to display names
 #'
-#' Splits each name on the interaction separators (`:` and `_x_`) and maps each
-#' token via `map` (display names indexed by safe names).
+#' Maps each name via `map` (display names indexed by safe names), or else
+#' splits it on the interaction separators (`:` and `_x_`) and maps each token.
 #' @keywords internal
 restore_names = function(x, map) {
   if (!length(map) || is.null(x) || !length(x)) {
@@ -479,6 +517,7 @@ restore_names = function(x, map) {
   }
   out = vapply(x, function(s) {
     if (is.na(s)) return(s)
+    if (s %in% names(map)) return(map[[s]])
     m = gregexpr(":|_x_", s)
     tokens = regmatches(s, m, invert = TRUE)[[1]]
     seps = regmatches(s, m)[[1]]
@@ -545,8 +584,8 @@ restore_result_names = function(result, inputs) {
 
 #' Reject formula terms that cannot be expressed in SQL (yet)
 #'
-#' Terms must be plain variables or interactions of them (`a:b`). Anything
-#' else, e.g. `log(x)`, `I(x^2)` or `factor(x)`, would otherwise be silently
+#' Terms must be plain variables, interactions of them (`a:b`) or (where
+#' interactions are allowed) `i()` terms. Anything else, e.g. `log(x)`, `I(x^2)` or `factor(x)`, would otherwise be silently
 #' reduced to its underlying variable by `all.vars()`.
 #'
 #' @param term_labels Term labels, e.g. from `attr(terms(f), "term.labels")`.
@@ -555,12 +594,21 @@ restore_result_names = function(result, inputs) {
 #' @keywords internal
 check_simple_terms = function(term_labels, what = "regressors", allow_interactions = TRUE) {
   is_simple = function(term) {
+    # fixest-style i() terms are expanded by sql_model_matrix()
+    if (allow_interactions && !is.null(parse_i_term(term))) return(TRUE)
     parts = if (allow_interactions) strsplit(term, ":", fixed = TRUE)[[1]] else term
     all(vapply(parts, function(x) {
       isTRUE(tryCatch(is.name(str2lang(x)), error = function(e) FALSE))
     }, logical(1)))
   }
   bad = term_labels[!vapply(term_labels, is_simple, logical(1))]
+  if (allow_interactions && any(grepl("(^|:)i\\(", bad))) {
+    stop(
+      "i() terms can't be interacted with other variables yet: ",
+      paste(bad[grepl("(^|:)i\\(", bad)], collapse = ", "),
+      call. = FALSE
+    )
+  }
   if (length(bad)) {
     stop(
       "Transformed or function terms are not supported in the ", what, ": ",

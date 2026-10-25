@@ -143,6 +143,17 @@ predict.dbreg = function(
   # no-intercept models expand exactly as in estimation), then align its
   # columns to the coefficients by name
   terms_rhs = attr(terms(formula(fml, lhs = 0, rhs = 1)), "term.labels")
+  # i() terms: build their columns directly (model.matrix() can't expand them)
+  i_cols = object[["i_columns"]]
+  if (NROW(i_cols)) {
+    terms_rhs = terms_rhs[vapply(terms_rhs, function(t) is.null(parse_i_term(t)), logical(1))]
+    for (k in seq_len(nrow(i_cols))) {
+      col = as.numeric(as.character(newdata[[i_cols[["var"]][k]]]) == i_cols[["level"]][k])
+      if (!is.na(i_cols[["by"]][k])) col = col * newdata[[i_cols[["by"]][k]]]
+      newdata[[i_cols[["name"]][k]]] = col
+    }
+    terms_rhs = c(terms_rhs, paste0("`", i_cols[["name"]], "`"))
+  }
   if (strategy %in% c("compress", "moments")) {
     # FE enter as dummies (compress)
     terms_rhs = c(terms_rhs, fe)
@@ -156,6 +167,10 @@ predict.dbreg = function(
     sparse.model.matrix(fml_mm, data = newdata),
     error = function(e) model.matrix(fml_mm, data = newdata)
   )
+  if (NROW(i_cols)) {
+    is_i = colnames(mm) %in% paste0("`", i_cols[["name"]], "`")
+    colnames(mm)[is_i] = gsub("`", "", colnames(mm)[is_i], fixed = TRUE)
+  }
   if (strategy == "mundlak") {
     # Group means of each design column, one set per FE
     mm_means = mapply(

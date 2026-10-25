@@ -16,7 +16,8 @@
 #' @param fml A fixest-style IV formula. Use `y ~ x1 + x2 | d ~ z` for models
 #'   without absorbed fixed effects, and `y ~ x1 + x2 | fe1 + fe2 + fe3 | d ~ z`
 #'   when fixed effects are present. The IV block must always be the final
-#'   pipe-separated block.
+#'   pipe-separated block. Regressors and instruments can include interactions
+#'   and `fixest`-style `i()` terms (see [sql_model_matrix()]).
 #' @param conn Database connection, or `NULL` to create an ephemeral DuckDB
 #'   connection.
 #' @param table,data,path Mutually exclusive data source arguments with
@@ -169,7 +170,7 @@ process_dbivreg_inputs = function(inputs) {
 
   # Give model variables SQL-safe names (see safe_source()) and re-parse;
   # results are mapped back to display names at the end
-  src = safe_source(conn, from_statement, c(all.vars(fml), weights, cluster_var))
+  src = safe_source(conn, from_statement, c(model_vars(fml), weights, cluster_var))
   from_statement = src[["from_statement"]]
   name_map = src[["map"]]
   parsed_fml = dbivreg_parse_formula(src[["to_safe"]](fml))
@@ -200,13 +201,19 @@ process_dbivreg_inputs = function(inputs) {
 
   design_source = sub("^FROM\\s+", "", from_statement, ignore.case = TRUE)
   intercept = parsed_fml[["intercept"]]
-  exog_design = dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe, intercept)
-  endog_design = dbivreg_expand_block(parsed_fml[["endog_rhs"]], conn, design_source, fe)
-  instr_design = dbivreg_expand_block(parsed_fml[["instr_rhs"]], conn, design_source, fe)
+  designs = dbivreg_shared_i_aliases(list(
+    dbivreg_expand_block(parsed_fml[["exog_rhs"]], conn, design_source, fe, intercept),
+    dbivreg_expand_block(parsed_fml[["endog_rhs"]], conn, design_source, fe),
+    dbivreg_expand_block(parsed_fml[["instr_rhs"]], conn, design_source, fe)
+  ))
+  exog_design = designs[[1]]
+  endog_design = designs[[2]]
+  instr_design = designs[[3]]
   register_factor_display(
     inputs,
     c(exog_design[["factor_levels"]], endog_design[["factor_levels"]], instr_design[["factor_levels"]]),
-    rbind(exog_design[["level_aliases"]], endog_design[["level_aliases"]], instr_design[["level_aliases"]])
+    rbind(exog_design[["level_aliases"]], endog_design[["level_aliases"]], instr_design[["level_aliases"]]),
+    rbind(exog_design[["i_columns"]], endog_design[["i_columns"]], instr_design[["i_columns"]])
   )
   # Without an intercept, factor coding of the endogenous/instrument blocks
   # would depend on the combined X and Z designs; not supported yet
@@ -224,12 +231,13 @@ process_dbivreg_inputs = function(inputs) {
     stop("At least one excluded instrument is required in the IV block.")
   }
 
+  display = function(x) paste(standardize_coef_names(restore_names(x, inputs[["name_map"]])), collapse = ", ")
   overlap_x_endog = intersect(exog_design[["names"]], endog_design[["names"]])
   if (length(overlap_x_endog) > 0) {
     stop(
       "Endogenous regressors cannot also appear as included exogenous regressors. ",
       "Overlapping term(s): ",
-      paste(standardize_coef_names(overlap_x_endog), collapse = ", ")
+      display(overlap_x_endog)
     )
   }
   overlap_endog_iv = intersect(endog_design[["names"]], instr_design[["names"]])
@@ -237,7 +245,7 @@ process_dbivreg_inputs = function(inputs) {
     stop(
       "Excluded instruments cannot also appear as endogenous regressors. ",
       "Overlapping term(s): ",
-      paste(standardize_coef_names(overlap_endog_iv), collapse = ", ")
+      display(overlap_endog_iv)
     )
   }
   overlap_exog_iv = intersect(exog_design[["names"]], instr_design[["names"]])
@@ -245,7 +253,7 @@ process_dbivreg_inputs = function(inputs) {
     warning(
       "Included exogenous regressors are already valid instruments. ",
       "Dropping duplicate entries from the excluded-instrument block: ",
-      paste(standardize_coef_names(overlap_exog_iv), collapse = ", ")
+      display(overlap_exog_iv)
     )
     keep_iv = !instr_design[["names"]] %in% overlap_exog_iv
     instr_design[["sql"]] = instr_design[["sql"]][keep_iv]
@@ -668,13 +676,13 @@ dbivreg_parse_formula = function(fml) {
     yvar = yvar,
     exog_rhs = rhs(exog_expr),
     exog_rhs_text = text(exog_expr),
-    exog_vars = all.vars(exog_expr),
+    exog_vars = model_vars(exog_expr),
     endog_rhs = rhs(endog_expr),
     endog_rhs_text = text(endog_expr),
-    endog_vars = all.vars(endog_expr),
+    endog_vars = model_vars(endog_expr),
     instr_rhs = rhs(instr_expr),
     instr_rhs_text = text(instr_expr),
-    instr_vars = all.vars(instr_expr),
+    instr_vars = model_vars(instr_expr),
     fe = fe,
     fe_rhs_text = fe_rhs_text,
     intercept = intercept
@@ -707,9 +715,30 @@ dbivreg_expand_block = function(rhs_formula, conn, table, fe_vars = character(),
     names = sql_design$aliases,
     factor_levels = sql_design$factor_levels,
     level_aliases = sql_design$level_aliases,
-    vars = all.vars(rhs_formula),
+    i_columns = sql_design[["i_columns"]],
+    vars = model_vars(rhs_formula),
     term_labels = attr(terms(rhs_formula), "term.labels")
   )
+}
+
+#' Give `i()` columns the same alias in every IV block
+#'
+#' [sql_model_matrix()] numbers `i()` aliases per call, so blocks expanded
+#' separately could reuse an alias for different columns. Re-alias them by
+#' their SQL instead: identical columns share an alias, which keeps the
+#' name-based overlap checks between blocks working.
+#' @param designs List of [dbivreg_expand_block()] results.
+#' @keywords internal
+dbivreg_shared_i_aliases = function(designs) {
+  is_i = lapply(designs, function(d) d[["names"]] %in% d[["i_columns"]][["alias"]])
+  i_sql = unique(unlist(Map(function(d, i) d[["sql"]][i], designs, is_i)))
+  Map(function(d, i) {
+    old = d[["names"]][i]
+    new = paste0("dbreg_i", match(d[["sql"]][i], i_sql))
+    d[["names"]][i] = new
+    d[["i_columns"]][["alias"]] = new[match(d[["i_columns"]][["alias"]], old)]
+    d
+  }, designs, is_i)
 }
 
 #' @keywords internal
