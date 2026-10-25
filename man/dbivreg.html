@@ -45,7 +45,7 @@ ul.task-list li input[type="checkbox"] {
 <link href="../site_libs/quarto-html/quarto-syntax-highlighting-bf27225e3a48a9273f3daa8f8e829971.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-55617497126496852ff9f5a59253c640.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-12a87ce4a3db8ae78ad34dc8821cdee3.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -219,7 +219,7 @@ ul.task-list li input[type="checkbox"] {
 <code id="fml">fml</code>
 </td>
 <td>
-A fixest-style IV formula. Use <code>y ~ x1 + x2 | d ~ z</code> for models without absorbed fixed effects, and <code>y ~ x1 + x2 | fe1 + fe2 + fe3 | d ~ z</code> when fixed effects are present. The IV block must always be the final pipe-separated block.
+A fixest-style IV formula. Use <code>y ~ x1 + x2 | d ~ z</code> for models without absorbed fixed effects, and <code>y ~ x1 + x2 | fe1 + fe2 + fe3 | d ~ z</code> when fixed effects are present. The IV block must always be the final pipe-separated block. Regressors and instruments can include interactions and <code>fixest</code>-style <code>i()</code> terms (see <code>sql_model_matrix()</code>).
 </td>
 </tr>
 <tr>

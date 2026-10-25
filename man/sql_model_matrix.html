@@ -80,7 +80,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="../site_libs/quarto-html/quarto-syntax-highlighting-bf27225e3a48a9273f3daa8f8e829971.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-55617497126496852ff9f5a59253c640.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-12a87ce4a3db8ae78ad34dc8821cdee3.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -327,6 +327,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#description" id="toc-description" class="nav-link" data-scroll-target="#description">Description</a></li>
   <li><a href="#usage" id="toc-usage" class="nav-link" data-scroll-target="#usage">Usage</a></li>
   <li><a href="#arguments" id="toc-arguments" class="nav-link" data-scroll-target="#arguments">Arguments</a></li>
+  <li><a href="#details" id="toc-details" class="nav-link" data-scroll-target="#details">Details</a></li>
   <li><a href="#value" id="toc-value" class="nav-link" data-scroll-target="#value">Value</a></li>
   <li><a href="#examples" id="toc-examples" class="nav-link" data-scroll-target="#examples">Examples</a></li>
   </ul></li>
@@ -419,9 +420,13 @@ Logical. Whether the model has an intercept. As in [stats::model.matrix()], with
 </tr>
 </tbody></table>
 </section>
+<section id="details" class="level3">
+<h3 class="anchored" data-anchor-id="details">Details</h3>
+<p>Terms can also use ‘fixest’-style ‘i()’ syntax: ‘i(f)’ expands ‘f’ like a factor (numeric ‘f’ included), and ‘i(f, x)’ interacts each level of ‘f’ with a numeric or logical ‘x’. ‘ref’ drops the given level(s) and ‘keep’ keeps only the given levels. Columns are named as in ‘fixest’, e.g. ‘period::5:treat’. One difference: in a model without an intercept, a plain ‘i(f)’ drops its first level if another factor comes first, whereas ‘fixest’ drops its last level (via collinearity) instead.</p>
+</section>
 <section id="value" class="level3">
 <h3 class="anchored" data-anchor-id="value">Value</h3>
-<p>List with: - ‘select_exprs’: character vector of SQL expressions - ‘col_names’: corresponding column names - ‘aliases’: SQL-safe versions of ‘col_names’ (identical unless, e.g., factor levels contain spaces or other special characters) - ‘level_aliases’: data frame mapping each factor dummy ‘alias’ to its ‘var’ and ‘level’ - ‘factor_levels’: list of factor levels by variable (for reference)</p>
+<p>List with: - ‘select_exprs’: character vector of SQL expressions - ‘col_names’: corresponding column names - ‘aliases’: SQL-safe versions of ‘col_names’ (identical unless, e.g., factor levels contain spaces or other special characters) - ‘level_aliases’: data frame mapping each factor dummy ‘alias’ to its ‘var’ and ‘level’ - ‘factor_levels’: list of factor levels by variable (for reference) - ‘i_columns’: data frame mapping each ‘i()’ column ‘alias’ to its factor ‘var’, ‘level’ and interacted variable ‘by’ (‘NA’ if none)</p>
 </section>
 <section id="examples" class="level3">
 <h3 class="anchored" data-anchor-id="examples">Examples</h3>
@@ -455,7 +460,11 @@ $level_aliases
 x2.1         x2a  x2         a
 x2.2         x2b  x2         b
 x2.3         x2c  x2         c
-x2.4 x2_constant  x2 _constant</code></pre>
+x2.4 x2_constant  x2 _constant
+
+$i_columns
+[1] alias var   level by   
+&lt;0 rows&gt; (or 0-length row.names)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sql_model_matrix</span>(<span class="sc">~</span> x1<span class="sc">:</span>x2, con, <span class="st">"test"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
@@ -480,7 +489,11 @@ $level_aliases
 x2.1         x2a  x2         a
 x2.2         x2b  x2         b
 x2.3         x2c  x2         c
-x2.4 x2_constant  x2 _constant</code></pre>
+x2.4 x2_constant  x2 _constant
+
+$i_columns
+[1] alias var   level by   
+&lt;0 rows&gt; (or 0-length row.names)</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sql_model_matrix</span>(<span class="sc">~</span> x1<span class="sc">:</span>x2, con, <span class="st">"test"</span>, <span class="at">sep =</span> <span class="st">":"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
@@ -505,9 +518,42 @@ $level_aliases
 x2.1         x2a  x2         a
 x2.2         x2b  x2         b
 x2.3         x2c  x2         c
-x2.4 x2_constant  x2 _constant</code></pre>
+x2.4 x2_constant  x2 _constant
+
+$i_columns
+[1] alias var   level by   
+&lt;0 rows&gt; (or 0-length row.names)</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbDisconnect</span>(con)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sql_model_matrix</span>(<span class="sc">~</span> <span class="fu">i</span>(x2, x1, <span class="at">ref =</span> <span class="st">"a"</span>), con, <span class="st">"test"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>$select_exprs
+[1] "CASE WHEN x2 = 'b' THEN x1 ELSE 0 END"
+[2] "CASE WHEN x2 = 'c' THEN x1 ELSE 0 END"
+
+$col_names
+[1] "x2::b:x1" "x2::c:x1"
+
+$aliases
+[1] "dbreg_i1_1" "dbreg_i1_2"
+
+$factor_levels
+$factor_levels$x2
+[1] "a" "b" "c"
+
+
+$level_aliases
+           alias var     level
+x2.1         x2a  x2         a
+x2.2         x2b  x2         b
+x2.3         x2c  x2         c
+x2.4 x2_constant  x2 _constant
+
+$i_columns
+       alias var level by
+1 dbreg_i1_1  x2     b x1
+2 dbreg_i1_2  x2     c x1</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbDisconnect</span>(con)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 
 

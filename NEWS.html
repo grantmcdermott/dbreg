@@ -80,7 +80,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="site_libs/quarto-html/quarto-syntax-highlighting-bf27225e3a48a9273f3daa8f8e829971.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="site_libs/bootstrap/bootstrap-55617497126496852ff9f5a59253c640.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="site_libs/bootstrap/bootstrap-12a87ce4a3db8ae78ad34dc8821cdee3.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -216,6 +216,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Added support for weighted regression via the new <code>weights</code> argument. Accepts a column name string and is compatible with all strategies and SE types (iid, HC1, clustered). (<a href="https://github.com/grantmcdermott/dbreg/issues/12">#12</a>)</li>
 <li>The <code>"demean"</code> strategy now supports three or more fixed effects via alternating projections (AP). Previously this was limited to at most two FE. The <code>"auto"</code> heuristic will select <code>"demean"</code> (AP) for 3+ FE when compression is not viable. (<a href="https://github.com/grantmcdermott/dbreg/issues/12">#12</a>)</li>
 <li>For unbalanced two-way panels, <code>strategy = "auto"</code> now routes to <code>"demean"</code> via alternating projections instead of erroring. Users no longer need to explicitly choose between <code>"compress"</code> and <code>"mundlak"</code> for these cases.</li>
+<li>Formulas now support <code>fixest</code>-style <code>i()</code> terms, e.g. <code>dbreg(y ~ i(period, treat, ref = 5) | id + period, ...)</code> for event studies, in <code>dbreg()</code> and <code>dbivreg()</code> and across all strategies. Supports <code>i(f)</code>, <code>i(f, x)</code> with numeric or logical <code>x</code>, and the <code>ref</code> and <code>keep</code> arguments. Coefficients are named as in <code>fixest</code> (e.g.&nbsp;<code>period::1:treat</code>). (<a href="https://github.com/grantmcdermott/dbreg/issues/82">#82</a>)</li>
 </ul>
 <p>Bug fixes</p>
 <ul>
@@ -234,6 +235,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><code>sql_model_matrix()</code> (and thus interaction/factor terms) now generates backend-portable schema and factor-level queries, fixing failures on SQL Server and other non-DuckDB backends. (<a href="https://github.com/grantmcdermott/dbreg/issues/66">#66</a>)</li>
 <li>Sufficient statistics and HC1/clustered scores are now computed in double precision on all backends. Previously, they were cast to <code>FLOAT</code>, which is single precision on DuckDB, MySQL, Spark and Athena, limiting the <code>"demean"</code> and <code>"mundlak"</code> strategies (and robust SEs) to ~1e-8 accuracy. (<a href="https://github.com/grantmcdermott/dbreg/issues/78">#78</a>)</li>
 <li>The <code>"mundlak"</code> strategy now includes group means of every regressor column, incl.&nbsp;factor dummies and interactions. Previously only raw numeric variables were averaged, so models with factors or interactions didn’t match the equivalent fixed effects estimates. Time-invariant regressors now keep their coefficient (dropping their collinear group mean) instead of erroring. (<a href="https://github.com/grantmcdermott/dbreg/issues/77">#77</a>)</li>
+<li>Clustered SEs for the <code>"compress"</code> strategy no longer error for models with interaction terms.</li>
 </ul>
 <p>Internal</p>
 <ul>
