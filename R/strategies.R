@@ -453,7 +453,9 @@ execute_compress_strategy = function(inputs) {
     from_statement,
     "\n    GROUP BY ",
     group_cols_sql,
-    "\n    )\n    SELECT\n    *,\n    sum_wy / sum_w AS mean_Y,\n    sqrt(sum_w) AS wts\n    FROM cte"
+    "\n    )\n    SELECT\n    *,\n    sum_wy / sum_w AS mean_Y,\n    sqrt(sum_w) AS wts,\n",
+    # Cell ids, reproducible in later queries (see compute_meat_cluster_compress_sql())
+    "    ROW_NUMBER() OVER (ORDER BY ", group_cols_sql, ") AS dbreg_cell\n    FROM cte"
   )
 
   if (sql_only) {
@@ -483,6 +485,7 @@ execute_compress_strategy = function(inputs) {
     }
   }
   if (data_only) {
+    compressed_dat[["dbreg_cell"]] = NULL
     return(compressed_dat)
   }
 
@@ -560,7 +563,13 @@ execute_compress_strategy = function(inputs) {
     } else {
       from_statement
     }
-    meat = compute_meat_cluster_compress(inputs, cells_from, group_cols, compressed_dat, X, yhat)
+    # Many clusters but few cells: sum the scores by cluster in the database
+    # instead of fetching one row per cluster and cell
+    meat = if (nrow(compressed_dat) <= 5000 && ncol(X) <= 100 && isTRUE(inputs[["drop_missings"]])) {
+      compute_meat_cluster_compress_sql(inputs, cells_from, group_cols, compressed_dat[["dbreg_cell"]], X, yhat)
+    } else {
+      compute_meat_cluster_compress(inputs, cells_from, group_cols, compressed_dat, X, yhat)
+    }
     # For ssc = "nested", exclude nested FE levels from K
     if (ssc == "nested") {
       n_params_cluster = ncol(X) - nested_fe_df(inputs, from_statement)

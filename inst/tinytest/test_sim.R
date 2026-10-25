@@ -211,3 +211,11 @@ for (s in c("demean", "mundlak")) {
 }
 db_prec = dbreg(y ~ x1 + x2 | firm, data = sim_cl, vcov = ~cl, ssc = "nested", strategy = "demean")
 expect_equal(as.numeric(db_prec$coeftable[c("x1", "x2"), "std.error"]), as.numeric(se(fx_prec)), tolerance = 1e-12, info = "cluster SEs match fixest to double precision")
+
+#
+## Compress cluster SEs: database score pass and the R fallback agree ----
+
+db_cl_sql = dbreg(y ~ x1 + x2 | firm, data = sim_cl, vcov = ~cl, strategy = "compress")
+# (drop_missings = FALSE takes the fallback path; there are no missings here)
+db_cl_r = dbreg(y ~ x1 + x2 | firm, data = sim_cl, vcov = ~cl, strategy = "compress", drop_missings = FALSE)
+expect_equal(db_cl_sql$coeftable, db_cl_r$coeftable, tolerance = 1e-12, info = "compress cluster meat: SQL score pass matches R fallback")

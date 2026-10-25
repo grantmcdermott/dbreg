@@ -186,6 +186,56 @@ compute_meat_cluster_compress = function(inputs, from_statement, group_cols, com
   cluster_meat_from_cells(cells, compressed_dat, group_cols, inputs[["cluster_var"]], X, yhat)
 }
 
+#' Compressed cluster meat via a score pass in the database
+#'
+#' Pushes each cell's fitted value and design row to the database, forms each
+#' row's score `x * w * (y - yhat)`, sums the scores by cluster and returns
+#' their cross-products, i.e. the cluster meat. Only one group per cluster is
+#' formed and only the meat's entries are returned, which beats fetching one
+#' row per (cluster, cell) when there are many clusters but few cells.
+#' @param cells_from FROM clause exposing the cell columns (`group_cols`).
+#' @param cell Cell ids of the rows of `X` (`ROW_NUMBER()` over the cells,
+#'   ordered by `group_cols`, as in the compress query).
+#' @keywords internal
+compute_meat_cluster_compress_sql = function(inputs, cells_from, group_cols, cell, X, yhat) {
+  env2env(inputs, environment(), c("conn", "yvar", "cluster_var", "weights"))
+  num = function(x) sprintf("%.17g", x)
+  X = as.matrix(X)
+  k = seq_len(ncol(X))
+  fitted_sql = paste(
+    sprintf(
+      "SELECT %d AS dbreg_cell, %s AS dbreg_yhat, %s",
+      cell, num(yhat),
+      do.call(paste, c(lapply(k, function(j) sprintf("%s AS dbreg_x%d", num(X[, j]), j)), sep = ", "))
+    ),
+    collapse = " UNION ALL\n"
+  )
+  weights_expr = sql_weight_expr(weights)
+  e = if (is.null(weights_expr)) sprintf("(s.%s - f.dbreg_yhat)", yvar) else sprintf("(%s) * (s.%s - f.dbreg_yhat)", gsub(weights, paste0("s.", weights), weights_expr, fixed = TRUE), yvar)
+  gc = paste(group_cols, collapse = ", ")
+  ij = which(upper.tri(diag(length(k)), diag = TRUE), arr.ind = TRUE)
+  sql = paste0(
+    "WITH fitted AS (\n", fitted_sql, "\n),\n",
+    "cells AS (\n  SELECT ", gc, ", ROW_NUMBER() OVER (ORDER BY ", gc, ") AS dbreg_cell\n",
+    "  FROM (SELECT ", gc, " ", cells_from, " GROUP BY ", gc, ") dbreg_d\n),\n",
+    "scores AS (\n  SELECT s.", cluster_var, " AS dbreg_cl, ",
+    paste(sprintf("SUM(f.dbreg_x%d * %s) AS u%d", k, e, k), collapse = ", "), "\n",
+    "  FROM (SELECT * ", cells_from, ") s\n",
+    "  JOIN cells c ON ", paste(sprintf("s.%s = c.%s", group_cols, group_cols), collapse = " AND "), "\n",
+    "  JOIN fitted f ON c.dbreg_cell = f.dbreg_cell\n",
+    "  GROUP BY s.", cluster_var, "\n)\n",
+    "SELECT COUNT(*) AS n_clusters, ",
+    paste(sprintf("SUM(u%d * u%d) AS m_%d_%d", ij[, 1], ij[, 2], ij[, 1], ij[, 2]), collapse = ", "),
+    "\nFROM scores"
+  )
+  res = dbGetQuery(conn, sql)
+  meat = matrix(0, ncol(X), ncol(X), dimnames = list(colnames(X), colnames(X)))
+  meat[ij] = unlist(res[1, sprintf("m_%d_%d", ij[, 1], ij[, 2])], use.names = FALSE)
+  meat[ij[, 2:1]] = meat[ij]
+  attr(meat, "n_clusters") = res[["n_clusters"]]
+  meat
+}
+
 #' Cluster-by-cell sufficient statistics for compressed cluster meats
 #'
 #' Returns one row per (cluster, cell) with the summed weights `sum_w_gc` (the
