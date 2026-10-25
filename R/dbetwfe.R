@@ -318,9 +318,7 @@ fit_dbetwfe = function(inputs) {
   e_sum = est[["sum_wy"]] - sum_w * yhat
   e2_sum = if (is.null(weights)) rss_g else est[["sum_w2y_sq"]] - 2 * yhat * est[["sum_w2y"]] + est[["sum_w2"]] * yhat^2
   if (vcov_type_req == "cluster") {
-    group_cols = c(gvar, tvar)
-    cl_cells = query_cluster_cells(inputs, from_statement, group_cols)
-    moments = etwfe_cluster_moments(cl_cells, est, group_cols, cluster_var, X, yhat)
+    moments = etwfe_cluster_moments(inputs, est, X, yhat)
   } else {
     moments = list(
       Suu = crossprod(X, e2_sum * X),
@@ -376,28 +374,60 @@ fit_dbetwfe = function(inputs) {
 
 #' Clustered score and cell-count moments for dbetwfe()
 #'
-#' Sums the scores (`u`) and the cell row counts (`n`) within each cluster
-#' and returns their cross-products: `Suu` (the cluster meat), `Sun` and
-#' `Snn`.
-#' @param cl_cells Result of [query_cluster_cells()].
+#' Computes, in SQL, the cross-products of the per-cluster scores (`u`) and
+#' cell row counts (`n`) that the clustered (and unconditional) standard
+#' errors need: `Suu` (the cluster meat), `Sun` and `Snn`. Each cluster's
+#' residual sum in each cell (`e`) is formed from the cells' fitted values, and
+#' a self-join on the cluster pairs up every two cells that share a cluster
+#' (each pair once), so only one row per pair of cells is returned (rather
+#' than one per cluster and cell). Then `Suu = X' E X` and `Sun = X' F`, where `E` and `F` hold the
+#' pairwise sums of `e * e` and `e * n`.
 #' @param est Estimation cells (rows aligned with `X` and `yhat`).
 #' @keywords internal
-etwfe_cluster_moments = function(cl_cells, est, group_cols, cluster_var, X, yhat) {
-  cell_key = function(df) do.call(paste, c(unname(as.list(df[, group_cols, drop = FALSE])), sep = "\r"))
-  row = match(cell_key(cl_cells), cell_key(est))
-  cl_cells = cl_cells[!is.na(row), , drop = FALSE]
-  row = row[!is.na(row)]
-  u_sum = cl_cells[["sum_wy_gc"]] - cl_cells[["sum_w_gc"]] * yhat[row]
-  cluster_id = as.integer(factor(cl_cells[[cluster_var]], exclude = NULL))
-  n_clusters = max(cluster_id)
-  indicator = Matrix::sparseMatrix(i = seq_along(cluster_id), j = cluster_id, x = 1)
-  U = crossprod(indicator, u_sum * X[row, , drop = FALSE])
-  N = Matrix::sparseMatrix(i = cluster_id, j = row, x = cl_cells[["n_gc"]], dims = c(n_clusters, nrow(est)))
+etwfe_cluster_moments = function(inputs, est, X, yhat) {
+  env2env(inputs, environment(), c("conn", "yvar", "tvar", "gvar", "weights", "cluster_var", "from_statement"))
+  num = function(x) sprintf("%.17g", x)
+  # Never-treated cells may have a missing cohort; match them by their recoded value
+  na_code = est[[".g"]][is.na(est[[gvar]])][1]
+  g_sql = if (is.na(na_code)) gvar else sprintf("COALESCE(%s, %s)", gvar, num(na_code))
+  fitted_sql = paste(
+    sprintf("SELECT %d AS cell, %s AS g, %s AS t, %s AS yhat", seq_len(nrow(est)), num(est[[".g"]]), num(est[[".t"]]), num(yhat)),
+    collapse = " UNION ALL\n"
+  )
+  weights_expr = sql_weight_expr(weights)
+  sql = paste0(
+    "WITH fitted AS (\n", fitted_sql, "\n),\n",
+    "cells AS (\n",
+    "  SELECT ", cluster_var, " AS dbreg_cl, ", g_sql, " AS dbreg_g, ", tvar, " AS dbreg_t,\n",
+    "    COUNT(*) AS n, ",
+    if (is.null(weights_expr)) "COUNT(*)" else paste0("SUM(", weights_expr, ")"), " AS w, ",
+    sql_weighted_sum(yvar, weights_expr, "a"), "\n",
+    "  ", from_statement, "\n",
+    "  GROUP BY ", cluster_var, ", ", g_sql, ", ", tvar, "\n",
+    "),\n",
+    "resid AS (\n",
+    "  SELECT c.dbreg_cl, f.cell, 1.0 * c.n AS n, c.a - c.w * f.yhat AS e\n",
+    "  FROM cells c JOIN fitted f ON c.dbreg_g = f.g AND c.dbreg_t = f.t\n",
+    ")\n",
+    "SELECT l.cell AS c1, r.cell AS c2, SUM(l.e * r.e) AS ee, SUM(l.e * r.n) AS en, SUM(l.n * r.e) AS ne, SUM(l.n * r.n) AS nn,\n",
+    "  (SELECT COUNT(DISTINCT dbreg_cl) FROM resid) AS n_clusters\n",
+    "FROM resid l JOIN resid r ON l.dbreg_cl = r.dbreg_cl AND l.cell <= r.cell\n",
+    "GROUP BY l.cell, r.cell"
+  )
+  res = dbGetQuery(conn, sql)
+  # Only pairs with c1 <= c2 are queried; `ee` and `nn` are symmetric, while
+  # `en` needs both orders (e from one cell, n from the other)
+  pair = function(v, v_rev = v) {
+    m = matrix(0, nrow(est), nrow(est))
+    m[cbind(res[["c1"]], res[["c2"]])] = res[[v]]
+    m[cbind(res[["c2"]], res[["c1"]])] = res[[v_rev]]
+    m
+  }
   list(
-    Suu = as.matrix(crossprod(U)),
-    Sun = as.matrix(crossprod(U, N)),
-    Snn = as.matrix(crossprod(N)),
-    n_clusters = n_clusters
+    Suu = crossprod(X, pair("ee") %*% X),
+    Sun = crossprod(X, pair("en", "ne")),
+    Snn = pair("nn"),
+    n_clusters = res[["n_clusters"]][1]
   )
 }
 

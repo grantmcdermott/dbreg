@@ -4,16 +4,19 @@
 \alias{etwfe_cluster_moments}
 \title{Clustered score and cell-count moments for dbetwfe()}
 \usage{
-etwfe_cluster_moments(cl_cells, est, group_cols, cluster_var, X, yhat)
+etwfe_cluster_moments(inputs, est, X, yhat)
 }
 \arguments{
-\item{cl_cells}{Result of [query_cluster_cells()].}
-
 \item{est}{Estimation cells (rows aligned with `X` and `yhat`).}
 }
 \description{
-Sums the scores (`u`) and the cell row counts (`n`) within each cluster
-and returns their cross-products: `Suu` (the cluster meat), `Sun` and
-`Snn`.
+Computes, in SQL, the cross-products of the per-cluster scores (`u`) and
+cell row counts (`n`) that the clustered (and unconditional) standard
+errors need: `Suu` (the cluster meat), `Sun` and `Snn`. Each cluster's
+residual sum in each cell (`e`) is formed from the cells' fitted values, and
+a self-join on the cluster pairs up every two cells that share a cluster,
+so only one row per pair of cells is returned (rather than one per cluster
+and cell). Then `Suu = X' E X` and `Sun = X' F`, where `E` and `F` hold the
+pairwise sums of `e * e` and `e * n`.
 }
 \keyword{internal}

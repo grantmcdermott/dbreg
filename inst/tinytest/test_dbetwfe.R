@@ -94,6 +94,11 @@ expect_equal(
   coef(dbetwfe(y ~ 0, tvar = "year", gvar = "year_treated", data = base_stagg)),
   info = "missing cohort means never treated"
 )
+expect_equal(
+  dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = never_na, vcov = ~id)$coeftable,
+  dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = base_stagg, vcov = ~id)$coeftable,
+  info = "missing cohort with clustered SEs"
+)
 
 # Re-aggregating gives the same result as aggregating at fit time
 db = dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = base_stagg)
