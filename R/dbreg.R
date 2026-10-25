@@ -135,7 +135,8 @@
 #'    coefficients. In such cases, and also for weighted two-way FE, `dbreg`
 #'    uses alternating projections (AP) to recover the exact FE coefficients,
 #'    at the cost of extra passes over the data. AP also generalizes the
-#'    `"demean"` strategy to three or more FE.
+#'    `"demean"` strategy to three or more FE. See [dbreg-options] for AP
+#'    tuning options.
 #' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects
 #'    (CRE) estimator that regresses Y on X plus group means of X:
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
@@ -663,6 +664,32 @@ dbreg_is_balanced_panel = function(inputs) {
   res[["n_distinct_counts"]] == 1 && res[["n_cells"]] == res[["n_expected"]]
 }
 
+# AP implementation: "window" (SQL window sweeps) or "join" (group-mean
+# table joined back per FE). Windows are the default on Spark/Databricks,
+# where each table write is costly; override with options(dbreg.ap_method).
+ap_method = function(backend) {
+  method = getOption("dbreg.ap_method", if (backend == "spark") "window" else "join")
+  if (!identical(method, "window") && !identical(method, "join")) {
+    stop('[dbreg] dbreg.ap_method must be "window" or "join".', call. = FALSE)
+  }
+  method
+}
+
+# SQL for `cycles` full AP cycles using window functions. Each sweep subtracts
+# the weighted mean of every `_tilde` column within one FE, using the preceding
+# sweep's result. One subquery per sweep, because SQL cannot nest window aggregates.
+sql_ap_window_sweeps = function(table, keep_cols, tilde_names, fe, cycles) {
+  sql = paste0("SELECT * FROM ", table)
+  for (fe_k in rep(fe, cycles)) {
+    projected = sprintf(
+      "%1$s - SUM(__w * %1$s) OVER (PARTITION BY %2$s) / SUM(__w) OVER (PARTITION BY %2$s) AS %1$s",
+      tilde_names, fe_k
+    )
+    sql = paste0("SELECT ", paste(c(keep_cols, projected), collapse = ", "), " FROM (", sql, ") ap")
+  }
+  sql
+}
+
 #' Alternating projections (AP) for exact multi-way FE demeaning
 #' @keywords internal
 dbreg_alternating_projections = function(
@@ -684,6 +711,14 @@ dbreg_alternating_projections = function(
     stop("[dbreg] dbreg.ap_tol must be a positive number.", call. = FALSE)
   }
   backend = detect_backend(conn)[["name"]]
+  use_windows = ap_method(backend) == "window"
+  batch_size = 1L
+  if (use_windows) {
+    batch_size = getOption("dbreg.ap_batch_size", 3L)
+    if (!positive(batch_size) || batch_size %% 1 != 0) {
+      stop("[dbreg] dbreg.ap_batch_size must be a positive integer.", call. = FALSE)
+    }
+  }
   weights_expr = sql_weight_expr(weights)
   if (is.null(weights_expr)) {
     weights_expr = "1.0"
@@ -727,10 +762,9 @@ dbreg_alternating_projections = function(
   tilde_names = paste0(vars_all, "_tilde")
   mean_names = paste0(vars_all, "_mean")
 
-  tilde_cols = c(
-    sprintf("%s AS %s_tilde", yvar, yvar),
-    sprintf("%s AS %s_tilde", xvar_names, xvar_names)
-  )
+  # Iterate in double precision (e.g. averaging DECIMAL inputs keeps their
+  # fixed scale on some backends)
+  tilde_cols = sprintf("%s AS %s", sql_cast_double(vars_all, conn), tilde_names)
   init_sql = paste0(
     "SELECT ",
     paste(c(id_cols, "__w", tilde_cols), collapse = ", "),
@@ -739,71 +773,76 @@ dbreg_alternating_projections = function(
   )
   create_temp_table_as(conn, cur_table, init_sql, backend)
 
-  for (iter in seq_len(max_iter)) {
-    for (fe_k in fe) {
-      mean_cols = vapply(vars_all, function(v) {
-        sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", v, v)
-      }, character(1))
-      mean_sql = paste0(
-        "SELECT ",
-        fe_k,
-        ", ",
-        paste(mean_cols, collapse = ", "),
-        " FROM ",
-        cur_table,
-        " GROUP BY ",
-        fe_k
-      )
-      create_temp_table_as(conn, mean_table, mean_sql, backend)
-
-      update_cols = c(
-        sprintf("t.%s", id_cols),
-        "t.__w",
-        sprintf("t.%s_tilde - m.%s_mean AS %s_tilde", vars_all, vars_all, vars_all)
-      )
-      update_sql = paste0(
-        "SELECT ",
-        paste(update_cols, collapse = ", "),
-        " FROM ",
-        cur_table,
-        " t JOIN ",
-        mean_table,
-        " m ON t.",
-        fe_k,
-        " = m.",
-        fe_k
-      )
-      create_temp_table_as(conn, alt_table, update_sql, backend)
-
+  # Windows run `batch_size` cycles per table write (fewer writes, but up to
+  # batch_size - 1 extra cycles past convergence); joins check every cycle.
+  iter = 0L
+  while (iter < max_iter) {
+    cycles = min(batch_size, max_iter - iter)
+    iter = iter + cycles
+    if (use_windows) {
+      window_sql = sql_ap_window_sweeps(cur_table, c(id_cols, "__w"), tilde_names, fe, cycles)
+      create_temp_table_as(conn, alt_table, window_sql, backend)
       drop_table_if_exists(conn, cur_table, backend)
-      drop_table_if_exists(conn, mean_table, backend)
       tmp = cur_table
       cur_table = alt_table
       alt_table = tmp
+    } else {
+      for (fe_k in fe) {
+        mean_cols = vapply(vars_all, function(v) {
+          sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", v, v)
+        }, character(1))
+        mean_sql = paste0(
+          "SELECT ",
+          fe_k,
+          ", ",
+          paste(mean_cols, collapse = ", "),
+          " FROM ",
+          cur_table,
+          " GROUP BY ",
+          fe_k
+        )
+        create_temp_table_as(conn, mean_table, mean_sql, backend)
+
+        update_cols = c(
+          sprintf("t.%s", id_cols),
+          "t.__w",
+          sprintf("t.%s_tilde - m.%s_mean AS %s_tilde", vars_all, vars_all, vars_all)
+        )
+        update_sql = paste0(
+          "SELECT ",
+          paste(update_cols, collapse = ", "),
+          " FROM ",
+          cur_table,
+          " t JOIN ",
+          mean_table,
+          " m ON t.",
+          fe_k,
+          " = m.",
+          fe_k
+        )
+        create_temp_table_as(conn, alt_table, update_sql, backend)
+
+        drop_table_if_exists(conn, cur_table, backend)
+        drop_table_if_exists(conn, mean_table, backend)
+        tmp = cur_table
+        cur_table = alt_table
+        alt_table = tmp
+      }
     }
 
     # Convergence check: max absolute weighted group mean across all FEs
-    max_abs = 0
-    for (fe_k in fe) {
-      mean_cols = vapply(vars_all, function(v) {
-        sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", v, v)
-      }, character(1))
-      inner_sql = paste0(
-        "SELECT ",
-        paste(mean_cols, collapse = ", "),
-        " FROM ",
-        cur_table,
-        " GROUP BY ",
-        fe_k
-      )
-      outer_cols = paste(
-        sprintf("MAX(ABS(%s)) AS max_%s", mean_names, vars_all),
-        collapse = ", "
-      )
-      outer_sql = paste0("SELECT ", outer_cols, " FROM (", inner_sql, ") t")
-      res = dbGetQuery(conn, outer_sql)
-      max_abs = max(max_abs, max(res[1, ], na.rm = TRUE))
-    }
+    # in a single UNION ALL query.
+    mean_cols = paste(
+      sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", vars_all, vars_all),
+      collapse = ", "
+    )
+    inner_sql = paste(
+      sprintf("SELECT %s FROM %s GROUP BY %s", mean_cols, cur_table, fe),
+      collapse = " UNION ALL "
+    )
+    outer_cols = paste(sprintf("MAX(ABS(%s)) AS max_%s", mean_names, vars_all), collapse = ", ")
+    res = dbGetQuery(conn, paste0("SELECT ", outer_cols, " FROM (", inner_sql, ") t"))
+    max_abs = max(0, max(res[1, ], na.rm = TRUE))
 
     if (isTRUE(verbose)) {
       message("[AP] iter ", iter, ": max abs mean = ", sprintf("%.4e", max_abs))
@@ -824,7 +863,8 @@ dbreg_alternating_projections = function(
     "Options:\n",
     "  - Increase tolerance: options(dbreg.ap_tol = 1e-7)\n",
     "  - Increase iterations: options(dbreg.ap_max_iter = 500)\n",
-    "  - Use strategy = 'mundlak' (single-pass CRE estimator, no iteration needed)",
+    "  - Use strategy = 'mundlak' (single-pass CRE estimator, no iteration needed)\n",
+    "See ?`dbreg-options` for details.",
     call. = FALSE
   )
 }

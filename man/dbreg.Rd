@@ -177,7 +177,8 @@ the fixed effects projection and therefore does not recover the exact TWFE
 coefficients. In such cases, and also for weighted two-way FE, \code{dbreg}
 uses alternating projections (AP) to recover the exact FE coefficients,
 at the cost of extra passes over the data. AP also generalizes the
-\code{"demean"} strategy to three or more FE.
+\code{"demean"} strategy to three or more FE. See \link{dbreg-options} for AP
+tuning options.
 \item \code{"mundlak"}: a generalized Mundlak (1978), or correlated random effects
 (CRE) estimator that regresses Y on X plus group means of X:
 \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}

@@ -31,6 +31,12 @@ Authors@R:
       famil = "Berge",
       email = "laurent.berge@u-bordeaux.fr",
       role = c("ctb")
+    ),
+    person(
+      given = "Wojtek",
+      famil = "Klimowicz",
+      email = "wojtekklimowicz96@gmail.com",
+      role = c("ctb")
     )
   )
 Description: Leverages database backends to run regressions on very large

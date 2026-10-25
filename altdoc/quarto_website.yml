@@ -48,14 +48,18 @@ website:
           contents:
             - text: dbreg
               file: man/dbreg.qmd
+            - text: dbivreg
+              file: man/dbivreg.qmd
             - text: dbbinsreg
               file: man/dbbinsreg.qmd
-        - section: "utilities"
+        - section: "Utilities"
           contents:
             - text: gof
               file: man/gof.qmd
             - text: sql_model_matrix
               file: man/sql_model_matrix.qmd
+            - text: dbreg-options
+              file: man/dbreg-options.qmd
         - section: "Base methods"
           contents:
             - text: coef.dbreg
@@ -66,6 +70,10 @@ website:
               file: man/predict.dbreg.qmd
             - text: print.dbreg
               file: man/print.dbreg.qmd
+            - text: print.dbivreg
+              file: man/print.dbivreg.qmd
+            - text: print.dbbinsreg
+              file: man/print.dbbinsreg.qmd
             - text: vcov.dbreg
               file: man/vcov.dbreg.qmd
             - text: plot.dbbinsreg

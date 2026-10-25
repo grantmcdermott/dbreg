@@ -28,6 +28,7 @@ Other contributors:
 \itemize{
   \item Apoorva Lal \email{lal.apoorva@gmail.com} (\href{https://orcid.org/0000-0002-3697-614X}{ORCID}) [contributor]
   \item Laurent Berge \email{laurent.berge@u-bordeaux.fr} [contributor]
+  \item Wojtek Klimowicz \email{wojtekklimowicz96@gmail.com} [contributor]
 }
 
 }
