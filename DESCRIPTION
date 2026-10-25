@@ -58,6 +58,7 @@ Imports:
   utils
 Suggests:
   binsreg,
+  etwfe,
   here,
   fixest (>= 0.13.0),
   knitr,

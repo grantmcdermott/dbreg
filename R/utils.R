@@ -28,6 +28,7 @@ format_vcov_label = function(vcov_type, n_clusters = NULL) {
     "iid" = "IID",
     "hc1" = "Heteroskedasticity-robust",
     "cluster" = if (!is.null(n_clusters)) sprintf("Clustered (%d clusters)", n_clusters) else "Clustered",
+    "unconditional" = if (!is.null(n_clusters)) sprintf("Unconditional, clustered (%d clusters)", n_clusters) else "Unconditional",
     vcov_type
   )
 }

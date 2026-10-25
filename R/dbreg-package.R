@@ -15,6 +15,7 @@ globalVariables(c(
   # Fields pulled from the `inputs` environment into local scope via env2env()
   "any_continuous",
   "caller",
+  "cgroup",
   "cluster_var",
   "compress_nmax",
   "compress_ratio",
@@ -28,6 +29,7 @@ globalVariables(c(
   "exog_names",
   "fe",
   "fml",
+  "gvar",
   "from_statement",
   "has_interactions",
   "instr_names",
@@ -38,6 +40,7 @@ globalVariables(c(
   "ssc",
   "strategy",
   "structural_fml",
+  "tvar",
   "union_names",
   "union_sql",
   "vcov_type_req",

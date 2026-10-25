@@ -50,6 +50,8 @@ website:
               file: man/dbreg.qmd
             - text: dbivreg
               file: man/dbivreg.qmd
+            - text: dbetwfe
+              file: man/dbetwfe.qmd
             - text: dbbinsreg
               file: man/dbbinsreg.qmd
         - section: "Utilities"
@@ -78,6 +80,10 @@ website:
               file: man/vcov.dbreg.qmd
             - text: plot.dbbinsreg
               file: man/plot.dbbinsreg.qmd
+            - text: plot.dbetwfe
+              file: man/plot.dbetwfe.qmd
+            - text: aggregate.dbetwfe
+              file: man/aggregate.dbetwfe.qmd
         - section: "Other methods"
           contents:
             - text: glance.dbreg

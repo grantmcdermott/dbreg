@@ -268,8 +268,9 @@ compute_meat_cluster_compress_sql = function(inputs, cells_from, group_cols, cel
 
 #' Cluster-by-cell sufficient statistics for compressed cluster meats
 #'
-#' Returns one row per (cluster, cell) with the summed weights `sum_w_gc` (the
-#' count if unweighted) and the weighted outcome sum `sum_wy_gc`.
+#' Returns one row per (cluster, cell) with the row count `n_gc`, the summed
+#' weights `sum_w_gc` (the count if unweighted) and the weighted outcome sum
+#' `sum_wy_gc`.
 #' @keywords internal
 query_cluster_cells = function(inputs, from_statement, group_cols) {
   env2env(inputs, environment(), c("conn", "yvar", "cluster_var", "weights"))
@@ -277,6 +278,7 @@ query_cluster_cells = function(inputs, from_statement, group_cols) {
   weights_expr = sql_weight_expr(weights)
   sql = paste0(
     "SELECT ", cluster_var, ", ", group_cols_sql, ",\n",
+    "  COUNT(*) AS n_gc,\n",
     if (is.null(weights_expr)) "  COUNT(*) AS sum_w_gc,\n" else paste0("  SUM(", weights_expr, ") AS sum_w_gc,\n"),
     "  ", sql_weighted_sum(yvar, weights_expr, "sum_wy_gc"), "\n",
     from_statement, "\n",

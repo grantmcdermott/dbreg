@@ -6,6 +6,15 @@ _This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg
 
 New features
 
+- Added `dbetwfe()` for event studies and staggered difference-in-differences
+  via extended two-way fixed effects (ETWFE; Wooldridge 2021), matching
+  `etwfe::etwfe()` and `etwfe::emfx()`. The cohort-by-period treatment effects
+  are estimated from a single `GROUP BY` in the database and aggregated in the
+  same call (`aggregate = "event"`, `"simple"`, `"group"`, `"calendar"` or
+  `"none"`), with unconditional or conditional standard errors. Use
+  `aggregate()` to re-aggregate a fitted model without querying the data
+  again, and `plot()` for event-study plots. Control variables are not
+  supported yet. (#56)
 - Alternating projections on Spark/Databricks now use sequential SQL window
   functions (both unweighted and weighted) and batch three cycles per temporary
   table write, controlled by the new `dbreg.ap_method` and

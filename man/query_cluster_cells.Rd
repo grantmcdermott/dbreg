@@ -7,7 +7,8 @@
 query_cluster_cells(inputs, from_statement, group_cols)
 }
 \description{
-Returns one row per (cluster, cell) with the summed weights `sum_w_gc` (the
-count if unweighted) and the weighted outcome sum `sum_wy_gc`.
+Returns one row per (cluster, cell) with the row count `n_gc`, the summed
+weights `sum_w_gc` (the count if unweighted) and the weighted outcome sum
+`sum_wy_gc`.
 }
 \keyword{internal}
