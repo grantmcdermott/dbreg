@@ -132,10 +132,8 @@
 #'    coefficients. In such cases, and also for weighted two-way FE, `dbreg`
 #'    uses alternating projections (AP) to recover the exact FE coefficients,
 #'    at the cost of extra passes over the data. AP also generalizes the
-#'    `"demean"` strategy to three or more FE. On Spark/Databricks, AP uses SQL
-#'    window functions and writes one table per three cycles
-#'    (`options(dbreg.ap_method = "window", dbreg.ap_batch_size = 3L)`).
-#'    Use `options(dbreg.ap_method = "join")` to select the join implementation.
+#'    `"demean"` strategy to three or more FE. See [dbreg-options] for AP
+#'    tuning options.
 #' 4. `"mundlak"`: a generalized Mundlak (1978), or correlated random effects
 #'    (CRE) estimator that regresses Y on X plus group means of X:
 #'    \deqn{Y_{it} = \alpha + \beta X_{it} + \gamma \bar{X}_i + \varepsilon_{it} \quad \text{(one-way)}}
@@ -755,14 +753,9 @@ dbreg_alternating_projections = function(
   tilde_names = paste0(vars_all, "_tilde")
   mean_names = paste0(vars_all, "_mean")
 
-  tilde_cols = c(
-    sprintf("%s AS %s_tilde", yvar, yvar),
-    sprintf("%s AS %s_tilde", xvar_names, xvar_names)
-  )
-  if (use_windows) {
-    # Window AVG/SUM over DECIMAL inputs keeps fixed scale; iterate in double.
-    tilde_cols = sprintf("%s AS %s", sql_cast_double(vars_all, conn), tilde_names)
-  }
+  # Iterate in double precision (e.g. averaging DECIMAL inputs keeps their
+  # fixed scale on some backends)
+  tilde_cols = sprintf("%s AS %s", sql_cast_double(vars_all, conn), tilde_names)
   init_sql = paste0(
     "SELECT ",
     paste(c(id_cols, "__w", tilde_cols), collapse = ", "),
@@ -784,46 +777,48 @@ dbreg_alternating_projections = function(
       tmp = cur_table
       cur_table = alt_table
       alt_table = tmp
-    } else for (fe_k in fe) {
-      mean_cols = vapply(vars_all, function(v) {
-        sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", v, v)
-      }, character(1))
-      mean_sql = paste0(
-        "SELECT ",
-        fe_k,
-        ", ",
-        paste(mean_cols, collapse = ", "),
-        " FROM ",
-        cur_table,
-        " GROUP BY ",
-        fe_k
-      )
-      create_temp_table_as(conn, mean_table, mean_sql, backend)
+    } else {
+      for (fe_k in fe) {
+        mean_cols = vapply(vars_all, function(v) {
+          sprintf("SUM(__w * %s_tilde) / SUM(__w) AS %s_mean", v, v)
+        }, character(1))
+        mean_sql = paste0(
+          "SELECT ",
+          fe_k,
+          ", ",
+          paste(mean_cols, collapse = ", "),
+          " FROM ",
+          cur_table,
+          " GROUP BY ",
+          fe_k
+        )
+        create_temp_table_as(conn, mean_table, mean_sql, backend)
 
-      update_cols = c(
-        sprintf("t.%s", id_cols),
-        "t.__w",
-        sprintf("t.%s_tilde - m.%s_mean AS %s_tilde", vars_all, vars_all, vars_all)
-      )
-      update_sql = paste0(
-        "SELECT ",
-        paste(update_cols, collapse = ", "),
-        " FROM ",
-        cur_table,
-        " t JOIN ",
-        mean_table,
-        " m ON t.",
-        fe_k,
-        " = m.",
-        fe_k
-      )
-      create_temp_table_as(conn, alt_table, update_sql, backend)
+        update_cols = c(
+          sprintf("t.%s", id_cols),
+          "t.__w",
+          sprintf("t.%s_tilde - m.%s_mean AS %s_tilde", vars_all, vars_all, vars_all)
+        )
+        update_sql = paste0(
+          "SELECT ",
+          paste(update_cols, collapse = ", "),
+          " FROM ",
+          cur_table,
+          " t JOIN ",
+          mean_table,
+          " m ON t.",
+          fe_k,
+          " = m.",
+          fe_k
+        )
+        create_temp_table_as(conn, alt_table, update_sql, backend)
 
-      drop_table_if_exists(conn, cur_table, backend)
-      drop_table_if_exists(conn, mean_table, backend)
-      tmp = cur_table
-      cur_table = alt_table
-      alt_table = tmp
+        drop_table_if_exists(conn, cur_table, backend)
+        drop_table_if_exists(conn, mean_table, backend)
+        tmp = cur_table
+        cur_table = alt_table
+        alt_table = tmp
+      }
     }
 
     # Convergence check: max absolute weighted group mean across all FEs
@@ -859,7 +854,8 @@ dbreg_alternating_projections = function(
     "Options:\n",
     "  - Increase tolerance: options(dbreg.ap_tol = 1e-7)\n",
     "  - Increase iterations: options(dbreg.ap_max_iter = 500)\n",
-    "  - Use strategy = 'mundlak' (single-pass CRE estimator, no iteration needed)",
+    "  - Use strategy = 'mundlak' (single-pass CRE estimator, no iteration needed)\n",
+    "See ?`dbreg-options` for details.",
     call. = FALSE
   )
 }

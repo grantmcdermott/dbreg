@@ -97,6 +97,7 @@ expect_error(withCallingHandlers(
     if (grepl("[AP] iter", conditionMessage(m), fixed = TRUE)) {
       iters <<- c(iters, sub(".*iter ([0-9]+):.*", "\\1", conditionMessage(m)))
     }
+    invokeRestart("muffleMessage")
   }
 ), "did not converge within 14 iterations")
 expect_equal(iters, c("6", "12", "14"), info = "Convergence checked after cycles 6, 12 and 14")
