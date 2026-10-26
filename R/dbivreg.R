@@ -468,7 +468,7 @@ execute_iv_compress_strategy = function(inputs) {
   vcov_type = vcov_type_req
   cells_from = paste0("FROM (", frame[["base_sql"]], ") AS base")
   # Many clusters but few cells: sum the scores by cluster in the database
-  cluster_sql = vcov_type == "cluster" && nrow(dat) <= 5000 && length(union_names) < 100 && isTRUE(inputs[["drop_missings"]])
+  cluster_sql = vcov_type == "cluster" && use_cluster_sql(nrow(dat), ncol(U), inputs)
   cells = if (vcov_type == "cluster" && !cluster_sql) {
     query_cluster_cells(inputs, cells_from, union_names)
   }

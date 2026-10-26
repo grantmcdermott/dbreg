@@ -215,7 +215,16 @@ expect_equal(as.numeric(db_prec$coeftable[c("x1", "x2"), "std.error"]), as.numer
 #
 ## Compress cluster SEs: database score pass and the R fallback agree ----
 
-db_cl_sql = dbreg(y ~ x1 + x2 | firm, data = sim_cl, vcov = ~cl, strategy = "compress")
+# Discrete regressors keep the design small enough for the score pass
+sim_disc = transform(sim_cl, x1d = round(x1), x2d = round(x2))
+db_cl_sql = dbreg(y ~ x1d + x2d | year, data = sim_disc, vcov = ~firm, strategy = "compress")
 # (drop_missings = FALSE takes the fallback path; there are no missings here)
-db_cl_r = dbreg(y ~ x1 + x2 | firm, data = sim_cl, vcov = ~cl, strategy = "compress", drop_missings = FALSE)
+db_cl_r = dbreg(y ~ x1d + x2d | year, data = sim_disc, vcov = ~firm, strategy = "compress", drop_missings = FALSE)
 expect_equal(db_cl_sql$coeftable, db_cl_r$coeftable, tolerance = 1e-12, info = "compress cluster meat: SQL score pass matches R fallback")
+fx_disc = feols(y ~ x1d + x2d | year, data = sim_disc, vcov = ~firm)
+expect_equal(
+  as.numeric(db_cl_sql$coeftable[c("x1d", "x2d"), "std.error"]),
+  as.numeric(se(fx_disc)),
+  tolerance = 1e-10,
+  info = "compress cluster meat via score pass matches fixest"
+)

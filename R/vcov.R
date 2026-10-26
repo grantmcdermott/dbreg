@@ -186,6 +186,14 @@ compute_meat_cluster_compress = function(inputs, from_statement, group_cols, com
   cluster_meat_from_cells(cells, compressed_dat, group_cols, inputs[["cluster_var"]], X, yhat)
 }
 
+# Use compute_meat_cluster_compress_sql()? It pushes one literal per cell and
+# column into the query, which pays off for small designs with many clusters
+# but not for large designs, where fetching (cluster, cell) rows is cheaper.
+# Missing cell keys can't be matched by the join.
+use_cluster_sql = function(n_cells, n_cols, inputs) {
+  n_cols <= 100 && n_cells * n_cols <= 20000 && isTRUE(inputs[["drop_missings"]])
+}
+
 #' Compressed cluster meats via a score pass in the database
 #'
 #' Pushes each cell's score columns and fitted values to the database, forms
