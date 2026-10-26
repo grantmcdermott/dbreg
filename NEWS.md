@@ -99,7 +99,9 @@ Internal
 - Refactored and modularized the codebase to make it more efficient and safer.
   (#65)
 - Much faster cluster-robust SEs for the `"compress"` strategy with many
-  clusters. (#72)
+  clusters. Cluster scores are now aggregated with sparse matrix operations
+  (#72) and, when there are few compressed cells (e.g. a panel clustered by
+  unit), summed directly in the database instead of being fetched into R (#84).
 - Internal arguments now flow through a single `inputs` environment (filled in
   place via `env2env()`), simplifying function signatures. (#74)
 - Estimation internals now share a common set of building blocks (estimation

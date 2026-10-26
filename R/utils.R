@@ -342,7 +342,9 @@ release_db_setup = function(conn, own_conn, registered_table) {
 # backend. Model variables with other names (e.g. `Sepal.Length`, names with
 # spaces, or reserved words) are renamed once at the source (see
 # safe_source()) and mapped back to their display names in the final result
-# (see restore_result_names()).
+# (see restore_result_names()). Names starting with `dbreg_` are reserved for
+# internal columns and aliases, so model variables with such names are renamed
+# too.
 
 # Common reserved words across backends (lower case)
 sql_reserved = c(
@@ -371,14 +373,15 @@ folds_identifier_case = function(conn) {
 #' @keywords internal
 is_safe_identifier = function(x, fold_case = FALSE) {
   pattern = if (fold_case) "^[a-z_][a-z0-9_]*$" else "^[A-Za-z_][A-Za-z0-9_]*$"
-  grepl(pattern, x) & !(tolower(x) %in% sql_reserved)
+  grepl(pattern, x) & !(tolower(x) %in% sql_reserved) & !startsWith(tolower(x), "dbreg_")
 }
 
 #' Make SQL-safe identifiers
 #'
 #' Leaves safe names unchanged; otherwise replaces invalid characters with `_`
 #' (lower-casing on case-folding backends), prefixes names that would start
-#' with a digit or are reserved, and de-duplicates against each other and
+#' with a digit, are reserved words or start with the internal `dbreg_` prefix,
+#' and de-duplicates against each other and
 #' against `taken`. De-duplication ignores case, since most backends match
 #' identifiers case-insensitively.
 #' @inheritParams is_safe_identifier
@@ -387,7 +390,7 @@ safe_identifiers = function(x, taken = character(), fold_case = FALSE) {
   keep = is_safe_identifier(x, fold_case)
   out = gsub("[^A-Za-z0-9_]", "_", x)
   if (fold_case) out = tolower(out)
-  bad_start = !grepl("^[A-Za-z_]", out) | tolower(out) %in% sql_reserved
+  bad_start = !grepl("^[A-Za-z_]", out) | tolower(out) %in% sql_reserved | startsWith(tolower(out), "dbreg_")
   out[bad_start] = paste0("v_", out[bad_start])
   out[keep] = x[keep]
   gen = which(!keep)

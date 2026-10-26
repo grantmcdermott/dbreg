@@ -196,6 +196,29 @@ dat_comp_ov = ov_cell[rep(seq_len(n_ov_cells), 5), ]
 dat_comp_ov$y = 1 + 2 * dat_comp_ov$d + 0.3 * dat_comp_ov$x + v_ov[rep(seq_len(n_ov_cells), 5)] + rnorm(nrow(dat_comp_ov))
 dat_comp_ov$cl = sample(1:40, nrow(dat_comp_ov), replace = TRUE)
 
+# Clustered compressed IV: database score pass and the R fallback agree
+# (drop_missings = FALSE takes the fallback; there are no missings here)
+db_ov_sql = dbivreg(y ~ x | d ~ z1 + z2, data = dat_comp_ov, vcov = ~cl, strategy = "compress")
+db_ov_r = dbivreg(y ~ x | d ~ z1 + z2, data = dat_comp_ov, vcov = ~cl, strategy = "compress", drop_missings = FALSE)
+expect_equal(db_ov_sql$coeftable, db_ov_r$coeftable, tolerance = 1e-12, info = "compressed IV cluster meat: SQL matches R fallback")
+expect_equal(
+  db_ov_sql$diagnostics$first_stage_wald$d$stat,
+  db_ov_r$diagnostics$first_stage_wald$d$stat,
+  tolerance = 1e-10,
+  info = "compressed IV first-stage meats: SQL matches R fallback"
+)
+# Two endogenous regressors: one meat per first stage
+dat_comp_ov$d2 = round(dat_comp_ov$z2 - dat_comp_ov$z1 + v_ov[rep(seq_len(n_ov_cells), 5)], 1)
+db_ov2_sql = dbivreg(y ~ x | d + d2 ~ z1 + z2, data = dat_comp_ov, vcov = ~cl, strategy = "compress")
+db_ov2_r = dbivreg(y ~ x | d + d2 ~ z1 + z2, data = dat_comp_ov, vcov = ~cl, strategy = "compress", drop_missings = FALSE)
+expect_equal(db_ov2_sql$coeftable, db_ov2_r$coeftable, tolerance = 1e-12, info = "two endogenous: SQL matches R fallback")
+expect_equal(
+  db_ov2_sql$diagnostics$first_stage_wald,
+  db_ov2_r$diagnostics$first_stage_wald,
+  tolerance = 1e-10,
+  info = "two endogenous: first-stage meats match"
+)
+
 for (vc in list("iid", "hc1", ~cl)) {
   lbl = paste("Unweighted compressed IV", format(vc))
   db_ov = dbivreg(y ~ x | d ~ z1 + z2, data = dat_comp_ov, vcov = vc, strategy = "compress")
