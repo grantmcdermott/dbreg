@@ -392,13 +392,16 @@ fit_dbetwfe = function(inputs) {
 etwfe_cluster_moments = function(inputs, est, X, yhat) {
   env2env(inputs, environment(), c("conn", "yvar", "tvar", "gvar", "weights", "cluster_var", "from_statement"))
   num = function(x) sprintf("%.17g", x)
+  # Fitted values explicitly double (some backends read decimal literals as
+  # exact DECIMALs); cohort and period keys stay plain to compare natively
+  dbl = function(x) sql_cast_double(num(x), conn)
   # Never-treated cells may have a missing cohort; match them by their recoded value
   na_code = est[[".g"]][is.na(est[[gvar]])][1]
   g_sql = if (is.na(na_code)) gvar else sprintf("COALESCE(%s, %s)", gvar, num(na_code))
   fitted_sql = paste(
     sprintf(
       "SELECT %d AS dbreg_cell, %s AS dbreg_fg, %s AS dbreg_ft, %s AS dbreg_yhat",
-      seq_len(nrow(est)), num(est[[".g"]]), num(est[[".t"]]), num(yhat)
+      seq_len(nrow(est)), num(est[[".g"]]), num(est[[".t"]]), dbl(yhat)
     ),
     collapse = " UNION ALL\n"
   )
