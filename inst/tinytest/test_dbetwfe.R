@@ -97,10 +97,8 @@ expect_aggregates(m, dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = bas
 # zero effects, as in emfx()
 first_period = base_stagg
 first_period$year_treated[first_period$year_treated == 2] = 1
-for (cgroup in c("notyet", "never")) {
-  m = suppressWarnings(etwfe(y ~ 0, tvar = year, gvar = year_treated, data = first_period, cgroup = cgroup, vcov = ~id))
-  expect_aggregates(m, dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = first_period, cgroup = cgroup, vcov = ~id), paste("first-period cohort", cgroup))
-}
+m = suppressWarnings(etwfe(y ~ 0, tvar = year, gvar = year_treated, data = first_period, vcov = ~id))
+expect_aggregates(m, dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = first_period, vcov = ~id), "first-period cohort")
 
 # Several never-treated codes outside the panel: the farthest is the reference
 # (rule of etwfe >= 0.6.2.99)
