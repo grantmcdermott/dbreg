@@ -12,7 +12,8 @@ safe_identifiers(x, taken = character(), fold_case = FALSE)
 \description{
 Leaves safe names unchanged; otherwise replaces invalid characters with `_`
 (lower-casing on case-folding backends), prefixes names that would start
-with a digit or are reserved, and de-duplicates against each other and
+with a digit, are reserved words or start with the internal `dbreg_` prefix,
+and de-duplicates against each other and
 against `taken`. De-duplication ignores case, since most backends match
 identifiers case-insensitively.
 }

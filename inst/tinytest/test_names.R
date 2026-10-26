@@ -82,3 +82,27 @@ db_fold = dbreg(Sepal.Length ~ Petal.Length + Petal.Width:`my grp` | Species, da
 assignInNamespace("folds_identifier_case", folds_orig, "dbreg")
 fx_fold = feols(Sepal.Length ~ Petal.Length + Petal.Width:`my grp` | Species, data = ir)
 expect_equal(coef(db_fold)[names(coef(fx_fold))], coef(fx_fold), tolerance = 1e-6, info = "fold_case end to end: coefficients and names")
+
+#
+## Model variables may use the internal `dbreg_` prefix ----
+
+dat_res = transform(fixest::base_did, dbreg_cell = treat, dbreg_cl = id)
+fx_res = fixest::feols(y ~ dbreg_cell + dbreg_cell:post | period, data = dat_res, vcov = ~dbreg_cl)
+db_res = dbreg(y ~ dbreg_cell + dbreg_cell:post | period, data = dat_res, vcov = ~dbreg_cl, ssc = "nested", strategy = "compress")
+expect_equal(coef(db_res)[names(coef(fx_res))], coef(fx_res), tolerance = 1e-10, info = "reserved-prefix names: compress coefficients")
+expect_equal(
+  as.numeric(db_res$coeftable[names(coef(fx_res)), "std.error"]),
+  as.numeric(fixest::se(fx_res)),
+  tolerance = 1e-10,
+  info = "reserved-prefix names: compress clustered SEs"
+)
+dat_res$dbreg_cell2 = as.integer(dat_res$x1 + sin(seq_len(nrow(dat_res))) > 0)
+db_iv_res = dbivreg(y ~ post | dbreg_cell ~ dbreg_cell2, data = dat_res, vcov = ~dbreg_cl, strategy = "compress")
+se_iv_res = fixest::se(fixest::feols(y ~ post | dbreg_cell ~ dbreg_cell2, data = dat_res, vcov = ~dbreg_cl))
+names(se_iv_res) = sub("^fit_", "", names(se_iv_res))
+expect_equal(
+  as.numeric(db_iv_res$coeftable[names(se_iv_res), "std.error"]),
+  as.numeric(se_iv_res),
+  tolerance = 1e-10,
+  info = "reserved-prefix names: compressed IV clustered SEs"
+)
