@@ -19,8 +19,8 @@ emfx_ref = function(m, type, conditional, ...) {
     group = paste0(a[["gvar"]], "::", e[[a[["gvar"]]]]),
     calendar = paste0(a[["tvar"]], "::", e[[a[["tvar"]]]])
   )
-  setNames(data.frame(e[["estimate"]], e[["std.error"]]), c("est", "se"))[order(key), ] |>
-    `rownames<-`(sort(key))
+  out = data.frame(est = e[["estimate"]], se = e[["std.error"]], row.names = key)
+  out[order(key), ]
 }
 expect_aggregates = function(m, db, label) {
   for (type in c("simple", "group", "calendar", "event")) {
@@ -88,6 +88,33 @@ unbalanced = base_stagg[base_stagg$id %% 9 != 0 | base_stagg$year > 3, ]
 m = etwfe(y ~ 0, tvar = year, gvar = year_treated, data = unbalanced, vcov = ~id)
 expect_aggregates(m, dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = unbalanced, vcov = ~id), "unbalanced")
 
+# Clustering by the cohort (etwfe's default): nested cohort FE don't count
+# towards the small-sample K, as in fixest
+m = etwfe(y ~ 0, tvar = year, gvar = year_treated, data = base_stagg, vcov = ~year_treated)
+expect_aggregates(m, dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = base_stagg, vcov = ~year_treated), "cluster by cohort")
+
+# A cohort treated in the first period: its reference-period cells count as
+# zero effects, as in emfx()
+first_period = base_stagg
+first_period$year_treated[first_period$year_treated == 2] = 1
+for (cgroup in c("notyet", "never")) {
+  m = suppressWarnings(etwfe(y ~ 0, tvar = year, gvar = year_treated, data = first_period, cgroup = cgroup, vcov = ~id))
+  expect_aggregates(m, dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = first_period, cgroup = cgroup, vcov = ~id), paste("first-period cohort", cgroup))
+}
+
+# Several never-treated codes outside the panel: the farthest is the reference
+# (rule of etwfe >= 0.6.2.99)
+if (has_uncond) {
+  two_codes = base_stagg
+  two_codes$year_treated[two_codes$year_treated == 10] = 11
+  m = suppressWarnings(etwfe(y ~ 0, tvar = year, gvar = year_treated, data = two_codes, cgroup = "never", vcov = ~id))
+  expect_warning(
+    {db = dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = two_codes, cgroup = "never", vcov = ~id)},
+    "farthest"
+  )
+  expect_aggregates(m, db, "farthest never-treated code")
+}
+
 #
 ## Interface ----
 
@@ -103,6 +130,11 @@ expect_equal(
   dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = never_na, vcov = ~id)$coeftable,
   dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = base_stagg, vcov = ~id)$coeftable,
   info = "missing cohort with clustered SEs"
+)
+expect_equal(
+  dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = never_na, vcov = ~year_treated)$coeftable,
+  dbetwfe(y ~ 0, tvar = year, gvar = year_treated, data = base_stagg, vcov = ~year_treated)$coeftable,
+  info = "missing cohort clustered by the cohort keeps never-treated units"
 )
 
 # Re-aggregating gives the same result as aggregating at fit time

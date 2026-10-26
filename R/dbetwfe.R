@@ -178,10 +178,11 @@ process_dbetwfe_inputs = function(inputs) {
   cluster_var = src[["to_safe"]](cluster_var)
   name_map = src[["map"]]
   source_map = name_map
-  # A missing cohort means never treated, so it doesn't drop the row
+  # A missing cohort means never treated, so it doesn't drop the row (even if
+  # it is also the cluster variable)
   from_statement = filter_estimation_sample(
     src[["from_statement"]],
-    vars = c(yvar, tvar, cluster_var),
+    vars = setdiff(c(yvar, tvar, cluster_var), gvar),
     weights = weights,
     drop_missings = drop_missings
   )
@@ -207,24 +208,35 @@ etwfe_cells = function(g, t, cgroup, gref = NULL, tref = NULL, gvar = "gvar", tv
     stop("`tvar` and `gvar` must be numeric (e.g. years).", call. = FALSE)
   }
   ut = sort(unique(t))
-  # Never-treated units may have a missing cohort
+  ug = sort(unique(g[!is.na(g)]))
+  # Never-treated code, as in etwfe: the cohort value farthest outside the
+  # observed periods
+  g_out = ug[ug < min(ut) | ug > max(ut)]
+  never_code = if (length(g_out)) g_out[which.max(pmax(min(ut) - g_out, g_out - max(ut)))]
+  # Never-treated units may also have a missing cohort
   if (anyNA(g)) {
-    g[is.na(g)] = if (is.null(gref)) max(ut) + 1 else gref
+    if (is.null(never_code)) never_code = max(ut) + 1
+    g[is.na(g)] = if (is.null(gref)) never_code else gref
+    ug = sort(unique(g))
   }
-  ug = sort(unique(g))
-  # Reference (never-treated) cohort, as in etwfe
   if (is.null(gref)) {
-    gref = ug[ug > max(ut)]
-    if (!length(gref)) gref = ug[ug < min(ut)]
-    if (!length(gref) && cgroup == "notyet") gref = max(ug)
-    if (!length(gref)) {
+    if (length(g_out) > 1) {
+      warning(
+        "Multiple values of `", gvar, "` lie outside the observed periods: ",
+        paste(g_out, collapse = ", "), ". Using ", never_code, " (the farthest) as the ",
+        "never-treated reference cohort. Supply `gref` to override.",
+        call. = FALSE
+      )
+    }
+    gref = never_code
+    if (is.null(gref) && cgroup == "notyet") gref = max(ug)
+    if (is.null(gref)) {
       stop(
         "The '", cgroup, "' control group for ", gvar, " could not be identified. ",
         "Supply a reference cohort via `gref`.",
         call. = FALSE
       )
     }
-    gref = min(gref)
   } else if (!gref %in% ug) {
     stop("`gref` value ", gref, " not found in ", gvar, ".", call. = FALSE)
   }
@@ -264,7 +276,8 @@ fit_dbetwfe = function(inputs) {
     include_w_sq = TRUE
   )
   query_string = paste0(
-    "SELECT ", gvar, ", ", tvar, ", ", paste(moment_terms, collapse = ", "), "\n",
+    # (internal aliases, so cohort/period names can't clash with the sums)
+    "SELECT ", gvar, " AS dbreg_gv, ", tvar, " AS dbreg_tv, ", paste(moment_terms, collapse = ", "), "\n",
     from_statement, "\nGROUP BY ", gvar, ", ", tvar
   )
   if (verbose) {
@@ -274,11 +287,11 @@ fit_dbetwfe = function(inputs) {
   # Display names for labels
   gvar_disp = restore_names(gvar, inputs[["name_map"]])
   tvar_disp = restore_names(tvar, inputs[["name_map"]])
-  design = etwfe_cells(cells[[gvar]], cells[[tvar]], cgroup, inputs[["gref"]], inputs[["tref"]], gvar_disp, tvar_disp)
-  ord = order(design[["g"]], cells[[tvar]])
+  design = etwfe_cells(cells[["dbreg_gv"]], cells[["dbreg_tv"]], cgroup, inputs[["gref"]], inputs[["tref"]], gvar_disp, tvar_disp)
+  ord = order(design[["g"]], cells[["dbreg_tv"]])
   cells = cells[ord, , drop = FALSE]
   cells[[".g"]] = design[["g"]][ord]
-  cells[[".t"]] = cells[[tvar]]
+  cells[[".t"]] = cells[["dbreg_tv"]]
   cells[[".dtreat"]] = design[["dtreat"]][ord]
   cells[[".att"]] = ifelse(design[["att"]][ord], paste0(".Dtreat:", gvar_disp, "::", cells[[".g"]], ":", tvar_disp, "::", cells[[".t"]]), NA)
   est = cells[design[["keep"]][ord], , drop = FALSE]
@@ -336,7 +349,9 @@ fit_dbetwfe = function(inputs) {
     rss = rss,
     df_res = df_res,
     nobs_orig = nobs_orig,
-    n_params = ncol(X),
+    # As in fixest, cohort fixed effects nested in the clusters (clustering by
+    # the cohort itself) don't count towards K
+    n_params = ncol(X) - if (identical(cluster_var, gvar)) length(unique(est[[".g"]])) - 1 else 0,
     X = X,
     rss_g = rss_g,
     meat = meat
@@ -396,7 +411,7 @@ etwfe_cluster_moments = function(inputs, est, X, yhat) {
   # exact DECIMALs); cohort and period keys stay plain to compare natively
   dbl = function(x) sql_cast_double(num(x), conn)
   # Never-treated cells may have a missing cohort; match them by their recoded value
-  na_code = est[[".g"]][is.na(est[[gvar]])][1]
+  na_code = est[[".g"]][is.na(est[["dbreg_gv"]])][1]
   g_sql = if (is.na(na_code)) gvar else sprintf("COALESCE(%s, %s)", gvar, num(na_code))
   fitted_sql = paste(
     sprintf(
@@ -408,7 +423,9 @@ etwfe_cluster_moments = function(inputs, est, X, yhat) {
   weights_expr = sql_weight_expr(weights)
   periods = sort(unique(est[[".t"]]))
   sql = list(
-    fitted = fitted_sql, g = g_sql, t = tvar, y = yvar, cluster = cluster_var,
+    fitted = fitted_sql, g = g_sql, t = tvar, y = yvar,
+    # Clustering by the cohort: never-treated units (missing cohort) form one cluster
+    cluster = if (identical(cluster_var, gvar)) g_sql else cluster_var,
     weights = weights_expr, from = from_statement
   )
   pairs = if (length(periods) <= 50) etwfe_pairs_pivot(conn, sql, est, periods)
@@ -626,7 +643,7 @@ etwfe_shares = function(x, aggregate, post_only = TRUE, window = NULL) {
   } else if (aggregate == "event" && !isTRUE(post_only)) {
     use = g != x[["gref"]]
   } else {
-    use = dtreat & !is.na(cells[[".att"]])
+    use = dtreat
   }
   event = t - g
   if (!is.null(window)) {
