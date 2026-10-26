@@ -103,7 +103,7 @@ Internal
 - Clustered SEs for the `"compress"` strategy (in both `dbreg()` and
   `dbivreg()`) with many clusters but few compressed cells (e.g. a panel
   clustered by unit) are now computed by a score pass in the database, instead
-  of fetching one row per cluster and cell (~10x faster on a 15M-row panel).
+  of fetching one row per cluster and cell (~10x faster on a 15M-row panel). (#84)
 - Internal arguments now flow through a single `inputs` environment (filled in
   place via `env2env()`), simplifying function signatures. (#74)
 - Estimation internals now share a common set of building blocks (estimation
