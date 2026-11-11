@@ -6,6 +6,13 @@ _This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg
 
 New features
 
+- `dbbinsreg()` is much faster and lighter on memory for unconstrained
+  binscatters (`smooth = 0`, the default). Bin assignment, bin geometry and
+  the regression now all run in the database, so only bin-level results
+  return to R. Previously every row was fetched into R first. On the NYC taxi
+  data (178M rows, DuckDB), the README example drops from 76s to 21s, and a
+  degree-1 fit with a control from 714s to 3s, with peak R memory falling
+  from 15-72 GB to under 0.25 GB.
 - Alternating projections on Spark/Databricks now use sequential SQL window
   functions (both unweighted and weighted) and batch three cycles per temporary
   table write, controlled by the new `dbreg.ap_method` and
@@ -35,6 +42,9 @@ New features
 
 Bug fixes
 
+- `dbbinsreg()` now works on non-DuckDB backends (e.g. Spark, SQLite) for
+  unconstrained binscatters. Previously it errored with "In-memory data frames
+  are only supported with DuckDB connections".
 - Alternating projections no longer fail with an SQL error when a fixed-effect
   or cluster variable also appears as a regressor. Invalid `dbreg.ap_max_iter`
   and `dbreg.ap_tol` options now produce a clear error.
