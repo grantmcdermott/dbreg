@@ -44,8 +44,8 @@
 #'   below. If `NULL` (the default), sampling is enabled automatically when
 #'   applicable, with a message. Explicitly set to `TRUE` to enable the same
 #'   sampling behaviour, but without the message. Alternatively, set to `FALSE`
-#'   to use the full dataset. Ignored when `s = 0`, since the `"compress"`
-#'   strategy already handles these aggregation cases efficiently.
+#'   to use the full dataset. Ignored when `s = 0`, since that estimation
+#'   already runs on in-database aggregates.
 #' @param plot Logical. If `TRUE` (the default), then a plot is automatically
 #'   produced alongside the return `dbbinsreg` data object; see
 #'   \code{\link{plot.dbbinsreg}}.
@@ -61,11 +61,13 @@
 #' the confidence levels and/or bands. Default is `0.95`.
 #' @param nsims Number of simulation draws for confidence band computation.
 #'   Default is 500. Only used when `cb = TRUE`.
-#' @param strategy Acceleration strategy passed to \code{\link{dbreg}}. Only
-#'   `"compress"` is currently supported; `"auto"` (the default) maps to
-#'   `"compress"`. Included for API consistency with \code{\link{dbreg}}.
-#'   Ignored when smoothness `s > 0`, since spline basis construction requires
-#'   row-level data (i.e., no pre-aggregation).
+#' @param strategy Acceleration strategy passed to \code{\link{dbreg}} for
+#'   unconstrained estimation (`s = 0`). Without fixed effects, the default
+#'   `"auto"` lets `dbreg()` choose `"compress"` when the binned data compress
+#'   well (e.g. bin means, or a discrete `x`) and `"moments"` otherwise (e.g. a
+#'   continuous `x` with `p > 0`, or continuous controls). With fixed effects,
+#'   `"auto"` uses `"compress"`. Set `"compress"` to always compress. Ignored
+#'   when smoothness `s > 0`.
 #' @param plot Logical. If `TRUE` (default), a plot is produced as a side effect.
 #'   Set to `FALSE` to suppress plotting.
 #' @param ... Additional arguments passed to \code{\link{plot.dbbinsreg}}, which
@@ -133,8 +135,8 @@
 #' gives a piecewise linear fit that is continuous; `c(2,2)` gives a piecewise
 #' quadratic with continuous first derivatives.
 #'
-#' **Important:** Unlike `s = 0` (which uses the `"compress"` strategy for fast
-#' aggregation), `s > 0` requires row-level spline basis construction and can
+#' **Important:** Unlike `s = 0` (which estimates from in-database aggregates),
+#' `s > 0` requires row-level spline basis construction and can
 #' be very slow on large datasets. As a result, \code{dbbinsreg} re-uses the
 #' random sample (used to compute the bin boundaries) for estimating the spline
 #' fits in these cases, ensuring much faster computation at the cost of reduced
@@ -276,9 +278,8 @@ dbbinsreg = function(
   
   # Validate strategy
   strategy = match.arg(strategy)
-  # FIXME: Only compress strategy works currently because bin indicators are
-  # categorical. Could support moments/demean if we expand bins to dummy columns.
-  if (strategy == "auto") strategy = "compress"
+  # "auto" is resolved per model in execute_unconstrained_binsreg(). The
+  # constrained (s > 0) path ignores the strategy.
   
   # -------------------------------------------------------------------------
   # Process binsreg-style arguments: points, line, binspos
@@ -754,9 +755,12 @@ execute_separate_binsreg = function(inputs) {
 ## SQL Infrastructure Helpers ----
 #
 
-#' Build bin assignment CTE and fetch binned data into R
+#' Build the SQL that assigns each row to a bin
+#'
+#' Returns a SELECT statement (not executed) with the model columns plus a
+#' `bin` column. Callers use it as a subquery so the data stay in the database.
 #' @keywords internal
-create_binned_data = function(inputs) {
+binned_data_sql = function(inputs) {
   
   conn = inputs[["conn"]]
   table_name = inputs[["table_name"]]
@@ -770,9 +774,6 @@ create_binned_data = function(inputs) {
   
   # Build column list (deduplicated)
   cols = unique(c(y_name, x_name, controls, fe, cluster_var))
-  
-  # Weight expression (no weights support for now)
-  wt_expr = "1.0"
   
   # Detect backend for SQL compatibility
   # SQL Server doesn't support LEAST() or LN(), so we adapt
@@ -844,18 +845,23 @@ create_binned_data = function(inputs) {
     stop("Unknown partition_method type: ", partition_method)
   }
   
-  # Build query - fetch binned data into R
-  col_list = paste(cols, collapse = ", ")
+  # Build query (executed by the caller as a subquery). x is returned as a
+  # double so geometry and basis arithmetic don't use integer division or
+  # integer overflow on integer columns.
+  col_exprs = ifelse(
+    cols == x_name,
+    sprintf("%s AS %s", sql_cast_double(x_name, conn), x_name),
+    cols
+  )
+  col_list = paste(col_exprs, collapse = ", ")
   
   query = sprintf(
     "SELECT
       %s,
-      %s AS __db_bins_wt,
       %s AS bin
     FROM %s
     WHERE %s IS NOT NULL AND %s IS NOT NULL",
     col_list,
-    wt_expr,
     bin_expr,
     table_name,
     y_name,
@@ -887,77 +893,71 @@ create_binned_data = function(inputs) {
     }
   }
   
-  # Fetch into R
-  binned_data = dbGetQuery(conn, query)
-  
-  return(binned_data)
+  return(query)
 }
 
 
-#' Compute bin geometry from binned data
+#' Compute bin geometry in the database
+#'
+#' One GROUP BY over the binned subquery: bin boundaries, midpoint, mean of x
+#' and count per bin. Only `nbins` rows come back to R.
 #' @keywords internal
-compute_bin_geometry = function(binned_data, x_name) {
-  
-  x_vals = as.numeric(binned_data[[x_name]])
-  
-  # Group by bin and compute geometry
-  geo = aggregate(
-    x_vals,
-    by = list(bin = binned_data[["bin"]]),
-    FUN = function(x) {
-      c(x_left = min(x), x_right = max(x), x_mid = (min(x) + max(x)) / 2, 
-        x_mean = mean(x), n = length(x))
-    }
-  )
-  
-  # Unpack the matrix column
-  geo_mat = geo[["x"]]
+query_bin_geometry = function(conn, binned_sql, x_name, backend) {
+  count_expr = sql_count_expr(backend)
+  geo_sql = glue("
+    SELECT bin,
+           MIN({x_name}) AS x_left,
+           MAX({x_name}) AS x_right,
+           (MIN({x_name}) + MAX({x_name})) / 2.0 AS x_mid,
+           AVG({x_name}) AS x_mean,
+           {count_expr} AS n
+    FROM ({binned_sql}) __dbbinsreg_binned
+    GROUP BY bin
+    ORDER BY bin
+  ")
+  geo = dbGetQuery(conn, geo_sql)
   geo = data.frame(
-    bin = geo[["bin"]],
-    x_left = geo_mat[, "x_left"],
-    x_right = geo_mat[, "x_right"],
-    x_mid = geo_mat[, "x_mid"],
-    x_mean = geo_mat[, "x_mean"],
-    n = geo_mat[, "n"]
+    bin = as.integer(geo[["bin"]]),
+    x_left = as.numeric(geo[["x_left"]]),
+    x_right = as.numeric(geo[["x_right"]]),
+    x_mid = as.numeric(geo[["x_mid"]]),
+    x_mean = as.numeric(geo[["x_mean"]]),
+    n = as.numeric(geo[["n"]])
   )
-  
-  return(geo)
+  geo = geo[!is.na(geo[["bin"]]), , drop = FALSE]
+  geo[order(geo[["bin"]]), , drop = FALSE]
 }
 
 
-#' Add normalized polynomial basis to binned data (binsreg compatible)
-#' 
-#' Uses binsreg's basis construction: u = (x - x_left) / h where h is bin width.
-#' This normalizes u to [0, 1] within each bin, matching binsreg's polynomial 
-#' parameterization for s=0 (unconstrained) estimation.
-#' 
+#' SQL expressions for the per-bin polynomial basis (binsreg compatible)
+#'
+#' Uses binsreg's basis: u = (x - x_left) / h, where h is the bin width, so u is
+#' in [0, 1] within each bin. Returns one column per present bin and power:
+#' `u_<bin>` and `u<d>_<bin>`, which are u^d inside the bin and 0 elsewhere.
+#' These explicit columns stop the compress strategy pooling the interactions.
 #' @keywords internal
-add_basis_columns = function(binned_data, geo, x_name, degree) {
-  
-  if (degree == 0) {
-    return(binned_data)  # No basis needed for means
-  }
-  
-
-  # Merge in bin geometry (x_left and bin width h)
-  geo[["h"]] = geo[["x_right"]] - geo[["x_left"]]
-  binned_data = merge(binned_data, geo[, c("bin", "x_left", "h")], by = "bin")
-  
-  # Add normalized polynomial terms matching binsreg: u = (x - x_left) / h
-  # This gives u in [0, 1] for each bin
-  binned_data[["u"]] = (binned_data[[x_name]] - binned_data[["x_left"]]) / binned_data[["h"]]
-  
-  # Add higher-order terms only if degree >= 2
-  # Note: In R, 2:1 produces c(2,1) not empty, so we need explicit check
-  if (degree >= 2) {
-    for (d in 2:degree) {
-      col_name = paste0("u", d)
-      binned_data[[col_name]] = binned_data[["u"]]^d
+basis_column_sql = function(geo, x_name, degree) {
+  if (degree == 0) return(character())
+  num = function(v) sprintf("%.17g", v)
+  exprs = character()
+  for (i in seq_len(nrow(geo))) {
+    b = geo[["bin"]][i]
+    h = geo[["x_right"]][i] - geo[["x_left"]][i]
+    # A single-valued bin has h = 0; its slope terms are then all zero
+    u = if (h > 0) {
+      sprintf("((%s - %s) / %s)", x_name, num(geo[["x_left"]][i]), num(h))
+    } else {
+      "0.0"
+    }
+    for (d in seq_len(degree)) {
+      u_pow = paste(rep(u, d), collapse = " * ")
+      col = if (d == 1) paste0("u_", b) else paste0("u", d, "_", b)
+      exprs = c(exprs, sprintf("CASE WHEN bin = %d THEN %s ELSE 0.0 END AS %s", b, u_pow, col))
     }
   }
-  
-  return(binned_data)
+  exprs
 }
+
 
 #' Execute unconstrained binned regression (smooth = 0)
 #' 
@@ -972,14 +972,28 @@ execute_unconstrained_binsreg = function(inputs) {
     cat("[dbbinsreg] Executing unconstrained binned regression (smooth = 0)\n")
   }
   
-  # Fetch binned data into R (no temp tables created)
-  binned_data = create_binned_data(inputs)
+  # Bin assignment stays in the database; only bin-level results come back
+  conn = inputs[["conn"]]
+  x_name = inputs[["x_name"]]
+  backend = detect_backend(conn)[["name"]]
+  binned_sql = binned_data_sql(inputs)
   
-  # Convert bin to factor for proper dummy coding
-  binned_data[["bin"]] = factor(binned_data[["bin"]])
+  # NTILE() bins depend on row order among tied x values, which can differ
+  # between executions. Geometry and the fit (which may take several passes,
+  # e.g. for robust SEs) must see the same assignment, so materialize once.
+  # This path only runs on unsampled data (<= 1e6 rows by default).
+  if (inputs[["partition_method"]] == "quantile") {
+    binned_table = temp_table_name(
+      sprintf("__dbbinsreg_%s_qbins", gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3"))),
+      backend
+    )
+    create_temp_table_as(conn, binned_table, binned_sql, backend)
+    on.exit(drop_table_if_exists(conn, binned_table, backend), add = TRUE)
+    binned_sql = paste("SELECT * FROM", binned_table)
+  }
   
   # Compute bin geometry
-  geo = compute_bin_geometry(binned_data, inputs[["x_name"]])
+  geo = query_bin_geometry(conn, binned_sql, x_name, backend)
   
   # Filter out bins with insufficient observations for the requested degree
   # degree 0 needs >= 1 obs
@@ -993,42 +1007,32 @@ execute_unconstrained_binsreg = function(inputs) {
       cat(sprintf("[dbbinsreg] Dropping %d bins with insufficient observations (n < %d)\n", 
                   length(insufficient_bins), min_obs))
     }
-    binned_data = binned_data[!binned_data[["bin"]] %in% insufficient_bins, ]
-    # Re-factor bin to drop unused levels
-    binned_data[["bin"]] = droplevels(binned_data[["bin"]])
-    
-    # Re-compute geometry for remaining bins (though geometry shouldn't change for remaining bins)
-    geo = geo[!geo[["bin"]] %in% insufficient_bins, ]
+    geo = geo[!geo[["bin"]] %in% insufficient_bins, , drop = FALSE]
+  }
+  present_bins = geo[["bin"]]
+  if (length(present_bins) == 0) {
+    stop(
+      "No bins have enough observations for points/line degree ", inputs[["degree"]],
+      " (each bin needs at least ", min_obs, "). Try fewer bins or a lower degree.",
+      call. = FALSE
+    )
   }
   
-  # Add basis columns if needed
-  if (inputs[["degree"]] > 0) {
-    binned_data = add_basis_columns(binned_data, geo, inputs[["x_name"]], inputs[["degree"]])
-    
-    # Identify present bins
-    present_bins = sort(as.integer(as.character(unique(binned_data[["bin"]]))))
-
-    # Create explicit interaction columns for each bin
-    # This prevents compress strategy from pooling interactions
-    # Only create columns for PRESENT bins to avoid singularity
-    for (bin_num in present_bins) {
-      bin_val = as.character(bin_num)
-      
-      # Create bin-specific u columns: u_1, u_2, etc.
-      col_name = paste0("u_", bin_num)
-      binned_data[[col_name]] = ifelse(binned_data[["bin"]] == bin_val, binned_data[["u"]], 0)
-      
-      # Create higher-order polynomial terms: u2_i, u3_i, ..., u{degree}_i
-      # Note: In R, 2:1 produces c(2,1) not empty, so we need explicit check
-      if (inputs[["degree"]] >= 2) {
-        for (d in 2:inputs[["degree"]]) {
-          col_name_d = paste0("u", d, "_", bin_num)
-          u_col = paste0("u", d)
-          binned_data[[col_name_d]] = ifelse(binned_data[["bin"]] == bin_val, binned_data[[u_col]], 0)
-        }
-      }
-    }
-  }
+  # Regression source: bin as a categorical (string) column, plus basis columns
+  reg_cols = unique(c(
+    inputs[["y_name"]], inputs[["controls"]], inputs[["fe"]], inputs[["cluster_var"]]
+  ))
+  select_exprs = c(
+    reg_cols,
+    sprintf("%s AS bin", sql_cast_string(sql_cast_int("bin", backend), backend)),
+    basis_column_sql(geo, x_name, inputs[["degree"]])
+  )
+  reg_sql = sprintf(
+    "(SELECT %s FROM (%s) __dbbinsreg_binned WHERE bin IN (%s)) __dbbinsreg_reg",
+    paste(select_exprs, collapse = ", "),
+    binned_sql,
+    paste(present_bins, collapse = ", ")
+  )
   
   # Build formula based on degree
   y_name = inputs[["y_name"]]
@@ -1042,7 +1046,6 @@ execute_unconstrained_binsreg = function(inputs) {
     
   } else {
     # Piecewise polynomial: y ~ 0 + bin + u_1 + ... [+ u2_1 + ... + u{degree}_1 + ...]
-    present_bins = sort(as.integer(as.character(unique(binned_data[["bin"]]))))
     
     # Linear terms
     u_terms = paste0("u_", present_bins, collapse = " + ")
@@ -1075,15 +1078,25 @@ execute_unconstrained_binsreg = function(inputs) {
   fml = as.formula(fml_str)
   
   
-  # Run dbreg with the R dataframe
+  # Fit in the database, so only aggregates reach R. Without FE, pass "auto"
+  # through: dbreg estimates the compression ratio and picks compress when the
+  # binned data compress well, or moments when they don't (e.g. a continuous
+  # basis or control, which can leave one cell per row). Both give identical
+  # results. With FE, keep compress: demean drops the FE reference level, which
+  # would shift the level of the points.
+  strategy = inputs[["strategy"]]
+  if (strategy == "auto" && !is.null(fe)) strategy = "compress"
   fit = dbreg(
     fml = fml,
-    data = binned_data,
-    conn = inputs[["conn"]],
-    strategy = inputs[["strategy"]],
+    conn = conn,
+    table = reg_sql,
+    strategy = strategy,
     vcov = if (isTRUE(inputs[["ci"]])) inputs[["vcov"]] else "iid",
     verbose = inputs[["verbose"]]
   )
+  
+  # Downstream code expects bin ids as a factor (levels in bin order)
+  geo[["bin"]] = factor(geo[["bin"]], levels = present_bins)
   
   # Extract V_beta if available
   V_beta = if (isTRUE(inputs[["ci"]]) && !is.null(fit[["vcov"]])) fit[["vcov"]] else NULL
@@ -1516,14 +1529,16 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
     # Degree >= 1: piecewise polynomial using normalized basis (binsreg compatible)
     # u = (x - x_left) / h where h is bin width, giving u in [0, 1]
     eval_fn = function(x_val, bin) {
+      # Use the bin id, not the factor code: they differ when bins are missing
+      bin = as.integer(as.character(bin))
       bin_col = paste0("bin", bin)
       bin_idx = which(geo[["bin"]] == bin)
       if (length(bin_idx) == 0) return(NA_real_)
       
-      # Normalized basis: u = (x - x_left) / h
+      # Normalized basis: u = (x - x_left) / h (0 for a single-valued bin)
       x_left = geo[["x_left"]][bin_idx]
       h = geo[["x_right"]][bin_idx] - x_left
-      u = (x_val - x_left) / h
+      u = if (h > 0) (x_val - x_left) / h else 0
       
       # Get intercept (b0)
       if (!has_intercept) {
@@ -1558,14 +1573,15 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
     
     se_fn = if (!is.null(V_beta)) {
       function(x_val, bin) {
+        bin = as.integer(as.character(bin))
         bin_col = paste0("bin", bin)
         bin_idx = which(geo[["bin"]] == bin)
         if (length(bin_idx) == 0) return(NA_real_)
         
-        # Normalized basis: u = (x - x_left) / h
+        # Normalized basis: u = (x - x_left) / h (0 for a single-valued bin)
         x_left = geo[["x_left"]][bin_idx]
         h = geo[["x_right"]][bin_idx] - x_left
-        u = (x_val - x_left) / h
+        u = if (h > 0) (x_val - x_left) / h else 0
         
         # Build coefficient indices and weights
         if (!has_intercept) {

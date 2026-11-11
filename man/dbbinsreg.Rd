@@ -100,8 +100,8 @@ major speed gains on big datasets; see the \verb{Smoothness Constraints} section
 below. If \code{NULL} (the default), sampling is enabled automatically when
 applicable, with a message. Explicitly set to \code{TRUE} to enable the same
 sampling behaviour, but without the message. Alternatively, set to \code{FALSE}
-to use the full dataset. Ignored when \code{s = 0}, since the \code{"compress"}
-strategy already handles these aggregation cases efficiently.}
+to use the full dataset. Ignored when \code{s = 0}, since that estimation
+already runs on in-database aggregates.}
 
 \item{ci}{Logical. Calculate standard errors and confidence intervals for points?
 Default is \code{TRUE}.}
@@ -120,11 +120,13 @@ the confidence levels and/or bands. Default is \code{0.95}.}
 \item{nsims}{Number of simulation draws for confidence band computation.
 Default is 500. Only used when \code{cb = TRUE}.}
 
-\item{strategy}{Acceleration strategy passed to \code{\link{dbreg}}. Only
-\code{"compress"} is currently supported; \code{"auto"} (the default) maps to
-\code{"compress"}. Included for API consistency with \code{\link{dbreg}}.
-Ignored when smoothness \code{s > 0}, since spline basis construction requires
-row-level data (i.e., no pre-aggregation).}
+\item{strategy}{Acceleration strategy passed to \code{\link{dbreg}} for
+unconstrained estimation (\code{s = 0}). Without fixed effects, the default
+\code{"auto"} lets \code{dbreg()} choose \code{"compress"} when the binned data compress
+well (e.g. bin means, or a discrete \code{x}) and \code{"moments"} otherwise (e.g. a
+continuous \code{x} with \code{p > 0}, or continuous controls). With fixed effects,
+\code{"auto"} uses \code{"compress"}. Set \code{"compress"} to always compress. Ignored
+when smoothness \code{s > 0}.}
 
 \item{plot}{Logical. If \code{TRUE} (default), a plot is produced as a side effect.
 Set to \code{FALSE} to suppress plotting.}
@@ -210,8 +212,8 @@ derivatives up to order \eqn{s-1}) at bin boundaries. For example, \code{c(1,1)}
 gives a piecewise linear fit that is continuous; \code{c(2,2)} gives a piecewise
 quadratic with continuous first derivatives.
 
-\strong{Important:} Unlike \code{s = 0} (which uses the \code{"compress"} strategy for fast
-aggregation), \code{s > 0} requires row-level spline basis construction and can
+\strong{Important:} Unlike \code{s = 0} (which estimates from in-database aggregates),
+\code{s > 0} requires row-level spline basis construction and can
 be very slow on large datasets. As a result, \code{dbbinsreg} re-uses the
 random sample (used to compute the bin boundaries) for estimating the spline
 fits in these cases, ensuring much faster computation at the cost of reduced
