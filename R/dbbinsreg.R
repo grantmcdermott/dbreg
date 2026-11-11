@@ -978,6 +978,20 @@ execute_unconstrained_binsreg = function(inputs) {
   backend = detect_backend(conn)[["name"]]
   binned_sql = binned_data_sql(inputs)
   
+  # NTILE() bins depend on row order among tied x values, which can differ
+  # between executions. Geometry and the fit (which may take several passes,
+  # e.g. for robust SEs) must see the same assignment, so materialize once.
+  # This path only runs on unsampled data (<= 1e6 rows by default).
+  if (inputs[["partition_method"]] == "quantile") {
+    binned_table = temp_table_name(
+      sprintf("__dbbinsreg_%s_qbins", gsub("[^0-9]", "", format(Sys.time(), "%Y%m%d_%H%M%S_%OS3"))),
+      backend
+    )
+    create_temp_table_as(conn, binned_table, binned_sql, backend)
+    on.exit(drop_table_if_exists(conn, binned_table, backend), add = TRUE)
+    binned_sql = paste("SELECT * FROM", binned_table)
+  }
+  
   # Compute bin geometry
   geo = query_bin_geometry(conn, binned_sql, x_name, backend)
   
@@ -996,6 +1010,13 @@ execute_unconstrained_binsreg = function(inputs) {
     geo = geo[!geo[["bin"]] %in% insufficient_bins, , drop = FALSE]
   }
   present_bins = geo[["bin"]]
+  if (length(present_bins) == 0) {
+    stop(
+      "No bins have enough observations for points/line degree ", inputs[["degree"]],
+      " (each bin needs at least ", min_obs, "). Try fewer bins or a lower degree.",
+      call. = FALSE
+    )
+  }
   
   # Regression source: bin as a categorical (string) column, plus basis columns
   reg_cols = unique(c(

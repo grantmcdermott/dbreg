@@ -70,6 +70,44 @@ expect_equal(
   "compress"
 )
 
+#
+## Quantile bins are assigned once per call ----
+
+# NTILE() splits ties by row order, which can change between executions. The
+# geometry query and every fitting pass must use the same assignment, so the
+# NTILE() query should run once (to materialize the bins) and never again.
+set.seed(8)
+tied = data.frame(x = rpois(2e4, 3), z = rnorm(2e4))
+tied$y = 0.3 * tied$x + tied$z + rnorm(2e4)
+dbWriteTable(con, "tied", tied)
+sql_log = new.env()
+sql_log$sql = character()
+log_sql = bquote(
+  assign("sql", c(get("sql", envir = .(sql_log)), paste(as.character(statement), collapse = " ")),
+         envir = .(sql_log))
+)
+suppressMessages({
+  trace(DBI::dbGetQuery, log_sql, print = FALSE, where = asNamespace("DBI"))
+  trace(DBI::dbExecute, log_sql, print = FALSE, where = asNamespace("DBI"))
+})
+res = dbbinsreg(y ~ x + z, conn = con, table = "tied", nbins = 5, plot = FALSE)
+suppressMessages({
+  untrace(DBI::dbGetQuery, where = asNamespace("DBI"))
+  untrace(DBI::dbExecute, where = asNamespace("DBI"))
+})
+expect_equal(sum(grepl("ntile", sql_log$sql, ignore.case = TRUE)), 1L,
+             info = "NTILE() bin assignment runs exactly once")
+
+#
+## No estimable bins gives a clear error ----
+
+dbWriteTable(con, "one_row", data.frame(x = 1, y = 2))
+expect_error(
+  dbbinsreg(y ~ x, conn = con, table = "one_row", nbins = 1, points = c(1, 0),
+            plot = FALSE),
+  "No bins have enough observations"
+)
+
 dbDisconnect(con, shutdown = TRUE)
 
 #
