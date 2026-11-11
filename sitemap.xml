@@ -1,83 +1,83 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://grantmcdermott.com/dbreg/man/sql_model_matrix.html</loc>
-    <lastmod>2026-10-26T01:37:48.886Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/man/dbbinsreg.html</loc>
-    <lastmod>2026-10-26T01:37:41.839Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/man/predict.dbreg.html</loc>
-    <lastmod>2026-10-26T01:37:46.600Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/man/confint.dbreg.html</loc>
-    <lastmod>2026-10-26T01:37:41.341Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/man/gof.html</loc>
-    <lastmod>2026-10-26T01:37:45.006Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/man/dbivreg.html</loc>
-    <lastmod>2026-10-26T01:37:42.763Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/man/coef.dbreg.html</loc>
-    <lastmod>2026-10-26T01:37:40.157Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/man/tidiers.html</loc>
-    <lastmod>2026-10-26T01:37:49.765Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/CITATION.html</loc>
-    <lastmod>2026-10-26T01:37:39.835Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/vignettes/intro.html</loc>
-    <lastmod>2026-10-26T01:37:50.183Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/index.html</loc>
-    <lastmod>2026-10-26T01:37:39.814Z</lastmod>
-  </url>
-  <url>
     <loc>https://grantmcdermott.com/dbreg/LICENSE.html</loc>
-    <lastmod>2026-10-26T01:37:39.805Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/NEWS.html</loc>
-    <lastmod>2026-10-26T01:37:39.798Z</lastmod>
+    <lastmod>2026-11-11T05:23:09.508Z</lastmod>
   </url>
   <url>
     <loc>https://grantmcdermott.com/dbreg/man/dbreg-options.html</loc>
-    <lastmod>2026-10-26T01:37:43.690Z</lastmod>
+    <lastmod>2026-11-11T05:23:13.260Z</lastmod>
   </url>
   <url>
-    <loc>https://grantmcdermott.com/dbreg/man/dbreg.html</loc>
-    <lastmod>2026-10-26T01:37:43.751Z</lastmod>
+    <loc>https://grantmcdermott.com/dbreg/man/predict.dbreg.html</loc>
+    <lastmod>2026-11-11T05:23:16.303Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/man/confint.dbreg.html</loc>
+    <lastmod>2026-11-11T05:23:10.956Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/man/sql_model_matrix.html</loc>
+    <lastmod>2026-11-11T05:23:18.296Z</lastmod>
   </url>
   <url>
     <loc>https://grantmcdermott.com/dbreg/man/print.dbbinsreg.html</loc>
-    <lastmod>2026-10-26T01:37:46.996Z</lastmod>
+    <lastmod>2026-11-11T05:23:16.532Z</lastmod>
   </url>
   <url>
-    <loc>https://grantmcdermott.com/dbreg/man/print.dbreg.html</loc>
-    <lastmod>2026-10-26T01:37:48.291Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/man/plot.dbbinsreg.html</loc>
-    <lastmod>2026-10-26T01:37:45.846Z</lastmod>
-  </url>
-  <url>
-    <loc>https://grantmcdermott.com/dbreg/man/print.dbivreg.html</loc>
-    <lastmod>2026-10-26T01:37:47.910Z</lastmod>
+    <loc>https://grantmcdermott.com/dbreg/man/coef.dbreg.html</loc>
+    <lastmod>2026-11-11T05:23:09.989Z</lastmod>
   </url>
   <url>
     <loc>https://grantmcdermott.com/dbreg/man/vcov.dbreg.html</loc>
-    <lastmod>2026-10-26T01:37:49.799Z</lastmod>
+    <lastmod>2026-11-11T05:23:19.156Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/NEWS.html</loc>
+    <lastmod>2026-11-11T05:23:09.499Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/CITATION.html</loc>
+    <lastmod>2026-11-11T05:23:09.551Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/vignettes/intro.html</loc>
+    <lastmod>2026-11-11T05:23:19.382Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/index.html</loc>
+    <lastmod>2026-11-11T05:23:09.522Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/man/dbivreg.html</loc>
+    <lastmod>2026-11-11T05:23:12.454Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/man/dbreg.html</loc>
+    <lastmod>2026-11-11T05:23:13.358Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/man/gof.html</loc>
+    <lastmod>2026-11-11T05:23:14.755Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/man/plot.dbbinsreg.html</loc>
+    <lastmod>2026-11-11T05:23:15.562Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/man/print.dbreg.html</loc>
+    <lastmod>2026-11-11T05:23:17.607Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/man/dbbinsreg.html</loc>
+    <lastmod>2026-11-11T05:23:11.491Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/man/tidiers.html</loc>
+    <lastmod>2026-11-11T05:23:19.100Z</lastmod>
+  </url>
+  <url>
+    <loc>https://grantmcdermott.com/dbreg/man/print.dbivreg.html</loc>
+    <lastmod>2026-11-11T05:23:17.377Z</lastmod>
   </url>
 </urlset>
