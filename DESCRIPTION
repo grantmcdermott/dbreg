@@ -62,6 +62,7 @@ Suggests:
   fixest (>= 0.13.0),
   knitr,
   quarto,
+  RSQLite,
   tinytest
 Enhances:
   dbplyr

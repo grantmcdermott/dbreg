@@ -818,6 +818,24 @@ sql_cast_string = function(expr, backend) {
   sprintf("CAST(%s AS %s)", expr, type)
 }
 
+#' Cast an expression to an integer type
+#'
+#' Bin ids from `FLOOR()` are doubles on some backends; casting before
+#' [sql_cast_string()] keeps the labels as "1", "2", ... rather than "1.0".
+#' @param expr SQL expression
+#' @param backend Backend name from detect_backend()
+#' @keywords internal
+sql_cast_int = function(expr, backend) {
+  type = switch(backend,
+    "mysql" = "SIGNED",
+    "bigquery" = "INT64",
+    "sqlserver" = "INT",
+    "spark" = "INT",
+    "INTEGER"
+  )
+  sprintf("CAST(%s AS %s)", expr, type)
+}
+
 #' Get NTILE window function expression
 #' @param x_name Column name to partition by
 #' @param n_bins Number of bins

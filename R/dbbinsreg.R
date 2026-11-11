@@ -44,8 +44,8 @@
 #'   below. If `NULL` (the default), sampling is enabled automatically when
 #'   applicable, with a message. Explicitly set to `TRUE` to enable the same
 #'   sampling behaviour, but without the message. Alternatively, set to `FALSE`
-#'   to use the full dataset. Ignored when `s = 0`, since the `"compress"`
-#'   strategy already handles these aggregation cases efficiently.
+#'   to use the full dataset. Ignored when `s = 0`, since that estimation
+#'   already runs on in-database aggregates.
 #' @param plot Logical. If `TRUE` (the default), then a plot is automatically
 #'   produced alongside the return `dbbinsreg` data object; see
 #'   \code{\link{plot.dbbinsreg}}.
@@ -61,11 +61,13 @@
 #' the confidence levels and/or bands. Default is `0.95`.
 #' @param nsims Number of simulation draws for confidence band computation.
 #'   Default is 500. Only used when `cb = TRUE`.
-#' @param strategy Acceleration strategy passed to \code{\link{dbreg}}. Only
-#'   `"compress"` is currently supported; `"auto"` (the default) maps to
-#'   `"compress"`. Included for API consistency with \code{\link{dbreg}}.
-#'   Ignored when smoothness `s > 0`, since spline basis construction requires
-#'   row-level data (i.e., no pre-aggregation).
+#' @param strategy Acceleration strategy passed to \code{\link{dbreg}} for
+#'   unconstrained estimation (`s = 0`). Without fixed effects, the default
+#'   `"auto"` lets `dbreg()` choose `"compress"` when the binned data compress
+#'   well (e.g. bin means, or a discrete `x`) and `"moments"` otherwise (e.g. a
+#'   continuous `x` with `p > 0`, or continuous controls). With fixed effects,
+#'   `"auto"` uses `"compress"`. Set `"compress"` to always compress. Ignored
+#'   when smoothness `s > 0`.
 #' @param plot Logical. If `TRUE` (default), a plot is produced as a side effect.
 #'   Set to `FALSE` to suppress plotting.
 #' @param ... Additional arguments passed to \code{\link{plot.dbbinsreg}}, which
@@ -133,8 +135,8 @@
 #' gives a piecewise linear fit that is continuous; `c(2,2)` gives a piecewise
 #' quadratic with continuous first derivatives.
 #'
-#' **Important:** Unlike `s = 0` (which uses the `"compress"` strategy for fast
-#' aggregation), `s > 0` requires row-level spline basis construction and can
+#' **Important:** Unlike `s = 0` (which estimates from in-database aggregates),
+#' `s > 0` requires row-level spline basis construction and can
 #' be very slow on large datasets. As a result, \code{dbbinsreg} re-uses the
 #' random sample (used to compute the bin boundaries) for estimating the spline
 #' fits in these cases, ensuring much faster computation at the cost of reduced
@@ -276,9 +278,8 @@ dbbinsreg = function(
   
   # Validate strategy
   strategy = match.arg(strategy)
-  # FIXME: Only compress strategy works currently because bin indicators are
-  # categorical. Could support moments/demean if we expand bins to dummy columns.
-  if (strategy == "auto") strategy = "compress"
+  # "auto" is resolved per model in execute_unconstrained_binsreg(). The
+  # constrained (s > 0) path ignores the strategy.
   
   # -------------------------------------------------------------------------
   # Process binsreg-style arguments: points, line, binspos
@@ -844,8 +845,15 @@ binned_data_sql = function(inputs) {
     stop("Unknown partition_method type: ", partition_method)
   }
   
-  # Build query (executed by the caller as a subquery)
-  col_list = paste(cols, collapse = ", ")
+  # Build query (executed by the caller as a subquery). x is returned as a
+  # double so geometry and basis arithmetic don't use integer division or
+  # integer overflow on integer columns.
+  col_exprs = ifelse(
+    cols == x_name,
+    sprintf("%s AS %s", sql_cast_double(x_name, conn), x_name),
+    cols
+  )
+  col_list = paste(col_exprs, collapse = ", ")
   
   query = sprintf(
     "SELECT
@@ -995,7 +1003,7 @@ execute_unconstrained_binsreg = function(inputs) {
   ))
   select_exprs = c(
     reg_cols,
-    sprintf("%s AS bin", sql_cast_string("CAST(bin AS INTEGER)", backend)),
+    sprintf("%s AS bin", sql_cast_string(sql_cast_int("bin", backend), backend)),
     basis_column_sql(geo, x_name, inputs[["degree"]])
   )
   reg_sql = sprintf(
@@ -1049,12 +1057,19 @@ execute_unconstrained_binsreg = function(inputs) {
   fml = as.formula(fml_str)
   
   
-  # Fit in the database (compress reduces the data before it reaches R)
+  # Fit in the database, so only aggregates reach R. Without FE, pass "auto"
+  # through: dbreg estimates the compression ratio and picks compress when the
+  # binned data compress well, or moments when they don't (e.g. a continuous
+  # basis or control, which can leave one cell per row). Both give identical
+  # results. With FE, keep compress: demean drops the FE reference level, which
+  # would shift the level of the points.
+  strategy = inputs[["strategy"]]
+  if (strategy == "auto" && !is.null(fe)) strategy = "compress"
   fit = dbreg(
     fml = fml,
     conn = conn,
     table = reg_sql,
-    strategy = inputs[["strategy"]],
+    strategy = strategy,
     vcov = if (isTRUE(inputs[["ci"]])) inputs[["vcov"]] else "iid",
     verbose = inputs[["verbose"]]
   )
@@ -1493,14 +1508,16 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
     # Degree >= 1: piecewise polynomial using normalized basis (binsreg compatible)
     # u = (x - x_left) / h where h is bin width, giving u in [0, 1]
     eval_fn = function(x_val, bin) {
+      # Use the bin id, not the factor code: they differ when bins are missing
+      bin = as.integer(as.character(bin))
       bin_col = paste0("bin", bin)
       bin_idx = which(geo[["bin"]] == bin)
       if (length(bin_idx) == 0) return(NA_real_)
       
-      # Normalized basis: u = (x - x_left) / h
+      # Normalized basis: u = (x - x_left) / h (0 for a single-valued bin)
       x_left = geo[["x_left"]][bin_idx]
       h = geo[["x_right"]][bin_idx] - x_left
-      u = (x_val - x_left) / h
+      u = if (h > 0) (x_val - x_left) / h else 0
       
       # Get intercept (b0)
       if (!has_intercept) {
@@ -1535,14 +1552,15 @@ construct_output = function(inputs, fit, geo, V_beta = NULL) {
     
     se_fn = if (!is.null(V_beta)) {
       function(x_val, bin) {
+        bin = as.integer(as.character(bin))
         bin_col = paste0("bin", bin)
         bin_idx = which(geo[["bin"]] == bin)
         if (length(bin_idx) == 0) return(NA_real_)
         
-        # Normalized basis: u = (x - x_left) / h
+        # Normalized basis: u = (x - x_left) / h (0 for a single-valued bin)
         x_left = geo[["x_left"]][bin_idx]
         h = geo[["x_right"]][bin_idx] - x_left
-        u = (x_val - x_left) / h
+        u = if (h > 0) (x_val - x_left) / h else 0
         
         # Build coefficient indices and weights
         if (!has_intercept) {

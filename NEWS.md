@@ -8,11 +8,13 @@ New features
 
 - `dbbinsreg()` is much faster and lighter on memory for unconstrained
   binscatters (`smooth = 0`, the default). Bin assignment, bin geometry and
-  the regression now all run in the database, so only bin-level results
-  return to R. Previously every row was fetched into R first. On the NYC taxi
-  data (178M rows, DuckDB), the README example drops from 76s to 21s, and a
-  degree-1 fit with a control from 714s to 3s, with peak R memory falling
-  from 15-72 GB to under 0.25 GB.
+  the regression now all run in the database, and only aggregates return to
+  R. Previously every row was fetched into R first. Without fixed effects,
+  `strategy = "auto"` now lets `dbreg()` switch to `"moments"` when the
+  binned data don't compress well (e.g. a continuous `x` with `p > 0`).
+  On the NYC taxi data (178M rows, DuckDB), the README example drops from 76s
+  to 21s, and a degree-1 fit with a control from 714s to 6s, with peak R
+  memory falling from 15-72 GB to under 0.25 GB.
 - Alternating projections on Spark/Databricks now use sequential SQL window
   functions (both unweighted and weighted) and batch three cycles per temporary
   table write, controlled by the new `dbreg.ap_method` and
@@ -45,6 +47,10 @@ Bug fixes
 - `dbbinsreg()` now works on non-DuckDB backends (e.g. Spark, SQLite) for
   unconstrained binscatters. Previously it errored with "In-memory data frames
   are only supported with DuckDB connections".
+- `dbbinsreg()` with `p > 0` no longer misassigns bin slopes when a bin is
+  empty or dropped for having too few observations (fitted points used the
+  slope of a different bin), and no longer returns `NaN` for a bin with a
+  single `x` value.
 - Alternating projections no longer fail with an SQL error when a fixed-effect
   or cluster variable also appears as a regressor. Invalid `dbreg.ap_max_iter`
   and `dbreg.ap_tol` options now produce a clear error.
