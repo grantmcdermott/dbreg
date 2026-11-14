@@ -13,7 +13,8 @@ query_quantile_breaks(
   B,
   x_min,
   x_max,
-  backend
+  backend,
+  snap = TRUE
 )
 }
 \arguments{
@@ -31,5 +32,13 @@ point comparison; this matters for round `n`, e.g. `n = 2000`). One query:
 count rows per distinct x, take a running sum, and pick out the needed
 order statistics with conditional `MIN()`s. Only one row comes back. Values
 are grouped first, so tied x values never end up on both sides of a break.
+x is cast to double in SQL, so the breaks compare exactly with the same cast
+in the bin assignment (also for integer64 and exact-decimal columns).
+}
+\details{
+When `snap = TRUE` (the default), a break that type 2 would put halfway
+between two distinct values is moved down to the lower one. Every row gets
+the same bin, but every interior break is then an observed value, so no
+interval is empty once repeated breaks are dropped.
 }
 \keyword{internal}

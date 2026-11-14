@@ -465,6 +465,10 @@ dbbinsreg = function(
     sprintf("%s ~ %s", y_name, x_name)
   }
   
+  # Rows with a missing cluster are dropped when fitting clustered SEs, so they
+  # must not count towards bins either
+  cluster_filter = if (isTRUE(ci)) cluster_var else NULL
+  
   # -------------------------------------------------------------------------
   # BIN BREAKS: always value-based, computed once
   # -------------------------------------------------------------------------
@@ -482,11 +486,15 @@ dbbinsreg = function(
   n_rows_orig = NULL  # Track original dataset size
   if (partition_method != "manual") {
     # Rows that will be used: complete cases on every model variable
-    where_sql = binsreg_where_sql(x_name, y_name, controls, fe)
+    where_sql = binsreg_where_sql(x_name, y_name, controls, fe, cluster_filter)
     count_expr = sql_count_expr(backend)
+    # Break values live in double precision, in R and in every SQL comparison.
+    # Comparing an exact-decimal (NUMERIC) column to a double literal can
+    # otherwise exclude the extreme rows.
+    x_dbl = sql_cast_double(x_name, conn)
     count_sql = glue("
       SELECT {count_expr} AS n, COUNT(DISTINCT {x_name}) AS n_unique,
-             MIN({x_name}) AS x_min, MAX({x_name}) AS x_max
+             MIN({x_dbl}) AS x_min, MAX({x_dbl}) AS x_max
       FROM {table_name}
       WHERE {where_sql}
     ")
@@ -524,9 +532,14 @@ dbbinsreg = function(
     sample_size = max(10000, ceiling(n_rows * effective_randcut))  # at least 10k rows
     sampled = effective_randcut < 1 && sample_size < n_rows
     
+    # What the sample is used for: x values for quantile breaks, and/or a
+    # table of sampled rows for the spline fit. Evenly spaced breaks only need
+    # the full-data min and max, so they need no x sample.
+    need_x_sample = partition_method == "quantile"
+    
     # Sample if fraction < 1
     if (sampled) {
-      if (verbose) {
+      if (verbose && need_x_sample) {
         message(sprintf("Dataset has %.1fM rows, computing breaks from %.0f%% sample...", 
                        n_rows / 1e6, effective_randcut * 100))
       }
@@ -553,29 +566,34 @@ dbbinsreg = function(
         create_temp_table_as(conn, sample_table, sample_sql, backend)
         
         # Get x values from sample table for break computation
-        x_sample = dbGetQuery(conn, glue("SELECT {x_name} FROM {sample_table}"))[[x_name]]
+        if (need_x_sample) {
+          x_sample = dbGetQuery(conn, glue("SELECT {x_dbl} AS {x_name} FROM {sample_table}"))[[x_name]]
+        }
         
         # Store sample table name to use instead of full table
         sampled_table_name = sample_table
         
         if (verbose) {
-          message(sprintf("Created sample table with %d rows for regression fitting.", length(x_sample)))
+          message(sprintf("Created sample table with up to %d rows for regression fitting.", sample_size))
         }
-      } else {
+      } else if (need_x_sample) {
         # Just sample x values for break computation
-        sample_sql = sql_sample(x_name, table_name, where_sql, sample_size, backend, n_rows = n_rows)
-        x_sample = dbGetQuery(conn, sample_sql)[[x_name]]
+        sample_sql = sql_sample(x_dbl, table_name, where_sql, sample_size, backend, n_rows = n_rows)
+        x_sample = dbGetQuery(conn, sample_sql)[[1]]
       }
-      x_sample = as.numeric(x_sample)
+      if (need_x_sample) x_sample = as.numeric(x_sample)
     }
     
     # Compute breaks based on partition method
     if (partition_method == "quantile") {
       probs = seq(0, 1, 1 / B)  # as binsreg does
       breaks = if (sampled) {
-        # Sample quantiles, anchored at the true min and max so no rows are lost
+        # Sample quantiles, anchored at the true min and max so no rows are
+        # lost. Each interior break is moved down to the nearest sampled value
+        # (same bin assignment), so every interval holds at least one row.
         q = quantile(x_sample, probs = probs, na.rm = TRUE, names = FALSE, type = 2)
-        c(x_min, q[-c(1, B + 1)], x_max)
+        sv = sort(unique(x_sample))
+        c(x_min, sv[findInterval(q[-c(1, B + 1)], sv)], x_max)
       } else {
         query_quantile_breaks(conn, table_name, x_name, where_sql, n_rows, B,
                               x_min, x_max, backend)
@@ -615,7 +633,7 @@ dbbinsreg = function(
     c(
       "conn", "table_name", "sampled_table_name", "y_name", "x_name", "degree",
       "smooth", "controls", "fe", "cluster_var", "partition_method", "breaks",
-      "ci", "cb", "nsims", "vcov", "alpha", "strategy", "sample_fit",
+      "ci", "cb", "nsims", "vcov", "alpha", "strategy", "sample_fit", "cluster_filter",
       "n_rows_orig", "verbose", "linegrid", "points_on", "line_on", "binspos",
       "plot"
     )
@@ -776,10 +794,12 @@ execute_separate_binsreg = function(inputs) {
 #' Complete-case filter shared by every dbbinsreg query
 #'
 #' Rows used for counting, sampling, bin breaks, bin assignment and fitting
-#' must be the same, so they all use this filter.
+#' must be the same, so they all use this filter. `cluster` is the clustering
+#' variable when clustered SEs will be computed, since `dbreg()` drops rows where
+#' it is missing.
 #' @keywords internal
-binsreg_where_sql = function(x_name, y_name, controls = NULL, fe = NULL) {
-  vars = unique(c(y_name, x_name, controls, fe))
+binsreg_where_sql = function(x_name, y_name, controls = NULL, fe = NULL, cluster = NULL) {
+  vars = unique(c(y_name, x_name, controls, fe, cluster))
   paste(sprintf("%s IS NOT NULL", vars), collapse = " AND ")
 }
 
@@ -824,13 +844,20 @@ sql_bin_range = function(x_name, breaks) {
 #' count rows per distinct x, take a running sum, and pick out the needed
 #' order statistics with conditional `MIN()`s. Only one row comes back. Values
 #' are grouped first, so tied x values never end up on both sides of a break.
+#' x is cast to double in SQL, so the breaks compare exactly with the same cast
+#' in the bin assignment (also for integer64 and exact-decimal columns).
+#'
+#' When `snap = TRUE` (the default), a break that type 2 would put halfway
+#' between two distinct values is moved down to the lower one. Every row gets
+#' the same bin, but every interior break is then an observed value, so no
+#' interval is empty once repeated breaks are dropped.
 #'
 #' @param n Number of rows matching `where_sql` (from the count query).
 #' @param x_min,x_max Minimum and maximum of x over the same rows.
 #' @return Numeric vector of `B + 1` breaks (may contain repeats).
 #' @keywords internal
 query_quantile_breaks = function(conn, table_name, x_name, where_sql, n, B,
-                                 x_min, x_max, backend) {
+                                 x_min, x_max, backend, snap = TRUE) {
   if (B <= 1L) return(c(x_min, x_max))
   # Same arithmetic as stats::quantile(type = 2): j = floor(n * p, with a small
   # fuzz); the quantile is x_(j + 1) if n * p > j, else the average of x_(j) and
@@ -846,25 +873,29 @@ query_quantile_breaks = function(conn, table_name, x_name, where_sql, n, B,
   lo = pmin(pmax(j, 1), n)       # x_(0) is taken to be x_(1)
   hi = pmin(j + 1, n)
   ranks = sort(unique(c(lo[avg], hi)))
-  sel = sprintf("MIN(CASE WHEN cum >= %.0f THEN %s END) AS q%d", ranks, x_name, seq_along(ranks))
+  sel = sprintf("MIN(CASE WHEN cum >= %.0f THEN xv END) AS q%d", ranks, seq_along(ranks))
   count_expr = sql_count_expr(backend)
+  x_dbl = sql_cast_double(x_name, conn)
   sql = glue("
     SELECT {paste(sel, collapse = ', ')}
     FROM (
-      SELECT {x_name},
-             SUM(cnt) OVER (ORDER BY {x_name} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum
+      SELECT xv,
+             SUM(cnt) OVER (ORDER BY xv ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum
       FROM (
-        SELECT {x_name}, {count_expr} AS cnt
+        SELECT {x_dbl} AS xv, {count_expr} AS cnt
         FROM {table_name}
         WHERE {where_sql}
-        GROUP BY {x_name}
+        GROUP BY {x_dbl}
       ) __dbbinsreg_counts
     ) __dbbinsreg_cum
   ")
-  vals = as.numeric(unlist(dbGetQuery(conn, sql)[1, ], use.names = FALSE))
+  res = dbGetQuery(conn, sql)
+  # Convert column by column: unlist() would drop the class of integer64 columns
+  vals = vapply(res, function(v) as.numeric(v[1]), numeric(1), USE.NAMES = FALSE)
   q_hi = vals[match(hi, ranks)]
+  q_lo = vals[match(lo, ranks, nomatch = NA)]
   q = q_hi
-  q[avg] = (vals[match(lo[avg], ranks)] + q_hi[avg]) / 2
+  q[avg] = if (snap) q_lo[avg] else (q_lo[avg] + q_hi[avg]) / 2
   c(x_min, q, x_max)
 }
 
@@ -900,19 +931,16 @@ binned_data_sql = function(inputs) {
   # and basis arithmetic don't use integer division or integer overflow on
   # integer columns.
   cols = unique(c(inputs[["y_name"]], x_name, controls, fe, inputs[["cluster_var"]]))
-  col_exprs = ifelse(
-    cols == x_name,
-    sprintf("%s AS %s", sql_cast_double(x_name, conn), x_name),
-    cols
-  )
+  x_dbl = sql_cast_double(x_name, conn)
+  col_exprs = ifelse(cols == x_name, sprintf("%s AS %s", x_dbl, x_name), cols)
   
   sprintf(
     "SELECT %s, %s AS bin FROM %s WHERE %s AND %s",
     paste(col_exprs, collapse = ", "),
-    sql_bin_case(x_name, breaks, left_closed = inputs[["partition_method"]] != "quantile"),
+    sql_bin_case(x_dbl, breaks, left_closed = inputs[["partition_method"]] != "quantile"),
     inputs[["table_name"]],
-    binsreg_where_sql(x_name, inputs[["y_name"]], controls, fe),
-    sql_bin_range(x_name, breaks)
+    binsreg_where_sql(x_name, inputs[["y_name"]], controls, fe, inputs[["cluster_filter"]]),
+    sql_bin_range(x_dbl, breaks)
   )
 }
 
@@ -1157,12 +1185,13 @@ execute_constrained_binsreg = function(inputs) {
   # Step 1: Create binned data table with bin assignments (value breaks,
   # same convention and filter as the unconstrained path)
   breaks = inputs[["breaks"]]
-  bin_where = binsreg_where_sql(x_name, y_name, controls, fe)
-  bin_expr = sql_bin_case(x_name, breaks, left_closed = inputs[["partition_method"]] != "quantile")
+  bin_where = binsreg_where_sql(x_name, y_name, controls, fe, inputs[["cluster_filter"]])
+  x_dbl = sql_cast_double(x_name, conn)
+  bin_expr = sql_bin_case(x_dbl, breaks, left_closed = inputs[["partition_method"]] != "quantile")
   select_sql = glue("
     SELECT *, {bin_expr} AS bin
     FROM {table_name}
-    WHERE {bin_where} AND {sql_bin_range(x_name, breaks)}
+    WHERE {bin_where} AND {sql_bin_range(x_dbl, breaks)}
   ")
   create_temp_table_as(conn, binned_table, select_sql, backend)
   

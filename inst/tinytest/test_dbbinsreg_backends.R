@@ -181,6 +181,111 @@ expect_error(
 )
 
 #
+## Quantile bins never have empty intervals ----
+
+# Type 2 quantiles can fall halfway between two values (here 0.5), which would
+# leave an empty interval and gaps in the bin numbers. Breaks are moved down to
+# an observed value, which doesn't change which bin any row is in.
+gap = data.frame(x = c(rep(0, 5), rep(1, 3), 2, 3))
+gap$y = seq_len(nrow(gap))
+dbWriteTable(con, "gap", gap)
+g = suppressWarnings(suppressMessages(
+  dbbinsreg(y ~ x, conn = con, table = "gap", nbins = 4, ci = FALSE, plot = FALSE)
+))
+ref = ref_qbins(gap$x, gap$y, 4)
+expect_equal(as.integer(as.character(g$points$bin)), 1:3)
+expect_equal(g$points$fit, ref$fit, tolerance = 1e-8)
+expect_equal(g$opt$nbins, 3L)
+
+set.seed(11)
+gaps = 0L
+for (i in 1:60) {
+  n = sample(30:300, 1)
+  rnd = data.frame(x = rpois(n, runif(1, 0.3, 4)), y = rnorm(n))
+  B = sample(3:12, 1)
+  dbWriteTable(con, "rnd", rnd, overwrite = TRUE)
+  r = suppressWarnings(suppressMessages(
+    dbbinsreg(y ~ x, conn = con, table = "rnd", nbins = B, ci = FALSE, plot = FALSE)
+  ))
+  ids = as.integer(as.character(r$points$bin))
+  if (!identical(ids, seq_along(ids))) gaps = gaps + 1L
+  ref = ref_qbins(rnd$x, rnd$y, B)
+  if (!isTRUE(all.equal(r$points$fit, ref$fit, tolerance = 1e-8))) gaps = gaps + 1000L
+}
+expect_equal(gaps, 0L, info = "contiguous bins that match the reference, on random tied data")
+
+#
+## Exact-decimal and integer64 running variables ----
+
+# Break values are doubles, and are compared in double precision: comparing a
+# DECIMAL column with a double literal would drop the extreme rows
+set.seed(12)
+dec = data.frame(x = round(runif(2000, 0.1, 0.3), 2), y = rnorm(2000))
+dec$x[1:2] = c(0.10, 0.30)
+dbWriteTable(con, "dec_src", dec)
+dbExecute(con, "CREATE TABLE dec_tbl AS SELECT CAST(x AS DECIMAL(10, 2)) AS x, y FROM dec_src")
+for (bp in c("qs", "es")) {
+  d = dbbinsreg(y ~ x, conn = con, table = "dec_tbl", nbins = 5, binspos = bp,
+                ci = FALSE, plot = FALSE)
+  expect_equal(d$opt$N, nrow(dec), info = paste("DECIMAL x keeps every row, binspos =", bp))
+}
+
+# Drivers like RPostgres return BIGINT as integer64, which unlist() would turn
+# into garbage
+con64 = dbConnect(duckdb::duckdb(bigint = "integer64"))
+big = data.frame(x = rep(1:8, each = 50), y = rnorm(400))
+dbWriteTable(con64, "big", big)
+dbExecute(con64, "ALTER TABLE big ALTER x TYPE BIGINT")
+expect_true(inherits(dbGetQuery(con64, "SELECT MIN(x) AS m FROM big")$m, "integer64"))
+b64 = dbbinsreg(y ~ x, conn = con64, table = "big", nbins = 4, ci = FALSE, plot = FALSE)
+ref = ref_qbins(big$x, big$y, 4)
+expect_equal(b64$points$fit, ref$fit, tolerance = 1e-8)
+expect_equal(b64$bins$right, c(2, 4, 6, 8))
+dbDisconnect(con64, shutdown = TRUE)
+
+#
+## Only sample what is needed ----
+
+# Evenly spaced breaks use the full-data min and max, so they shouldn't pull
+# a sample of x into R. Quantile breaks do need it.
+sql_log = new.env()
+sql_log$sql = character()
+log_sql = bquote(
+  assign("sql", c(get("sql", envir = .(sql_log)), paste(as.character(statement), collapse = " ")),
+         envir = .(sql_log))
+)
+sampled_queries = function(...) {
+  sql_log$sql = character()
+  suppressMessages({
+    trace(DBI::dbGetQuery, log_sql, print = FALSE, where = asNamespace("DBI"))
+    trace(DBI::dbExecute, log_sql, print = FALSE, where = asNamespace("DBI"))
+  })
+  on.exit(suppressMessages({
+    untrace(DBI::dbGetQuery, where = asNamespace("DBI"))
+    untrace(DBI::dbExecute, where = asNamespace("DBI"))
+  }))
+  suppressMessages(suppressWarnings(dbbinsreg(..., conn = con, plot = FALSE, ci = FALSE)))
+  sum(grepl("USING SAMPLE", sql_log$sql, fixed = TRUE))
+}
+expect_equal(sampled_queries(y ~ x, table = "tied", nbins = 5, binspos = "es", randcut = 0.3), 0L)
+expect_equal(sampled_queries(y ~ x, table = "tied", nbins = 5, binspos = "qs", randcut = 0.3), 1L)
+
+#
+## Rows with a missing cluster don't count towards bins ----
+
+# dbreg() drops them when fitting clustered SEs, so geometry has to match
+set.seed(13)
+cl = data.frame(x = rnorm(600), g = sample(1:12, 600, TRUE))
+cl$y = cl$x + rnorm(600)
+cl$g[1:50] = NA
+dbWriteTable(con, "cl", cl)
+cres = dbbinsreg(y ~ x, conn = con, table = "cl", nbins = 5, vcov = ~g, plot = FALSE)
+expect_equal(cres$opt$N, sum(!is.na(cl$g)))
+# Without clustered SEs the cluster variable isn't used, so the rows stay
+nres = dbbinsreg(y ~ x, conn = con, table = "cl", nbins = 5, ci = FALSE, plot = FALSE)
+expect_equal(nres$opt$N, nrow(cl))
+
+#
 ## Sampling draws random rows from the filtered data ----
 
 half_null = data.frame(id = 1:20000, x = c(rep(NA, 10000), runif(10000)))

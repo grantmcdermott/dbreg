@@ -21,6 +21,11 @@ Bug fixes
   heavily tied (e.g. counts, or `month`). Repeated quantile breaks are dropped
   and the remaining bins are numbered 1, 2, ..., with a message such as
   "Ties in `x` reduced the number of bins from 10 to 3".
+- `dbbinsreg()` no longer drops the extreme rows when `x` is an exact-decimal
+  column (e.g. PostgreSQL `NUMERIC`), and handles `integer64` columns. Rows
+  with a missing cluster are excluded from the bins when clustered SEs are
+  requested, matching what `dbreg()` fits. `binspos = "es"` no longer samples
+  `x` it doesn't use.
 - `dbbinsreg(binspos = "es")` now works on SQLite (it used `LEAST()`, which
   SQLite doesn't have).
 - On Spark, the random sample used for large-data bin breaks was Spark's

@@ -4,10 +4,12 @@
 \alias{binsreg_where_sql}
 \title{Complete-case filter shared by every dbbinsreg query}
 \usage{
-binsreg_where_sql(x_name, y_name, controls = NULL, fe = NULL)
+binsreg_where_sql(x_name, y_name, controls = NULL, fe = NULL, cluster = NULL)
 }
 \description{
 Rows used for counting, sampling, bin breaks, bin assignment and fitting
-must be the same, so they all use this filter.
+must be the same, so they all use this filter. `cluster` is the clustering
+variable when clustered SEs will be computed, since `dbreg()` drops rows where
+it is missing.
 }
 \keyword{internal}
