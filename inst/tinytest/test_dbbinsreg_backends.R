@@ -71,32 +71,130 @@ expect_equal(
 )
 
 #
-## Quantile bins are assigned once per call ----
+## Quantile bins are defined by value ----
 
-# NTILE() splits ties by row order, which can change between executions. The
-# geometry query and every fitting pass must use the same assignment, so the
-# NTILE() query should run once (to materialize the bins) and never again.
+# Reference: binsreg's definition. Breaks are quantile(type = 2), repeated
+# breaks are dropped, and a value belongs to bin i if it is in (b_{i-1}, b_i]
+# (bin 1 also includes b_0).
+ref_qbins = function(x, y, B) {
+  br = quantile(x, seq(0, 1, 1 / B), type = 2, names = FALSE)
+  br = c(br[1], unique(br[-1]))
+  bin = findInterval(x, br, rightmost.closed = TRUE, left.open = TRUE)
+  list(
+    breaks = br,
+    bin = sort(unique(bin)),
+    fit = as.numeric(tapply(y, bin, mean)),
+    x = as.numeric(tapply(x, bin, mean))
+  )
+}
+
+# Tied x (12 distinct values): exact quantile breaks, tied values share a bin
+cw = as.data.frame(ChickWeight)
+cw$Time = as.numeric(cw$Time)
+dbWriteTable(con, "cw", cw)
+ref = ref_qbins(cw$Time, cw$weight, 5)
+bs = dbbinsreg(weight ~ Time, conn = con, table = "cw", nbins = 5, ci = FALSE,
+               plot = FALSE)
+expect_equal(bs$points$fit, ref$fit, tolerance = 1e-8)
+expect_equal(bs$points$x, ref$x, tolerance = 1e-8)
+expect_equal(as.integer(as.character(bs$points$bin)), ref$bin)
+# No x value is split across bins
+expect_equal(bs$bins$right, ref$breaks[-1], tolerance = 1e-8)
+
+# Heavily tied x: repeated breaks are dropped, with a message, and the bins
+# that remain are numbered 1, 2, ...
 set.seed(8)
-tied = data.frame(x = rpois(2e4, 3), z = rnorm(2e4))
+tied = data.frame(x = rpois(2e4, 0.4), z = rnorm(2e4))
 tied$y = 0.3 * tied$x + tied$z + rnorm(2e4)
 dbWriteTable(con, "tied", tied)
-sql_log = new.env()
-sql_log$sql = character()
-log_sql = bquote(
-  assign("sql", c(get("sql", envir = .(sql_log)), paste(as.character(statement), collapse = " ")),
-         envir = .(sql_log))
+ref = ref_qbins(tied$x, tied$y, 10)
+expect_message(
+  bs <- suppressWarnings(
+    dbbinsreg(y ~ x, conn = con, table = "tied", nbins = 10, ci = FALSE, plot = FALSE)
+  ),
+  "Ties in `x` reduced the number of bins from 10 to"
 )
-suppressMessages({
-  trace(DBI::dbGetQuery, log_sql, print = FALSE, where = asNamespace("DBI"))
-  trace(DBI::dbExecute, log_sql, print = FALSE, where = asNamespace("DBI"))
-})
-res = dbbinsreg(y ~ x + z, conn = con, table = "tied", nbins = 5, plot = FALSE)
-suppressMessages({
-  untrace(DBI::dbGetQuery, where = asNamespace("DBI"))
-  untrace(DBI::dbExecute, where = asNamespace("DBI"))
-})
-expect_equal(sum(grepl("ntile", sql_log$sql, ignore.case = TRUE)), 1L,
-             info = "NTILE() bin assignment runs exactly once")
+expect_warning(
+  suppressMessages(
+    dbbinsreg(y ~ x, conn = con, table = "tied", nbins = 10, ci = FALSE, plot = FALSE)
+  ),
+  "exceeds unique values"
+)
+expect_true(nrow(bs$points) < 10)
+expect_equal(as.integer(as.character(bs$points$bin)), seq_len(nrow(bs$points)))
+expect_equal(as.integer(as.character(bs$points$bin)), ref$bin)
+expect_equal(bs$points$fit, ref$fit, tolerance = 1e-8)
+
+# Same data with a control: quantile bins stay value-based
+res = suppressMessages(suppressWarnings(
+  dbbinsreg(y ~ x + z, conn = con, table = "tied", nbins = 5, plot = FALSE)
+))
+expect_equal(as.integer(as.character(res$points$bin)), seq_len(nrow(res$points)))
+
+# Sampled breaks (randcut) also drop repeats and keep bins contiguous
+sampled = suppressMessages(suppressWarnings(
+  dbbinsreg(y ~ x, conn = con, table = "tied", nbins = 10, randcut = 0.5,
+            ci = FALSE, plot = FALSE)
+))
+expect_equal(as.integer(as.character(sampled$points$bin)), seq_len(nrow(sampled$points)))
+expect_equal(sum(sampled$bins$right >= sampled$bins$left), nrow(sampled$bins))
+# ... and no rows are lost: the outer breaks are the true min and max
+expect_equal(range(c(sampled$bins$left, sampled$bins$right)), range(tied$x))
+expect_equal(sampled$opt$N, nrow(tied))
+
+# The constrained (s > 0) path uses the same bins
+sp = suppressMessages(
+  dbbinsreg(weight ~ Time, conn = con, table = "cw", nbins = 5, points = c(1, 1),
+            ci = FALSE, plot = FALSE)
+)
+bs0 = dbbinsreg(weight ~ Time, conn = con, table = "cw", nbins = 5, ci = FALSE,
+                plot = FALSE)
+expect_equal(sp$bins$right, bs0$bins$right)
+expect_equal(sp$bins$left, bs0$bins$left)
+
+# User-supplied breaks keep the left-closed convention [b_{i-1}, b_i), with the
+# last bin closed on both ends, so a value on a break belongs to the bin above
+dbWriteTable(con, "on_breaks", data.frame(x = rep(1:4, each = 5), y = rep(c(10, 20, 30, 40), each = 5)))
+for (pts in list(c(0, 0), c(1, 1))) {
+  mb = dbbinsreg(y ~ x, conn = con, table = "on_breaks", binspos = c(1, 2, 3, 4),
+                 points = pts, ci = FALSE, plot = FALSE)
+  expect_equal(mb$points$fit[1:2], c(10, 20), info = paste("manual breaks, points =", deparse(pts)))
+}
+mb = dbbinsreg(y ~ x, conn = con, table = "on_breaks", binspos = c(1, 2, 3, 4),
+               ci = FALSE, plot = FALSE)
+expect_equal(mb$points$fit, c(10, 20, 35))
+# Evenly spaced bins too: breaks at 1, 2.5, 4 on x in {1, 2, 3, 4}, and with
+# breaks that land on data values (x in 0:10, 5 bins: breaks 0, 2, ..., 10)
+es = dbbinsreg(y ~ x, conn = con, table = "on_breaks", nbins = 3, binspos = "es",
+               ci = FALSE, plot = FALSE)
+expect_equal(es$points$fit, c(10, 20, 35), info = "es bins, no value on an interior break")
+dbWriteTable(con, "zero_ten", data.frame(x = rep(0:10, each = 3), y = rep(0:10, each = 3)))
+es2 = dbbinsreg(y ~ x, conn = con, table = "zero_ten", nbins = 5, binspos = "es",
+                ci = FALSE, plot = FALSE)
+expect_equal(es2$points$fit, c(0.5, 2.5, 4.5, 6.5, 9), info = "es bins: values on a break go to the upper bin (as before)")
+
+# Non-finite x fails clearly instead of producing broken SQL
+dbWriteTable(con, "inf_x", data.frame(x = c(rnorm(50), Inf), y = rnorm(51)))
+expect_error(
+  dbbinsreg(y ~ x, conn = con, table = "inf_x", nbins = 5, plot = FALSE),
+  "non-finite"
+)
+
+#
+## Sampling draws random rows from the filtered data ----
+
+half_null = data.frame(id = 1:20000, x = c(rep(NA, 10000), runif(10000)))
+dbWriteTable(con, "half_null", half_null)
+smp = dbGetQuery(con, dbreg:::sql_sample("id", "half_null", "x IS NOT NULL", 1000, "duckdb"))
+expect_equal(nrow(smp), 1000L, info = "filter runs before sampling")
+expect_true(all(smp$id > 10000))
+# Spark's TABLESAMPLE (n ROWS) is a LIMIT, so Spark uses a random filter instead
+spark_sql = dbreg:::sql_sample("x", "t", "x IS NOT NULL", 1000, "spark", n_rows = 50000)
+expect_false(grepl("TABLESAMPLE", spark_sql))
+expect_true(grepl("rand() < ", spark_sql, fixed = TRUE))
+expect_true(grepl("LIMIT 1000", spark_sql, fixed = TRUE))
+expect_false(grepl("rand() <", dbreg:::sql_sample("x", "t", "x IS NOT NULL", 1000, "spark", n_rows = 900),
+                   fixed = TRUE), info = "no thinning when n >= rows")
 
 #
 ## No estimable bins gives a clear error ----
@@ -134,6 +232,36 @@ for (pts in list(c(0, 0), c(1, 0))) {
   expect_equal(a, b, tolerance = 1e-8,
                info = paste("SQLite matches DuckDB, points =", deparse(pts)))
 }
+
+# Tied x: the same bins and fits on both backends (ties no longer depend on
+# the backend's row order), and SQLite gets exact quantile breaks
+for (db in list(lite, duck)) {
+  dbWriteTable(db, "cw", cw)
+  dbWriteTable(db, "tied", tied)
+}
+for (bp in list("qs", "es")) {
+  a = dbbinsreg(weight ~ Time, conn = lite, table = "cw", nbins = 5, binspos = bp,
+                plot = FALSE)
+  b = dbbinsreg(weight ~ Time, conn = duck, table = "cw", nbins = 5, binspos = bp,
+                plot = FALSE)
+  expect_equal(a$points, b$points, tolerance = 1e-8,
+               info = paste("SQLite matches DuckDB, tied x, binspos =", bp))
+  expect_equal(a$bins, b$bins, tolerance = 1e-8)
+}
+ref = ref_qbins(cw$Time, cw$weight, 5)
+a = dbbinsreg(weight ~ Time, conn = lite, table = "cw", nbins = 5, ci = FALSE, plot = FALSE)
+expect_equal(a$points$fit, ref$fit, tolerance = 1e-8, info = "SQLite matches binsreg's bins")
+# Separate points / line models, and the heavily tied case
+a = suppressMessages(suppressWarnings(
+  dbbinsreg(y ~ x, conn = lite, table = "tied", nbins = 10, points = c(0, 0),
+            line = c(1, 0), plot = FALSE)
+))
+b = suppressMessages(suppressWarnings(
+  dbbinsreg(y ~ x, conn = duck, table = "tied", nbins = 10, points = c(0, 0),
+            line = c(1, 0), plot = FALSE)
+))
+expect_equal(a$points, b$points, tolerance = 1e-8)
+expect_equal(a$line, b$line, tolerance = 1e-8)
 
 dbDisconnect(lite)
 dbDisconnect(duck, shutdown = TRUE)
