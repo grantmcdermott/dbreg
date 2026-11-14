@@ -865,24 +865,43 @@ sql_random = function(backend) {
 
 #' Build efficient sample query (backend-specific)
 #' 
-#' Uses native SAMPLE/TABLESAMPLE when available, falls back to ORDER BY RANDOM().
+#' Returns about `n` rows drawn at random from the rows matching `where_clause`.
+#' The filter is applied *before* sampling, so the sample isn't thinned by
+#' missing values. Uses native sampling where it is a real random sample and
+#' otherwise `ORDER BY RANDOM() LIMIT n`.
+#' 
+#' Spark's `TABLESAMPLE (n ROWS)` is a `LIMIT n` (the first rows the scan
+#' returns, not a random sample), so Spark uses a Bernoulli filter on `rand()`
+#' with a small oversampling factor, then a random shuffle of that subset down
+#' to `n` rows.
 #' 
 #' @param select_clause The SELECT clause (e.g., "*" or "col1, col2")
 #' @param table_name Table to sample from
 #' @param where_clause WHERE clause without "WHERE" keyword (or NULL)
 #' @param n Number of rows to sample
 #' @param backend Backend name from detect_backend()
+#' @param n_rows Number of rows matching `where_clause`. Needed for Spark to
+#'   choose the sampling probability.
 #' @return Complete SQL query for sampling
 #' @keywords internal
-sql_sample = function(select_clause, table_name, where_clause, n, backend) {
+sql_sample = function(select_clause, table_name, where_clause, n, backend, n_rows = NULL) {
   where_sql = if (!is.null(where_clause)) paste("WHERE", where_clause) else ""
   
   if (backend == "duckdb") {
-    # DuckDB: efficient reservoir sampling
-    glue("SELECT {select_clause} FROM {table_name} {where_sql} USING SAMPLE {n} ROWS")
+    # DuckDB: efficient reservoir sampling. USING SAMPLE runs before WHERE in
+    # the same SELECT, so filter in a subquery first.
+    glue("SELECT {select_clause} FROM (SELECT * FROM {table_name} {where_sql}) __dbbinsreg_filtered USING SAMPLE {n} ROWS")
   } else if (backend == "spark") {
-    # Spark SQL: TABLESAMPLE with ROWS
-    glue("SELECT {select_clause} FROM {table_name} TABLESAMPLE ({n} ROWS) {where_sql}")
+    # Spark: TABLESAMPLE (n ROWS) is a LIMIT, not random. Filter randomly with
+    # ~20% headroom (the exact size is trimmed by LIMIT after a shuffle).
+    p = if (is.null(n_rows) || n_rows <= 0) 1 else min(1, 1.2 * n / n_rows)
+    rand_where = if (p < 1) {
+      paste(c(if (!is.null(where_clause)) where_clause, sprintf("rand() < %.10g", p)), collapse = " AND ")
+    } else {
+      where_clause
+    }
+    rand_where_sql = if (!is.null(rand_where)) paste("WHERE", rand_where) else ""
+    glue("SELECT {select_clause} FROM {table_name} {rand_where_sql} ORDER BY rand() LIMIT {n}")
   } else if (backend %in% c("athena", "presto", "trino")) {
     # Athena/Presto/Trino: TABLESAMPLE BERNOULLI only supports percentages
     # Fall back to ORDER BY RANDOM() for exact row counts
