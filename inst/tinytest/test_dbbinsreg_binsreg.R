@@ -1,10 +1,8 @@
 # Validate dbbinsreg against binsreg package
 # Tests that dbbinsreg produces results consistent with binsreg
 #
-# KNOWN DIFFERENCE: Quantile binning algorithm
-# binsreg uses R's quantile(type=2), dbbinsreg uses SQL NTILE().
-# This causes small differences (~1-2%) in bin boundaries and thus fitted values.
-# See R/dbbinsreg.R for detailed documentation.
+# Quantile bins use binsreg's definition (quantile type 2 breaks, assigned by
+# value), so bin means and fits agree with binsreg to numerical precision.
 
 if (!requireNamespace("binsreg", quietly = TRUE)) {
   exit_file("binsreg package not installed")
@@ -20,9 +18,12 @@ x = runif(n, 0, 10)
 y = 2 * x + rnorm(n, sd = 1)
 df = data.frame(x = x, y = y)
 
-# Tolerance for fit comparisons (accounts for quantile algorithm difference)
-TOL_FIT = 0.05  # 5% relative tolerance
-TOL_SE = 0.01   # 1% absolute tolerance for SEs
+# Tolerances for comparisons with binsreg
+TOL_FIT = 1e-6  # relative tolerance for fits
+TOL_SE = 1e-6   # absolute tolerance for SEs
+# Looser, for differences that don't come from the bins:
+TOL_SPLINE = 1e-3  # continuity-constrained fit (c(1, 1)): spline estimation details
+TOL_CTRL = 0.05    # with controls: ~1.5% gap that predates the value-based bins (cause not investigated)
 z = qnorm(0.975)  # For back-calculating SEs from CI width
 
 # Helper to run binsreg without plotting.
@@ -43,12 +44,12 @@ run_binsreg = function(...) {
 br1 = run_binsreg(y, x, data = df, nbins = 10, dots = c(0, 0))
 db1 = dbbinsreg(y ~ x, data = df, nbins = 10, points = c(0, 0), ci = FALSE, plot = FALSE, verbose = FALSE)
 
-# Compare fits (allow for quantile algorithm differences)
+# Compare fits
 br1_fit = br1$data.plot[[1]]$data.dots$fit
 db1_fit = db1$points$fit
 rel_diff1 = max(abs(br1_fit - db1_fit) / abs(br1_fit))
 expect_true(rel_diff1 < TOL_FIT, 
-            info = sprintf("points=c(0,0): rel diff %.4f > %.2f", rel_diff1, TOL_FIT))
+            info = sprintf("points=c(0,0): rel diff %.2e > %g", rel_diff1, TOL_FIT))
 
 
 #
@@ -61,8 +62,8 @@ db2 = dbbinsreg(y ~ x, data = df, nbins = 10, points = c(1, 1), ci = FALSE, plot
 br2_fit = br2$data.plot[[1]]$data.dots$fit
 db2_fit = db2$points$fit
 rel_diff2 = max(abs(br2_fit - db2_fit) / abs(br2_fit))
-expect_true(rel_diff2 < TOL_FIT,
-            info = sprintf("points=c(1,1): rel diff %.4f > %.2f", rel_diff2, TOL_FIT))
+expect_true(rel_diff2 < TOL_SPLINE,
+            info = sprintf("points=c(1,1): rel diff %.5f > %g", rel_diff2, TOL_SPLINE))
 
 
 #
@@ -77,10 +78,10 @@ br3_ci = br3$data.plot[[1]]$data.ci
 br3_se = (br3_ci$ci.r - br3_ci$ci.l) / (2 * z)
 db3_se = db3$points$se
 
-# SEs should match closely (small diff from quantile algorithm)
+# SEs should match
 se_diff = max(abs(br3_se - db3_se))
 expect_true(se_diff < TOL_SE,
-            info = sprintf("HC1 SE diff %.6f > %.2f", se_diff, TOL_SE))
+            info = sprintf("HC1 SE diff %.2e > %g", se_diff, TOL_SE))
 
 # Verify SEs vary by bin (not constant like iid)
 expect_true(diff(range(db3_se)) > 0, info = "HC1 SEs should vary by bin")
@@ -111,9 +112,10 @@ expect_true(db4_se[10] > db4_se[1], info = "dbbinsreg SEs should increase with x
 
 db5 = dbbinsreg(y ~ x, data = df, nbins = 10, points = c(0, 0), ci = TRUE, vcov = "iid", plot = FALSE, verbose = FALSE)
 
-# IID should give constant SE across bins
-se_range = diff(range(db5$points$se))
-expect_true(se_range < 1e-10, info = "IID SEs should be constant across bins")
+# IID SEs are sigma / sqrt(n_bin), so they are (nearly) constant: the bins hold
+# 199-201 rows each (binsreg's quantile definition), not exactly equal counts
+se_range = diff(range(db5$points$se)) / mean(db5$points$se)
+expect_true(se_range < 0.01, info = "IID SEs should be nearly constant across bins")
 
 
 #
@@ -131,5 +133,5 @@ db6 = dbbinsreg(y_ctrl ~ x + w, data = df, nbins = 10, points = c(0, 0), ci = FA
 br6_fit = br6$data.plot[[1]]$data.dots$fit
 db6_fit = db6$points$fit
 rel_diff6 = max(abs(br6_fit - db6_fit) / abs(br6_fit))
-expect_true(rel_diff6 < TOL_FIT,
-            info = sprintf("with controls: rel diff %.4f > %.2f", rel_diff6, TOL_FIT))
+expect_true(rel_diff6 < TOL_CTRL,
+            info = sprintf("with controls: rel diff %.4f > %g", rel_diff6, TOL_CTRL))

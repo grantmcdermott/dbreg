@@ -9,5 +9,7 @@ binned_data_sql(inputs)
 \description{
 Returns a SELECT statement (not executed) with the model columns plus a
 `bin` column. Callers use it as a subquery so the data stay in the database.
+Bins are always defined by value breaks (`inputs$breaks`), so the
+assignment is deterministic and the same on every backend.
 }
 \keyword{internal}

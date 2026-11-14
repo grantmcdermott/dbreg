@@ -4,6 +4,38 @@ _This NEWS file is best viewed on our [website](https://grantmcdermott.com/dbreg
 
 ## Development
 
+Bug fixes
+
+- `dbbinsreg()` quantile bins (`binspos = "qs"`) are now defined by value
+  rather than with SQL `NTILE()`, which numbered rows and so split tied `x`
+  values across bins depending on the backend's row order. Breaks are exact
+  quantiles (type 2, as in `binsreg`) and bin 1 is `[b0, b1]`, bin i is
+  `(b_{i-1}, b_i]`. Results are now the same on every backend and match
+  `binsreg`'s bins. The constrained (`smooth > 0`) path uses the same bins.
+  Evenly spaced bins (`binspos = "es"`) and user-supplied breaks keep their
+  existing left-closed convention, `[b_{i-1}, b_i)`.
+- `dbbinsreg()` now stops with a clear message if `x` contains `NaN` or `Inf`.
+  Previously these values ended up in the last bin and gave it a non-finite
+  `x` mean.
+- `dbbinsreg()` no longer returns fewer, oddly numbered bins when `x` is
+  heavily tied (e.g. counts, or `month`). Repeated quantile breaks are dropped
+  and the remaining bins are numbered 1, 2, ..., with a message such as
+  "Ties in `x` reduced the number of bins from 10 to 3".
+- `dbbinsreg()` no longer drops the extreme rows when `x` is an exact-decimal
+  column (e.g. PostgreSQL `NUMERIC`), and handles `integer64` columns. Rows
+  with a missing cluster are excluded from the bins when clustered SEs are
+  requested, matching what `dbreg()` fits. `binspos = "es"` no longer samples
+  `x` it doesn't use.
+- `dbbinsreg(binspos = "es")` now works on SQLite (it used `LEAST()`, which
+  SQLite doesn't have).
+- On Spark, the random sample used for large-data bin breaks was Spark's
+  `TABLESAMPLE (n ROWS)`, which is a `LIMIT` rather than a random sample. It
+  now uses a random filter. On all backends the sample is now drawn after
+  removing incomplete rows, so it holds the requested number of usable rows.
+- When breaks come from a sample (large data, or `randcut < 1`), the outer
+  breaks are the true minimum and maximum of `x`, so no rows fall outside the
+  bins.
+
 New features
 
 - `dbbinsreg()` is much faster and lighter on memory for unconstrained
