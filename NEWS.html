@@ -81,7 +81,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="site_libs/quarto-html/quarto-syntax-highlighting-63b5708e65d6cd79cd7618c58d0c21e7.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="site_libs/bootstrap/bootstrap-8d3ad9c781c51ccd60b292c95058b2c2.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="site_libs/bootstrap/bootstrap-cb61c712ca1a7fe70a83faed8e4da2d7.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -211,6 +211,16 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p><em>This NEWS file is best viewed on our <a href="https://grantmcdermott.com/dbreg/NEWS.html">website</a>.</em></p>
 <section id="development" class="level2">
 <h2 class="anchored" data-anchor-id="development">Development</h2>
+<p>Bug fixes</p>
+<ul>
+<li><code>dbbinsreg()</code> quantile bins (<code>binspos = "qs"</code>) are now defined by value rather than with SQL <code>NTILE()</code>, which numbered rows and so split tied <code>x</code> values across bins depending on the backend’s row order. Breaks are exact quantiles (type 2, as in <code>binsreg</code>) and bin 1 is <code>[b0, b1]</code>, bin i is <code>(b_{i-1}, b_i]</code>. Results are now the same on every backend and match <code>binsreg</code>’s bins. The constrained (<code>smooth &gt; 0</code>) path uses the same bins. Evenly spaced bins (<code>binspos = "es"</code>) and user-supplied breaks keep their existing left-closed convention, <code>[b_{i-1}, b_i)</code>.</li>
+<li><code>dbbinsreg()</code> now stops with a clear message if <code>x</code> contains <code>NaN</code> or <code>Inf</code>. Previously these values ended up in the last bin and gave it a non-finite <code>x</code> mean.</li>
+<li><code>dbbinsreg()</code> no longer returns fewer, oddly numbered bins when <code>x</code> is heavily tied (e.g.&nbsp;counts, or <code>month</code>). Repeated quantile breaks are dropped and the remaining bins are numbered 1, 2, …, with a message such as “Ties in <code>x</code> reduced the number of bins from 10 to 3”.</li>
+<li><code>dbbinsreg()</code> no longer drops the extreme rows when <code>x</code> is an exact-decimal column (e.g.&nbsp;PostgreSQL <code>NUMERIC</code>), and handles <code>integer64</code> columns. Rows with a missing cluster are excluded from the bins when clustered SEs are requested, matching what <code>dbreg()</code> fits. <code>binspos = "es"</code> no longer samples <code>x</code> it doesn’t use.</li>
+<li><code>dbbinsreg(binspos = "es")</code> now works on SQLite (it used <code>LEAST()</code>, which SQLite doesn’t have).</li>
+<li>On Spark, the random sample used for large-data bin breaks was Spark’s <code>TABLESAMPLE (n ROWS)</code>, which is a <code>LIMIT</code> rather than a random sample. It now uses a random filter. On all backends the sample is now drawn after removing incomplete rows, so it holds the requested number of usable rows.</li>
+<li>When breaks come from a sample (large data, or <code>randcut &lt; 1</code>), the outer breaks are the true minimum and maximum of <code>x</code>, so no rows fall outside the bins.</li>
+</ul>
 <p>New features</p>
 <ul>
 <li><code>dbbinsreg()</code> is much faster and lighter on memory for unconstrained binscatters (<code>smooth = 0</code>, the default). Bin assignment, bin geometry and the regression now all run in the database, and only aggregates return to R. Previously every row was fetched into R first. Without fixed effects, <code>strategy = "auto"</code> now lets <code>dbreg()</code> switch to <code>"moments"</code> when the binned data don’t compress well (e.g.&nbsp;a continuous <code>x</code> with <code>p &gt; 0</code>). On the NYC taxi data (178M rows, DuckDB), the README example drops from 76s to 21s, and a degree-1 fit with a control from 714s to 6s, with peak R memory falling from 15-72 GB to under 0.25 GB.</li>

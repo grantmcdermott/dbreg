@@ -81,7 +81,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="../site_libs/quarto-html/quarto-syntax-highlighting-63b5708e65d6cd79cd7618c58d0c21e7.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-8d3ad9c781c51ccd60b292c95058b2c2.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-cb61c712ca1a7fe70a83faed8e4da2d7.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -716,7 +716,8 @@ Confidence intervals vs confidence bands
 <h4 class="anchored">
 Note on quantile bin boundaries
 </h4>
-<p>When using quantile-spaced bins (<code>binspos = “qs”</code>), <code>dbbinsreg</code> uses SQL’s <code>NTILE()</code> window function, while <code>binsreg</code> uses R’s <code>quantile</code> with <code>type = 2</code>. These algorithms have slightly different tie-breaking behavior, which can cause small differences in bin assignments at boundaries. In practice, differences are typically &lt;1% and become negligible with larger datasets. To match <code>binsreg</code> exactly, compute quantile breaks on a subset of data in R and pass them via the <code>binspos</code> argument as a numeric vector.</p>
+<p>When using quantile-spaced bins (<code>binspos = “qs”</code>), <code>dbbinsreg</code> first finds the quantile break values of the running variable and then assigns each row to a bin by value, following the convention of <code>binsreg</code>: the first bin is <code style="white-space: pre;">[b0, b1]</code> and later bins are <code style="white-space: pre;">(b_{i-1}, b_i]</code>. For datasets up to 1 million rows (or <code>randcut = 1</code>), the breaks are exact and use the same definition as <code>quantile</code> with <code>type = 2</code>, so results match <code>binsreg</code>. For larger datasets, the breaks are computed on a random sample (see <code>randcut</code>).</p>
+<p>Because bins are defined by value, tied values of <code>x</code> always share a bin, and results don’t depend on the backend or on row order. The flip side is that heavy ties can make several quantile breaks equal. Repeated breaks are dropped, so you can get fewer bins than <code>nbins</code> (a message says so). For example, if 70% of the values are zero, then zero gets its own bin. For a discrete <code>x</code>, consider passing the values as <code>binspos</code>.</p>
 </section>
 <section id="references" class="level3">
 <h3 class="anchored" data-anchor-id="references">References</h3>
