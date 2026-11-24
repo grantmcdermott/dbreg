@@ -4,7 +4,7 @@
 \alias{sql_sample}
 \title{Build efficient sample query (backend-specific)}
 \usage{
-sql_sample(select_clause, table_name, where_clause, n, backend)
+sql_sample(select_clause, table_name, where_clause, n, backend, n_rows = NULL)
 }
 \arguments{
 \item{select_clause}{The SELECT clause (e.g., "*" or "col1, col2")}
@@ -16,11 +16,23 @@ sql_sample(select_clause, table_name, where_clause, n, backend)
 \item{n}{Number of rows to sample}
 
 \item{backend}{Backend name from detect_backend()}
+
+\item{n_rows}{Number of rows matching `where_clause`. Needed for Spark to
+choose the sampling probability.}
 }
 \value{
 Complete SQL query for sampling
 }
 \description{
-Uses native SAMPLE/TABLESAMPLE when available, falls back to ORDER BY RANDOM().
+Returns about `n` rows drawn at random from the rows matching `where_clause`.
+The filter is applied *before* sampling, so the sample isn't thinned by
+missing values. Uses native sampling where it is a real random sample and
+otherwise `ORDER BY RANDOM() LIMIT n`.
+}
+\details{
+Spark's `TABLESAMPLE (n ROWS)` is a `LIMIT n` (the first rows the scan
+returns, not a random sample), so Spark uses a Bernoulli filter on `rand()`
+with a small oversampling factor, then a random shuffle of that subset down
+to `n` rows.
 }
 \keyword{internal}

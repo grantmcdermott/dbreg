@@ -252,14 +252,21 @@ sufficient for most applications.
 
 \subsection{Note on quantile bin boundaries}{
 
-When using quantile-spaced bins (\code{binspos = "qs"}), \code{dbbinsreg} uses SQL's
-\code{NTILE()} window function, while \code{\link[binsreg]{binsreg}} uses R's
-\code{\link[stats]{quantile}} with \code{type = 2}. These algorithms have slightly
-different tie-breaking behavior, which can cause small differences in bin
-assignments at boundaries. In practice, differences are typically <1\% and
-become negligible with larger datasets. To match
-\code{\link[binsreg]{binsreg}} exactly, compute quantile breaks on a subset
-of data in R and pass them via the \code{binspos} argument as a numeric vector.
+When using quantile-spaced bins (\code{binspos = "qs"}), \code{dbbinsreg} first finds
+the quantile break values of the running variable and then assigns each row
+to a bin by value, following the convention of
+\code{\link[binsreg]{binsreg}}: the first bin is \verb{[b0, b1]} and later bins are
+\verb{(b_\{i-1\}, b_i]}. For datasets up to 1 million rows (or \code{randcut = 1}), the
+breaks are exact and use the same definition as \code{\link[stats]{quantile}}
+with \code{type = 2}, so results match \code{\link[binsreg]{binsreg}}. For larger
+datasets, the breaks are computed on a random sample (see \code{randcut}).
+
+Because bins are defined by value, tied values of \code{x} always share a bin,
+and results don't depend on the backend or on row order. The flip side is
+that heavy ties can make several quantile breaks equal. Repeated breaks are
+dropped, so you can get fewer bins than \code{nbins} (a message says so). For
+example, if 70\% of the values are zero, then zero gets its own bin. For a
+discrete \code{x}, consider passing the values as \code{binspos}.
 }
 }
 
